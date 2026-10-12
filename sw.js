@@ -5,7 +5,7 @@
    浏览器只在 sw.js 字节变化时才重新安装 SW，安装才会重新预缓存；
    版本号不变，老用户就会一直跑旧代码（第一次打开拿到的是上一版）。
    构建脚本按内容算哈希写进这里，详见 tools/build.mjs 的 stampServiceWorkerVersion()。 */
-const VERSION = 'abyss-d8306e0e9527';
+const VERSION = 'abyss-0812ba6c421f';
 
 /* 预缓存清单由 tools/build.mjs 生成（precache.json）。
    必须预缓存而不是"用到才存"：精灵图和音效都是懒加载的，
@@ -30,8 +30,24 @@ self.addEventListener('install', e => {
 self.addEventListener('activate', e => {
   e.waitUntil((async () => {
     const keys = await caches.keys();
+    // 判断这是「更新」还是「首次安装」：更新前一定存在别的版本的缓存。
+    // 必须在这里、删之前算，删完就分辨不出来了。
+    const isUpdate = keys.some(k => k !== VERSION);
     await Promise.all(keys.filter(k => k !== VERSION).map(k => caches.delete(k)));
     await self.clients.claim();
+
+    // 更新时：主动让所有受控页面重新加载。
+    //
+    // 为什么要在 SW 侧做，而不是只靠页面里的 controllerchange 监听：
+    // 本补丁发布之前，用户缓存里的 index.html **没有那个监听**，
+    // 光靠页面自己永远不会刷新 —— 他们会一直跑旧代码，
+    // 而我们没法回头去改已经缓存在他们机器上的那个 HTML。
+    // 从 SW 侧推一把，连旧页面也能救回来。
+    // 首次安装时不做（那时没有旧缓存，也没必要多刷一次）。
+    if (isUpdate) {
+      const cs = await self.clients.matchAll({ type: 'window' });
+      for (const c of cs) { try { await c.navigate(c.url); } catch { /* 个别客户端不允许就直接跳过 */ } }
+    }
   })());
 });
 

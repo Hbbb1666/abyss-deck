@@ -38,12 +38,13 @@
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
   // 更新后**自动刷新一次**。
   //
-  // 为什么必须有这段：SW 的 fetch 是"缓存优先"，而发布新版本时，
-  // **第一个打开页面的用户拿到的仍是旧缓存里的文件** ——
-  // 浏览器要在这次加载之后才会去比对 sw.js、装新 SW、清旧缓存。
+  // 两道保险，缺一个都可能让用户一直跑旧代码：
+  //   ① sw.js 在 activate 时主动 navigate 受控页面（连旧 HTML 也能救）
+  //   ② 这里监听 controllerchange 兜底（万一 navigate 被浏览器拦下）
+  // 背景：SW 的 fetch 是"缓存优先"，发布新版本时**第一个打开页面的用户拿到的
+  // 仍是旧缓存** —— 浏览器要等这次加载之后才去比对 sw.js、装新 SW、清旧缓存。
   // 结果就是"明明修好了，刷新一下还是旧行为"，玩家会以为你没修。
-  // 新 SW 接管（controllerchange）时重载一次，用户看到的就是新代码。
-  // 注意只在"原本就有 SW 在管"时重载，否则首次访问也会白白刷新一遍。
+  // 只在"原本就有 SW 在管"时重载，否则首次访问也会白白刷新一遍。
   const hadController = !!navigator.serviceWorker.controller;
   let refreshing = false;
   navigator.serviceWorker.addEventListener('controllerchange', () => {

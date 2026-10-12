@@ -989,6 +989,16 @@ section('H. PWA / 预缓存清单（离线可玩）');
      ①或②少一个，③就永远不触发；③少了，用户得手动刷新两次才看到新版。 */
   ok(/skipWaiting\(\)/.test(swSrc), 'sw.js 调用 skipWaiting()（新 SW 立即激活）');
   ok(/clients\.claim\(\)/.test(swSrc), 'sw.js 调用 clients.claim()（立刻接管当前页面）');
+  // 必须在 SW 侧主动让页面重载：本补丁之前缓存在用户机器上的 index.html
+  // **没有** controllerchange 监听，光靠页面自己永远不会刷新。
+  ok(/clients\.matchAll/.test(swSrc) && /\.navigate\(/.test(swSrc),
+     'sw.js 在 activate 时主动 navigate 受控页面（连旧版 index.html 也能救回来）');
+  // 注意断言要能真的失败：不能只 grep 变量名（把 isUpdate 换成常量它也照样通过），
+  // 必须盯住"这个判断是根据缓存列表算出来的"这件事本身。
+  ok(/const isUpdate = keys\.some\(/.test(swSrc),
+     'isUpdate 是根据「删缓存前是否存在别的版本」算出来的（不是写死的常量）');
+  ok(/await self\.clients\.claim\(\);\s*[\s\S]*?if \(isUpdate\)/.test(swSrc),
+     'navigate 放在 claim 之后、且只在更新时执行（首次安装不白白多刷一次）');
 
   const idxSrc = readFileSync(join(ROOT, 'index.html'), 'utf8');
   ok(/controllerchange/.test(idxSrc), 'index.html 监听 controllerchange');
