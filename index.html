@@ -36,6 +36,21 @@
 // 注册 Service Worker —— 让游戏能装到桌面并离线玩。
 // file:// 打开时（单文件版）浏览器不允许 SW，这里静默跳过即可，不影响游戏。
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+  // 更新后**自动刷新一次**。
+  //
+  // 为什么必须有这段：SW 的 fetch 是"缓存优先"，而发布新版本时，
+  // **第一个打开页面的用户拿到的仍是旧缓存里的文件** ——
+  // 浏览器要在这次加载之后才会去比对 sw.js、装新 SW、清旧缓存。
+  // 结果就是"明明修好了，刷新一下还是旧行为"，玩家会以为你没修。
+  // 新 SW 接管（controllerchange）时重载一次，用户看到的就是新代码。
+  // 注意只在"原本就有 SW 在管"时重载，否则首次访问也会白白刷新一遍。
+  const hadController = !!navigator.serviceWorker.controller;
+  let refreshing = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController || refreshing) return;
+    refreshing = true;
+    location.reload();
+  });
   addEventListener('load', () => {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   });

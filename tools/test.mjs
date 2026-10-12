@@ -976,6 +976,25 @@ section('H. PWA / 预缓存清单（离线可玩）');
      '应是 abyss-<12位十六进制>；若为 abyss-dev 说明还没跑过 npm run build');
   ok(ver !== 'abyss-v1' && ver !== 'abyss-dev',
      'VERSION 不是手写的固定值（那种永远不触发 SW 更新）');
+
+  /* --- 更新链必须完整（漏一环就是"修好了但用户还看到旧的"）---
+     实测踩到过：部署完新版本，浏览器里同时存在 **两个版本之前** 的缓存
+     和上一版缓存，页面加载到的是旧 JS —— 因为 SW 的 fetch 是"缓存优先"，
+     发布后**第一个打开页面的用户拿到的仍是旧文件**，浏览器要等这次加载之后
+     才去比对 sw.js、装新 SW、清旧缓存。
+     所以三件事必须同时成立：
+       ① sw.js 里有 skipWaiting()  —— 新 SW 不等所有标签页关闭就激活
+       ② sw.js 里有 clients.claim() —— 激活后立刻接管当前页面
+       ③ index.html 监听 controllerchange 并**重载一次** —— 让用户当场切到新代码
+     ①或②少一个，③就永远不触发；③少了，用户得手动刷新两次才看到新版。 */
+  ok(/skipWaiting\(\)/.test(swSrc), 'sw.js 调用 skipWaiting()（新 SW 立即激活）');
+  ok(/clients\.claim\(\)/.test(swSrc), 'sw.js 调用 clients.claim()（立刻接管当前页面）');
+
+  const idxSrc = readFileSync(join(ROOT, 'index.html'), 'utf8');
+  ok(/controllerchange/.test(idxSrc), 'index.html 监听 controllerchange');
+  ok(/location\.reload\(\)/.test(idxSrc), 'index.html 在新 SW 接管后重载一次');
+  ok(/hadController/.test(idxSrc),
+     '重载带了「原本就有 SW 在管」的判断（否则首次访问也会白白刷新一遍）');
 }
 
 section('I. 弃牌代价（「飞刀」）');

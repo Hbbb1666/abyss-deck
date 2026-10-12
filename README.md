@@ -168,7 +168,7 @@ roguelike/
 │   └── licenses/           各素材的授权原文
 ├── tools/
 │   ├── build.mjs           打包（rollup）+ 生成单文件 HTML
-│   └── test.mjs            自动化测试（jsdom，237 项）
+│   └── test.mjs            自动化测试（jsdom，242 项）
 └── dist/                   构建产物
 ```
 
@@ -200,14 +200,14 @@ my_card: {
 ```bash
 npm ci                          # 一次性：装 jsdom + rollup
 npm run build                   # 必须先构建，测试要读 dist/bundle.js
-npm test                        # 跑测试（237 项）
+npm test                        # 跑测试（242 项）
 npm run build:single            # 额外产出 dist/abyss-deck.html（素材全内联）
 npm run serve                   # 本地起服务，手机同局域网可访问
 ```
 
 `dist/` 不在版本库里，所以**先 `build` 再 `test`**，顺序反了会 ENOENT。
 
-### 测试覆盖（237 项，全绿）
+### 测试覆盖（242 项，全绿）
 
 - **数据层**：65 张卡的文案/效果字段/立绘、27 种敌人的招式/AI/立绘/召唤目标、
   27 件遗物的图标与钩子方法、遭遇战配置、各职业奖励池
