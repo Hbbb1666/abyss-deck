@@ -2,7 +2,7 @@ import { el, clear, sleep, toast, fitStage, disposeScene } from './core/util.js'
 import { G, newRun, save, hasSave, loadSave, clearSave, loadMeta, saveMeta, bumpMeta, addRelic } from './core/state.js';
 import { generateMap, MAP_ROWS } from './core/map.js';
 import { Battle } from './core/battle.js';
-import { ENCOUNTERS } from './data/enemies.js';
+import { ENCOUNTERS, TOTAL_ACTS } from './data/enemies.js';
 import { CARDS } from './data/cards.js';
 import { RELICS } from './data/relics.js';
 import { CLASSES } from './data/classes.js';
@@ -81,7 +81,9 @@ function bumpMetaStat(patch) { saveMeta({ ...loadMeta(), ...patch }); }
 
 /* ================= 房间 ================= */
 function pickEncounter(kind) {
-  const tbl = ENCOUNTERS[Math.min(G.act, 3)] || ENCOUNTERS[3];
+  // 遭遇战表按层取；层数超出表范围时退回最后一层（而不是 undefined 崩掉）
+  const act = Math.max(1, Math.min(G.act, TOTAL_ACTS));
+  const tbl = ENCOUNTERS[act] || ENCOUNTERS[TOTAL_ACTS] || ENCOUNTERS[Object.keys(ENCOUNTERS).pop()];
   if (kind === 'boss') return G.rng.pick(tbl.boss);
   if (kind === 'elite') return G.rng.pick(tbl.elite);
   if (kind === 'weak') return G.rng.pick(tbl.weak);
@@ -141,7 +143,7 @@ function afterRoom() {
   // 从房间返回地图；Boss 房间要进下一层
   const n = G.node;
   if (n && (G.map.nodes.find(x => x.r === n.r && x.c === n.c)?.type === 'boss')) {
-    if (G.act >= 3) { finishRun(true); return; }
+    if (G.act >= TOTAL_ACTS) { finishRun(true); return; }
     G.act++;
     G.node = null;
     G.visited = {};

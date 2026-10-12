@@ -3,12 +3,23 @@
  * 与 UI 解耦：所有展示通过 this.view 回调，引擎只负责规则与状态。
  */
 import { G, relicMods, relicHooks, hydrate } from './state.js';
-import { ENEMIES } from '../data/enemies.js';
+import { ENEMIES, actScale } from '../data/enemies.js';
 import { CARDS, makeCard } from '../data/cards.js';
 import { RELICS } from '../data/relics.js';
 import { sleep, clamp } from './util.js';
 
 /* ================= 状态效果定义 ================= */
+/** 敌人强度的层级缩放。规则集中在 data/enemies.js 的 actScale()，
+    这里只是转发并补一个兜底（act 缺失/非法时按第 1 层算）。 */
+const enemyScale = act => actScale(act || 1);
+
+/** 敌人招式的"层级缩放后"基础伤害（还没算力量/虚弱/易伤）。
+    界面预告与实际结算都把这个值交给 calcDamage() —— 用同一个函数，
+    就不可能再出现"预告 12、实际打 15"这类不一致。 */
+function defDamage(def, e) {
+  return Math.round((def.dmg || 0) * (e.atkMult || 1));
+}
+
 /** 把 desc 里的 N 换成实际层数，得到一句话说明 */
 export function stText(k, n) {
   const d = ST[k];
@@ -111,6 +122,7 @@ export class Battle {
     });
     {
       // 先按快照顺序把敌人重建出来（uid 会重新分配）
+      const sc = enemyScale(this.act);
       this.enemies = s.enemies.map(e => {
         const d = ENEMIES[e.defId];
         if (!d) return null;
@@ -118,6 +130,9 @@ export class Battle {
           uid: 'e' + (++this.uid), defId: e.defId, def: d, name: d.name, sprite: d.sprite,
           hp: e.hp, maxHp: e.maxHp, block: e.block || 0, st: { ...(e.st || {}) },
           turn: e.turn || 0, moveId: e.moveId || null, body: d.body || 1,
+          // 层级攻击倍率必须一起恢复：漏了它，读档续战会突然变回未缩放的原始伤害，
+          // 而且界面预告会跟着一起变小（看起来"正常"，实则玩家白捡便宜）。
+          atkMult: sc.atk,
           elite: !!d.elite, boss: !!d.boss, dead: !!e.dead,
           summonedBy: null,
         };
@@ -160,10 +175,17 @@ export class Battle {
   /* ---------------- 基础 ---------------- */
   spawn(id, summoner) {
     const d = ENEMIES[id];
-    const hp = this.rng.int(d.hp[0], d.hp[1]);
+    // 按**当前层**缩放：同一张敌人表被 4 层复用，数值随层数走高（每层 +25% 生命、+20% 攻击）。
+    // 关键：倍率只作用在"敌人自己的属性"上 —— 生命、以及招式里的 dmg。
+    // 玩家卡牌给的易伤/虚弱在 calcDamage() 里照常生效，所以界面预告的伤害
+    // （intentOf 也会乘同一份 atk）和敌人真打出来的数字始终一致。
+    const sc = enemyScale(this.act);
+    const raw = this.rng.int(d.hp[0], d.hp[1]);
+    const hp = Math.max(1, Math.round(raw * sc.hp));
     const e = {
       uid: 'e' + (++this.uid), defId: id, def: d, name: d.name, sprite: d.sprite,
       hp, maxHp: hp, block: 0, st: {}, turn: 0, moveId: null, body: d.body || 1,
+      atkMult: sc.atk,                               // 这一场的攻击倍率（该敌人的所有招式共用）
       elite: !!d.elite, boss: !!d.boss, dead: false,
       summonedBy: summoner ? summoner.uid : null,   // 谁召出来的
     };
@@ -636,9 +658,12 @@ export class Battle {
       if (def.blk) await this.gainBlock(e, def.blk);
       if (def.dmg) {
         const hits = def.hits || 1;
+        // 基础伤害先过层级缩放，再由 damage() 里的 calcDamage 处理力量/虚弱/易伤。
+        // 与 intentOf() 走的是同一条公式。
+        const base = defDamage(def, e);
         for (let i = 0; i < hits; i++) {
           if (this.player.hp <= 0) break;
-          await this.damage(this.player, def.dmg, e.name, { attacker: e, melee: true });
+          await this.damage(this.player, base, e.name, { attacker: e, melee: true });
         }
       }
       if (def.selfDamage) await this.loseHp(e, def.selfDamage, { credit: 'none' });
@@ -677,12 +702,9 @@ export class Battle {
     const mv = e.moveId || this.pickMove(e);
     const def = e.def.moves[mv];
     const out = { intent: def.intent, name: def.name, dmg: 0, hits: def.hits || 1, blk: def.blk || 0 };
-    if (def.dmg) {
-      let d = def.dmg + this.get(e, 'strength');
-      if (this.get(e, 'weak') > 0) d = Math.floor(d * 0.75);
-      if (this.get(this.player, 'vulnerable') > 0) d = Math.floor(d * 1.5);
-      out.dmg = Math.max(0, d);
-    }
+    // 和 enemyTurn 用**完全同一套**计算：先按层缩放基础伤害，再交给 calcDamage
+    // 处理力量/虚弱/易伤。以前这里是手抄一遍公式，改一处忘另一处就会"预告撒谎"。
+    if (def.dmg) out.dmg = this.calcDamage(defDamage(def, e), e, this.player);
     return out;
   }
 

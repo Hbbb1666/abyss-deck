@@ -26,6 +26,13 @@ export function generateMap(seed, act = 1) {
   const key = (r, c) => `${r},${c}`;
   const nodeAt = (r, c) => grid.get(key(r, c));
 
+  /* Boss **独占**最后一行：路径游走和补漏都不许在这一行产生节点。
+     为什么必须这样 —— 最后一行之后没有行了，落在这一行的普通节点没有任何后继，
+     玩家一旦走进去就再也出不来，整局进度卡死（实测 300/300 张地图都有这个问题，
+     最后一行累计多出 753 个普通节点，而且全是死路）。 */
+  const BOSS_ROW = MAP_ROWS - 1;
+  const TOP_ROW = MAP_ROWS - 2;
+
   const add = (r, c, type) => {
     const k = key(r, c);
     if (!grid.has(k)) grid.set(k, { r, c, type: type || null, next: [], prev: [] });
@@ -38,12 +45,12 @@ export function generateMap(seed, act = 1) {
     if (!b.prev.some(x => x.r === a.r && x.c === a.c)) b.prev.push({ r: a.r, c: a.c });
   };
 
-  /* ---- 1. 走出 PATHS 条路径 ---- */
+  /* ---- 1. 走出 PATHS 条路径（只走到倒数第二行） ---- */
   const starts = rng.shuffle([0, 1, 2, 3]).concat([rng.int(MAP_COLS), rng.int(MAP_COLS)]).slice(0, PATHS);
   for (const sc of starts) {
     let c = sc;
     let cur = add(0, c);
-    for (let r = 1; r < MAP_ROWS; r++) {
+    for (let r = 1; r <= TOP_ROW; r++) {
       // 越靠上越容易收敛到中间，避免贴边
       const opts = [c - 1, c, c + 1].filter(x => x >= 0 && x < MAP_COLS);
       let nc = rng.pick(opts);
@@ -55,8 +62,8 @@ export function generateMap(seed, act = 1) {
     }
   }
 
-  /* ---- 2. 保证每行都有节点（补漏） ---- */
-  for (let r = 1; r < MAP_ROWS; r++) {
+  /* ---- 2. 保证每行都有节点（补漏；同样不碰 Boss 行） ---- */
+  for (let r = 1; r <= TOP_ROW; r++) {
     if (![...grid.values()].some(n => n.r === r)) {
       const c = rng.int(MAP_COLS);
       const n = add(r, c);
@@ -69,7 +76,7 @@ export function generateMap(seed, act = 1) {
   const rowsWith = r => [...grid.values()].filter(n => n.r === r).sort((a, b) => a.c - b.c);
   // 固定行
   for (const n of rowsWith(0)) n.type = 'battle';
-  for (const n of rowsWith(MAP_ROWS - 2)) n.type = 'rest';
+  for (const n of rowsWith(TOP_ROW)) n.type = 'rest';
   for (const n of rowsWith(1)) n.type = 'battle';
   // 宝箱行
   for (const n of rowsWith(8)) if (rng.chance(0.7)) n.type = 'treasure';
@@ -85,7 +92,7 @@ export function generateMap(seed, act = 1) {
     return p;
   };
   for (const n of grid.values()) {
-    if (n.type) continue;
+    if (n.type || n.r === BOSS_ROW) continue;   // Boss 行留给第 5 步
     n.type = rng.weighted(weights(n));
   }
 
@@ -95,25 +102,46 @@ export function generateMap(seed, act = 1) {
       const list = [...grid.values()].filter(n => n.type === type);
       if (list.length >= min) return;
       const cands = [...grid.values()].filter(n => !n.type || (n.type === 'battle' && n.r >= minRow && n.r <= maxRow));
-      const pick = cands.filter(n => n.r >= minRow && n.r <= (maxRow ?? MAP_ROWS - 3));
+      const pick = cands.filter(n => n.r >= minRow && n.r <= (maxRow ?? TOP_ROW - 1));
       if (!pick.length) return;
       rng.pick(pick).type = type;
     }
   };
-  ensure('shop', 2, 4, MAP_ROWS - 3);
-  ensure('rest', 3, 5, MAP_ROWS - 2);
-  ensure('elite', 3, 4, MAP_ROWS - 3);
+  ensure('shop', 2, 4, TOP_ROW - 1);
+  ensure('rest', 3, 5, TOP_ROW);
+  ensure('elite', 3, 4, TOP_ROW - 1);
 
   /* ---- 5. Boss 节点 ----
-     注意：这一格通常在第 3 步就已经被随机分配了类型，而 add() 只在
-     「格子还没有类型」时才写类型，所以必须在这里无条件覆盖，
-     否则 Boss 会变成一个普通房间 —— 打完顶层也进不了下一层，整局卡死。 */
-  const top = rowsWith(MAP_ROWS - 2);
-  const bossRow = MAP_ROWS - 1;
-  const boss = add(bossRow, rng.int(MAP_COLS), 'boss');
+     注意两点：
+     ① 这一格通常在第 3 步就已经被随机分配了类型，而 add() 只在「格子还没有类型」时
+        才写类型，所以必须在这里无条件覆盖，否则 Boss 会变成一个普通房间 ——
+        打完顶层也进不了下一层，整局卡死。
+     ② 先把 Boss 行上的杂节点清掉（现在的游走不会产生它们；这行是给将来改动兜底），
+        并把指向它们的边改接到 Boss，否则会留下走不出去的孤岛。 */
+  for (const s of rowsWith(BOSS_ROW)) {
+    for (const p of s.prev) {
+      const pn = nodeAt(p.r, p.c);
+      if (pn) pn.next = pn.next.filter(x => !(x.r === s.r && x.c === s.c));
+    }
+    grid.delete(key(s.r, s.c));
+  }
+
+  const boss = add(BOSS_ROW, rng.int(MAP_COLS), 'boss');
   boss.type = 'boss';
   boss.c = 1.5; // 居中显示
-  for (const n of top) link(n, boss);
+  for (const n of rowsWith(TOP_ROW)) link(n, boss);
+
+  /* ---- 5.5 兜底：不留死路 ----
+     任何**非 Boss** 节点都必须至少有一条出边，否则玩家走进去就卡死在那里。
+     这条不变量以前没人守：地图测试只验了"从起点能走到 Boss"，
+     而别的分支走进死角它是测不到的。 */
+  const deadEnds = [];
+  for (const n of grid.values()) {
+    if (n.type === 'boss' || n.next.length) continue;
+    const above = [...grid.values()].filter(x => x.r === n.r + 1).sort((a, b) => a.c - b.c);
+    if (above.length) { link(n, rng.pick(above)); deadEnds.push(`${n.r},${n.c}`); }
+    else { n.next.push({ r: boss.r, c: boss.c }); deadEnds.push(`${n.r},${n.c}->boss`); }
+  }
 
   /* ---- 6. 起点 ---- */
   const row0 = rowsWith(0);

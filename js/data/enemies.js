@@ -5,10 +5,30 @@
  *   intent 决定头顶图标：attack / attack_debuff / defend / buff / debuff / heal / unknown
  * ai(e, turn, rng, B) 返回招式 id；也可以直接给 pattern: ['a','b','a']
  * body: 体型倍率（Boss 放大）
+ *
+ * act 字段：敌人**基础数值所属的层**（数值就是照这一层调的）。
+ *   同一张敌人表会被所有层复用，实际出场的强度由 core/battle.js 的
+ *   `actScale(层)` 缩放。倍率是**相对第 1 层**算的：
+ *     第 1 层 ×1.00 生命 / ×1.00 攻击
+ *     第 2 层 ×1.25 生命 / ×1.20 攻击
+ *     第 3 层 ×1.50 生命 / ×1.40 攻击
+ *     第 4 层 ×1.75 生命 / ×1.60 攻击
+ *   所以 act 只表示"这套数值的基线"，不代表它只能在那一层出现。
  * ---------------------------------------------------------------
  */
 
 const A = (name, dmg, extra = {}) => ({ name, intent: 'attack', dmg, ...extra });
+
+/** 每层相对第 1 层的强度倍率。改这里就能调整整条难度曲线。
+    hp: 1 → 1.25 → 1.5 → 1.75（每层 +25%）
+    atk: 1 → 1.2 → 1.4 → 1.6（每层 +20%） */
+export const ACT_HP_STEP = 0.25;
+export const ACT_ATK_STEP = 0.20;
+export const TOTAL_ACTS = 4;
+export function actScale(act) {
+  const n = Math.max(0, (act | 0) - 1);
+  return { hp: 1 + ACT_HP_STEP * n, atk: 1 + ACT_ATK_STEP * n };
+}
 
 export const ENEMIES = {
   /* ================= 第一层 · 地牢 ================= */
@@ -245,11 +265,32 @@ export const ENEMIES = {
     },
     ai: (e, t) => ['void', 'ruin', 'swarm', 'drain', 'doom', 'ruin', 'drain'][t % 7],
   },
+  /* 第 4 层 · 深渊之底的最终 Boss。
+     基础数值就照第 4 层写（这一层会再乘 1.6 倍攻击，所以这里不能按第 3 层的量级给），
+     立绘复用深渊之主但做冷色染色，玩家能一眼看出是"更强的那个"。 */
+  boss_abyss: {
+    name: '深渊之眼', sprite: 'boss_gargoyle', hp: [210, 210], act: 4, boss: true, body: 3.2,
+    tint: 'hue-rotate(190deg) saturate(1.5) brightness(0.92)',
+    moves: {
+      rend: A('撕裂虚空', 30),
+      mark: { name: '湮灭印记', intent: 'debuff', fx: [{ t: 'debuff', k: 'vulnerable', v: 4 }, { t: 'debuff', k: 'weak', v: 2 }] },
+      bulwark: { name: '深渊壁垒', intent: 'defend', blk: 26 },
+      onslaught: { name: '连环撕裂', intent: 'attack', dmg: 13, hits: 3 },
+      brood: { name: '召唤深渊', intent: 'buff', fx: [{ t: 'summon', id: 'demonling', n: 2 }] },
+      reap: { name: '收割灵魂', intent: 'attack', dmg: 16, fx: [{ t: 'healSelf', v: 16 }] },
+      ascend: { name: '终极宣告', intent: 'unknown', fx: [{ t: 'buff', k: 'strength', v: 5 }] },
+    },
+    ai: (e, t) => ['mark', 'rend', 'brood', 'onslaught', 'reap', 'bulwark', 'ascend', 'rend'][t % 8],
+  },
 };
 
 function rng0(e) { return Math.random() < 0.3; }
 
-/** 遭遇战配置（按层） */
+/** 遭遇战配置（按层）
+    第 4 层是"深渊之底"：沿用第 3 层的敌人表，但强度由 actScale 放大到
+    约 1.75 倍生命、1.6 倍攻击，所以怪物本身就是第 3 层那批的强化版。
+    这里刻意把配置写全（而不是让代码回退到第 3 层），
+    这样以后想单独调第 4 层的阵容，改这一处就够了。 */
 export const ENCOUNTERS = {
   1: {
     weak: [['slime'], ['bat', 'bat'], ['spider'], ['worm'], ['ghost', 'bat'], ['slime', 'slime']],
@@ -268,5 +309,11 @@ export const ENCOUNTERS = {
     strong: [['warrior', 'demonling'], ['statue', 'noble'], ['warrior', 'warrior'], ['gargoyle']],
     elite: [['gargoyle'], ['lich', 'demonling'], ['spider_queen', 'gargoyle']],
     boss: [['boss_lord']],
+  },
+  4: {
+    weak: [['demonling', 'demonling'], ['noble', 'demonling'], ['statue']],
+    strong: [['warrior', 'noble'], ['gargoyle'], ['statue', 'warrior'], ['warrior', 'demonling', 'demonling']],
+    elite: [['gargoyle', 'demonling'], ['spider_queen', 'lich'], ['gargoyle', 'statue']],
+    boss: [['boss_abyss']],
   },
 };

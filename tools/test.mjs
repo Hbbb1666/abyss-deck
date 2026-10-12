@@ -62,7 +62,7 @@ if (!A) process.exit(1);
 section('B. 数据定义自洽性');
 {
   const { CARDS, RARITY, rewardPool } = await import('file://' + join(ROOT, 'js/data/cards.js'));
-  const { ENEMIES, ENCOUNTERS } = await import('file://' + join(ROOT, 'js/data/enemies.js'));
+  const { ENEMIES, ENCOUNTERS, TOTAL_ACTS, actScale } = await import('file://' + join(ROOT, 'js/data/enemies.js'));
   const { RELICS } = await import('file://' + join(ROOT, 'js/data/relics.js'));
   const { POTIONS } = await import('file://' + join(ROOT, 'js/data/potions.js'));
   const { EVENTS } = await import('file://' + join(ROOT, 'js/data/events.js'));
@@ -177,13 +177,16 @@ section('B. 数据定义自洽性');
   ok(badEnemy.length === 0, '敌人定义完整（招式/立绘/AI）', [...new Set(badEnemy)].slice(0, 6).join(' | '));
 
   const badEnc = [];
-  for (const act of [1, 2, 3]) {
+  // 层数必须覆盖到 TOTAL_ACTS（4 层）—— 以前硬写 [1,2,3]，
+  // 加了第 4 层但忘了补表时，这条测试**不会报**，玩家到第 4 层才会崩。
+  for (let act = 1; act <= TOTAL_ACTS; act++) {
     for (const grp of ['weak', 'strong', 'elite', 'boss']) {
       if (!ENCOUNTERS[act]?.[grp]?.length) { badEnc.push(`act${act}.${grp} 缺失`); continue; }
       for (const enc of ENCOUNTERS[act][grp]) for (const eid of enc) if (!ENEMIES[eid]) badEnc.push(`act${act}.${grp} 引用未知敌人 ${eid}`);
     }
   }
-  ok(badEnc.length === 0, '遭遇战配置完整', badEnc.slice(0, 5).join(' | '));
+  ok(badEnc.length === 0, `遭遇战配置完整（${TOTAL_ACTS} 层）`, badEnc.slice(0, 5).join(' | '));
+  ok(TOTAL_ACTS === 4, `游戏共 ${TOTAL_ACTS} 层`);
 
   const rids = Object.keys(RELICS);
   const badRelic = rids.filter(id => !sprites.has(RELICS[id].sprite));
@@ -358,6 +361,16 @@ section('A3. 地图生成（200 个种子）');
     if (types.boss !== 1) bad.push(`seed${s} Boss 节点数 = ${types.boss ?? 0}`);
     const bossNodes = m.nodes.filter(n => n.type === 'boss');
     if (bossNodes.length && bossNodes[0].r !== MAP_ROWS - 1) bad.push(`seed${s} Boss 不在最后一行`);
+    // 最后一行必须**只有** Boss —— 多出来的普通节点没有任何后继，
+    // 玩家走进去就永远出不来（实测修复前 300/300 张地图都有这个问题，共 753 个死路）
+    if ((m.byRow[MAP_ROWS - 1] || []).length !== 1) bad.push(`seed${s} 最后一行有 ${(m.byRow[MAP_ROWS - 1] || []).length} 个节点`);
+    // 所有非 Boss 节点都必须有出路（哪怕不沿最优路线走，也不会卡死）
+    const noExit = m.nodes.filter(n => n.type !== 'boss' && n.next.length === 0);
+    if (noExit.length) bad.push(`seed${s} 有 ${noExit.length} 个死路节点`);
+    // 每条边都要指向真实存在的节点（悬空边会让 reachable() 返回空）
+    for (const n of m.nodes) for (const nx of n.next) {
+      if (!m.nodes.some(x => x.r === nx.r && x.c === nx.c)) bad.push(`seed${s} ${n.r},${n.c} 指向不存在的节点`);
+    }
     // 节点类型都必须认识
     for (const n of m.nodes) if (!['battle', 'elite', 'event', 'shop', 'rest', 'treasure', 'boss'].includes(n.type)) bad.push(`seed${s} 未知类型 ${n.type}`);
   }
@@ -1422,6 +1435,112 @@ section('N. 效果 DSL 的文档承诺必须真的生效');
     }
     ok(mod.classSprite('不存在') === mod.CLASSES.knight.sprite, '未知职业安全回退，不抛异常');
     ok(mod.className('不存在') === mod.CLASSES.knight.name, '未知职业的名称也安全回退');
+  }
+}
+
+section('O. 四层结构与层级强度曲线');
+{
+  // 【这条是补的】游戏从 3 层扩到 4 层，并且"同一张敌人表被所有层复用"，
+  // 靠 actScale(层) 做缩放：每层 +25% 生命、+20% 攻击。
+  // 最要紧的不变量是「界面预告的伤害 == 敌人真打出来的伤害」——
+  // 缩放只加在敌人自己身上，玩家给的易伤/虚弱照常生效。
+  const { ENEMIES, TOTAL_ACTS, actScale } = await import('file://' + join(ROOT, 'js/data/enemies.js'));
+  const noopView = { step: async () => {}, sync() {}, log() {}, onDamage() {}, onHeal() {}, onBlock() {},
+    onStatus() {}, onDraw() {}, onPlay() {}, onExhaust() {}, onEnergy() {}, onGold() {},
+    onTurnStart() {}, onEnemyAct() {}, onSummon() {}, onDeath() {}, onEnd() {}, onPotion() {}, beforeEndTurn() {} };
+
+  /* --- O1. 曲线本身 --- */
+  {
+    const hp = [], atk = [];
+    for (let a = 1; a <= TOTAL_ACTS; a++) { const s = actScale(a); hp.push(s.hp); atk.push(s.atk); }
+    ok(hp[0] === 1 && atk[0] === 1, '第 1 层不缩放（基准）');
+    ok(hp.map(x => +x.toFixed(4)).join(',') === '1,1.25,1.5,1.75',
+       `生命每层 +25%：${hp.map(x => (x * 100).toFixed(0) + '%').join(' → ')}`);
+    ok(atk.map(x => +x.toFixed(4)).join(',') === '1,1.2,1.4,1.6',
+       `攻击每层 +20%：${atk.map(x => (x * 100).toFixed(0) + '%').join(' → ')}`);
+    ok(actScale(99).hp > 1, '层数越界时不会崩，仍给出更大倍率');
+  }
+
+  /* --- O2. 同一个敌人在高层更硬、打得更痛 ---
+     注意：敌人血量是 rng.int(min,max) 掷出来的，直接比两次随机值会得到噪声
+     （我第一次就是这么写的，13→13→21→21 那种）。所以先把 RNG 固定到同一状态，
+     让每次掷出**完全相同**的原始血量，再比精确公式。 */
+  {
+    const sample = ['slime', 'golem', 'warrior'];
+    for (const id of sample) {
+      const hpByAct = [], dmgByAct = [], rawByAct = [];
+      for (let a = 1; a <= TOTAL_ACTS; a++) {
+        A.startRun('knight');
+        A.G.act = a;
+        A.G.rng.setState(20261012);                 // 固定掷点：原始血量每次相同
+        const B = new A.Battle([id], { kind: 'battle' });
+        B.view = { ...noopView };
+        const e = B.aliveEnemies()[0];
+        hpByAct.push(e.maxHp);
+        rawByAct.push(A.G.rng.getState());          // 仅作调试
+        const maxDef = Object.values(ENEMIES[id].moves).filter(m => m.dmg).sort((x, y) => y.dmg - x.dmg)[0];
+        dmgByAct.push(B.calcDamage(Math.round(maxDef.dmg * (e.atkMult || 1)), e, B.player));
+      }
+      const raw = hpByAct[0];                       // 第 1 层不缩放，maxHp 就是掷出的原始值
+      const exact = [];
+      for (let a = 1; a <= TOTAL_ACTS; a++) exact.push(Math.max(1, Math.round(raw * actScale(a).hp)));
+      ok(hpByAct.join(',') === exact.join(','),
+         `${ENEMIES[id].name} 生命严格等于 round(原始 × 层倍率)：${hpByAct.join(' → ')}`);
+      const dmgRising = dmgByAct.every((v, i) => i === 0 || v >= dmgByAct[i - 1]);
+      ok(dmgRising, `${ENEMIES[id].name} 伤害随层数上升（${dmgByAct.join(' → ')}）`);
+      const dmgRatio = dmgByAct[3] / dmgByAct[0];
+      ok(Math.abs(dmgRatio - 1.6) < 0.06, `${ENEMIES[id].name} 第4层伤害约为第1层的 1.6 倍（实测 ${dmgRatio.toFixed(2)}）`);
+    }
+  }
+
+  /* --- O3. 关键：预告的伤害必须等于真打出来的伤害（含易伤/虚弱/力量） --- */
+  {
+    const cases = [
+      { label: '普通', setup: () => {} },
+      { label: '玩家易伤', setup: (B) => B.add(B.player, 'vulnerable', 3) },
+      { label: '敌人虚弱', setup: (B) => B.add(B.aliveEnemies()[0], 'weak', 3) },
+      { label: '敌人力量+5', setup: (B) => B.add(B.aliveEnemies()[0], 'strength', 5) },
+      { label: '易伤+虚弱+力量 一起', setup: (B) => { B.add(B.player, 'vulnerable', 3); B.add(B.aliveEnemies()[0], 'weak', 3); B.add(B.aliveEnemies()[0], 'strength', 5); } },
+    ];
+    const bad = [];
+    for (let act = 1; act <= TOTAL_ACTS; act++) {
+      for (const cs of cases) {
+        A.startRun('knight');
+        A.G.act = act;
+        A.G.hp = 9999; A.G.maxHp = 9999;              // 撑住，别被一击打死导致读不到
+        const B = new A.Battle(['warrior'], { kind: 'battle' });
+        B.view = { ...noopView };
+        B.rollIntents();
+        await B.start();
+        const e = B.aliveEnemies()[0];
+        cs.setup(B);
+        e.moveId = 'rend';                              // 固定一个纯攻击招式
+        if (!e.def.moves.rend) { continue; }
+        const predicted = B.intentOf(e);                 // 界面显示的
+        const before = B.player.hp;
+        B.player.block = 0;
+        await B.damage(B.player, Math.round(e.def.moves.rend.dmg * (e.atkMult || 1)), e.name, { attacker: e, melee: true });
+        const actual = before - B.player.hp;             // 真实掉血
+        if (predicted.dmg !== actual) {
+          bad.push(`act${act}/${cs.label}: 预告 ${predicted.dmg} 实际 ${actual}`);
+        }
+      }
+    }
+    ok(bad.length === 0, '敌人意图预告的伤害 == 实际打出的伤害（跨 4 层 × 5 种状态）',
+       bad.slice(0, 6).join(' | '));
+  }
+
+  /* --- O4. 最后一个 Boss 存在且是 Boss --- */
+  {
+    const { ENCOUNTERS } = await import('file://' + join(ROOT, 'js/data/enemies.js'));
+    const last = ENCOUNTERS[TOTAL_ACTS].boss[0][0];
+    ok(!!ENEMIES[last], `第 ${TOTAL_ACTS} 层有 Boss（${last}）`);
+    ok(ENEMIES[last].boss === true, '最终 Boss 标记为 boss: true');
+    ok(ENEMIES[last].hp[0] >= 200, `最终 Boss 基础生命够高（${ENEMIES[last].hp[0]}）`);
+    // 四层的 Boss 不该重复，否则"最终决战"没有辨识度
+    const bossIds = [];
+    for (let a = 1; a <= TOTAL_ACTS; a++) bossIds.push(ENCOUNTERS[a].boss[0][0]);
+    ok(new Set(bossIds).size === TOTAL_ACTS, `每层 Boss 都不相同：${bossIds.join(', ')}`);
   }
 }
 
