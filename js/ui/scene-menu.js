@@ -117,6 +117,57 @@ export function classScene({ onPick, onBack }) {
   return root;
 }
 
+/* ---------------- 新手 / 老手 ----------------
+   选完职业后问一句。两个按钮的分支完全不同：
+     新手 → 直接进地图（0 分标准难度，不接触难度系统）
+     老手 → 进难度积分界面
+   ⚠️ 只在**从未通关过**时才问（见 main.js 的 askOrSkip）。通关过一次之后
+   一律当老手处理、直接进难度界面 —— 那时玩家已经熟悉规则，再问是多余的点击。 */
+export function veteranScene({ clsId, onNovice, onVeteran, onBack }) {
+  const cls = CLASSES[clsId];
+  const meta = loadMeta();
+  const root = el('div', { class: 'screen' });
+  root.append(el('div', { class: 'topbar' },
+    el('button', { class: 'btn sm ghost', text: '←', onClick: () => { sfx.back(); onBack(); } }),
+    el('div', { class: 'grow', style: { textAlign: 'center' }, html: '<span class="gold">你是新手还是老手？</span>' }),
+    el('div', { style: { width: '38px' } })));
+
+  const body = el('div', { class: 'scroll grow col gap12', style: { padding: '14px' } });
+  body.append(el('div', { class: 'col center', style: { padding: '6px 0 2px' } },
+    el('div', { style: { width: '58px', height: '58px', backgroundImage: `url(${SPR(cls.sprite)})`, backgroundSize: 'contain', backgroundRepeat: 'no-repeat', backgroundPosition: 'center', filter: 'drop-shadow(0 4px 6px #0008)' } }),
+    el('div', { class: 'small dim', style: { marginTop: '6px' }, text: `${cls.name} · ${cls.tagline}` }),
+  ));
+
+  const pick = (label, desc, hint, onClick, highlight) => {
+    const b = el('button', {
+      class: 'btn block',
+      style: { textAlign: 'left', flexDirection: 'column', alignItems: 'flex-start', gap: '3px', padding: '12px 14px', borderColor: highlight ? '#ffcc5260' : undefined },
+    },
+      el('span', { class: highlight ? 'gold' : '', text: label }),
+      el('span', { class: 'tiny dim', html: desc }),
+      el('span', { class: 'tiny', style: { color: '#8fa8c0', marginTop: '2px' }, text: hint }),
+    );
+    b.addEventListener('click', () => { sfx.confirm(); onClick(); });
+    return b;
+  };
+
+  body.append(
+    pick('🌱 我是新手', '还没通关过，想先熟悉规则。<br>直接开始，<b>标准难度</b>。',
+      '不接触难度系统，玩法与原版一致', onNovice),
+    pick('⚔ 我是老手', '已经熟悉这套玩法，想自己调难度。<br>进入<b>难度与增益</b>选择。',
+      '难度 +9 分／增益 −4 分，最多选 10 条', onVeteran, true),
+  );
+
+  // 给个"跳过询问"的提示 —— 通关过一次后这里就不再出现了
+  if (meta.runs > 0 && !meta.wins) {
+    body.append(el('div', { class: 'tiny dim', style: { textAlign: 'center', padding: '4px' },
+      html: `你已经尝试过 <b>${meta.runs}</b> 局但还没通关。<br>任何时候都可以改主意 —— 老手也能只选 0 条难度。` }));
+  }
+
+  root.append(body);
+  return root;
+}
+
 /* ---------------- 结算 ---------------- */
 export function endScene(result, { onMenu, onRetry }) {
   const win = result === 'win';

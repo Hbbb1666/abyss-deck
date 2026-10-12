@@ -437,11 +437,26 @@ section('C. DOM 层 —— 真实点击流程');
   byText('铁誓骑士').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
   await new Promise(r => setTimeout(r, 160));
 
+  /* --- 选完职业后先问「新手 / 老手」---
+     从未通关过时才问；通关过一次之后会直接进难度界面（见 W6 段）。 */
+  {
+    const vt = () => (doc.querySelector('.screen')?.textContent || '');
+    ok(vt().includes('新手还是老手'), '选完职业后先问「新手 / 老手」', vt().slice(0, 50));
+    const novice = [...doc.querySelectorAll('.screen .btn')].find(b => txt(b).includes('我是新手'));
+    const veteran = [...doc.querySelectorAll('.screen .btn')].find(b => txt(b).includes('我是老手'));
+    ok(!!novice && !!veteran, '给出「我是新手」与「我是老手」两个选项');
+    // 走"新手"这条路：直接开局（0 分标准难度），不经过难度界面
+    novice.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    await new Promise(r => setTimeout(r, 220));
+    ok(!(doc.querySelector('.screen')?.textContent || '').includes('选择难度与增益'),
+       '选「新手」后跳过难度界面');
+  }
+
   /* --- 开局先过「开场事件」（每层开始都有，类似杀戮尖塔的 Neow）--- */
   // 注意：事件名只出现在标题/正文里，**不在任何按钮里** ——
   // byText 只查 button/.btn，用它找事件名会永远落空。这里直接查正文。
   const bodyText = () => (doc.querySelector('.screen')?.textContent || '');
-  ok(bodyText().includes('深渊入口'), '选完职业后先进入第 1 层的开场事件',
+  ok(bodyText().includes('深渊入口'), '「新手」直接进入第 1 层的开场事件',
      bodyText().slice(0, 60));
   ok(doc.querySelectorAll('.screen .btn').length >= 3, '开场事件给出多个选项');
   {
@@ -2846,14 +2861,20 @@ section('W. 难度系统：解锁 / 全部 20 条生效 / 计分');
     ok(scoreLabel(0) === '标准', '0 分显示"标准"');
   }
 
-  /* --- W3. 解锁条件：没通关过就没有难度入口 --- */
+  /* --- W3. 入口分派：选完职业后先去哪 ---
+     2026-10-13 起这条规则**被「新手 / 老手」界面取代**（产品确认）：
+       · 没通关过 → 问一句，新手直接开、老手进难度界面（**不再要求先通关**）
+       · 通关过   → 默认老手，直接进难度界面，不再问
+     具体的点击流在 W6 段实测；这里只守住"分派函数与路由接线"不被改回去。 */
   {
-    // pickDifficulty 会读 meta.wins；这里直接验数据层与调用契约
     const mainSrc = readFileSync(join(ROOT, 'js/main.js'), 'utf8');
-    ok(/function pickDifficulty\(clsId\)[\s\S]{0,200}?if \(!meta\.wins\)/.test(mainSrc),
-       'pickDifficulty：meta.wins 为 0 时直接开标准难度（未解锁）');
-    ok(/case 'class': node = classScene\(\{ onPick: pickDifficulty/.test(mainSrc),
-       '选职业后走 pickDifficulty（而不是直接 startRun）');
+    ok(/function askNoviceOrVeteran/.test(mainSrc), 'main.js 有 askNoviceOrVeteran 分派函数');
+    ok(/case 'class': node = classScene\(\{ onPick: askNoviceOrVeteran/.test(mainSrc),
+       '选职业后走 askNoviceOrVeteran（而不是直接 startRun）');
+    ok(/case 'veteran':/.test(mainSrc), "注册了 'veteran' 路由");
+    // 旧规则"没通关就不给难度入口"必须**已经不在**（否则新流程会被挡回去）
+    ok(!/if \(!meta\.wins\) \{ startRun\(clsId, \[\]\); return; \}/.test(mainSrc),
+       '旧的"没通关就不解锁难度"分支已移除');
     ok(/bestWinScore/.test(mainSrc), '通关时记录本局难度分（bestWinScore）');
   }
 
@@ -3142,6 +3163,72 @@ section('W. 难度系统：解锁 / 全部 20 条生效 / 计分');
     ok(scoreOf(g.picks) === 9, `未知条目按 0 分计（实际 ${scoreOf(g.picks)}）`);
     const mm = A.relicMods();
     ok(typeof mm.bossHpMult === 'number', '读档后难度修正依然生效');
+  }
+
+  /* --- W6. 新手 / 老手 询问界面 ---
+     规则（产品确认）：
+       · 从未通关过 → 选完职业先问「新手 / 老手」
+           新手 → 直接开局（0 分标准难度）
+           老手 → 进难度与增益界面
+       · **通关过一次之后 → 一律默认为老手**，不再问，直接进难度界面
+     这条取代了原先"通关一次才解锁难度系统"的规则。 */
+  {
+    const doc = window.document;
+    const sleepX = ms => new Promise(r => setTimeout(r, ms));
+    const screenText = () => (doc.querySelector('.screen')?.textContent || '');
+    const btnByText = t => [...doc.querySelectorAll('.screen .btn')].find(b => (b.textContent || '').includes(t));
+    const setWins = w => window.localStorage.setItem('abyss_deck_meta_v1',
+      JSON.stringify({ runs: 3, wins: w, best: 4, bestWinScore: 9 }));
+
+    /* ① 未通关：出现询问界面，且「老手」按钮存在 */
+    setWins(0);
+    A.go('class'); await sleepX(300);
+    doc.querySelectorAll('.class-card')[0].dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    await sleepX(400);
+    ok(screenText().includes('新手还是老手'), '未通关时选完职业会出现「新手 / 老手」询问', screenText().slice(0, 40));
+
+    /* ② 未通关 + 选新手 → 直接开局（不进难度界面） */
+    btnByText('我是新手').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    await sleepX(400);
+    ok(!screenText().includes('选择难度与增益'), '选「新手」不进难度界面');
+    ok(screenText().includes('深渊入口'), '选「新手」直接进入第 1 层开场事件（0 分标准难度）');
+    ok((A.G.picks || []).length === 0, `新手的 picks 为空（实际 ${JSON.stringify(A.G.picks)}）`);
+
+    /* ③ 未通关 + 选老手 → 进难度界面，并且能带着选择开局 */
+    setWins(0);
+    A.go('class'); await sleepX(300);
+    doc.querySelectorAll('.class-card')[0].dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    await sleepX(400);
+    btnByText('我是老手').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    await sleepX(400);
+    ok(screenText().includes('选择难度与增益'), '选「老手」进入难度与增益界面');
+    const opts = () => [...doc.querySelectorAll('.col.gap8 .btn')];
+    ok(opts().length === 20, `难度界面有 20 条可选（实际 ${opts().length}）`);
+    opts()[0].dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    await sleepX(200);
+    const startBtn = [...doc.querySelectorAll('.screen .btn')].find(b => (b.textContent || '').includes('以当前设置出发'));
+    ok(!!startBtn, '难度界面有「以当前设置出发」按钮');
+    startBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    await sleepX(400);
+    ok((A.G.picks || []).length === 1, `老手选的难度被带进这一局（实际 ${JSON.stringify(A.G.picks)}）`);
+
+    /* ④ 通关过 → **不再问**，直接进难度界面（默认老手） */
+    setWins(1);
+    A.go('class'); await sleepX(300);
+    doc.querySelectorAll('.class-card')[0].dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    await sleepX(450);
+    ok(!screenText().includes('新手还是老手'), '通关过后不再询问新手/老手');
+    ok(screenText().includes('选择难度与增益'), '通关过后直接进入难度与增益界面（默认老手）');
+
+    /* ⑤ 主流程里的分派函数确实按 wins 分流（防将来被改回"没通关就不给难度"） */
+    const mainSrc = readFileSync(join(ROOT, 'js/main.js'), 'utf8');
+    ok(/function askNoviceOrVeteran[\s\S]{0,220}?meta\.wins > 0[\s\S]{0,80}?go\('difficulty'/.test(mainSrc),
+       'main.js：wins > 0 时直接走难度界面');
+    ok(/onPick: askNoviceOrVeteran/.test(mainSrc), 'main.js：选职业后走 askNoviceOrVeteran');
+    ok(/case 'veteran':/.test(mainSrc) && /veteranScene/.test(mainSrc), 'main.js：注册了 veteran 场景');
+    const menuSrc = readFileSync(join(ROOT, 'js/ui/scene-menu.js'), 'utf8');
+    ok(/export function veteranScene/.test(menuSrc), 'scene-menu.js 导出 veteranScene');
+    ok(/我是新手/.test(menuSrc) && /我是老手/.test(menuSrc), '询问界面给出两个明确选项');
   }
 }
 

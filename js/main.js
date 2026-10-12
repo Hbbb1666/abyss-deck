@@ -9,7 +9,7 @@ import { RELICS } from './data/relics.js';
 import { CLASSES } from './data/classes.js';
 import { scoreOf, splitPicks, pickById, MAX_PICKS } from './data/difficulty.js';import { sfx, initAudio, setMuted } from './core/audio.js';
 import { fitAllCards } from './ui/widgets.js';
-import { menuScene, classScene, endScene } from './ui/scene-menu.js';
+import { menuScene, classScene, endScene, veteranScene } from './ui/scene-menu.js';
 import { mapScene } from './ui/scene-map.js';
 import { battleScene } from './ui/scene-battle.js';
 import { rewardScene, shopScene, eventScene, restScene, treasureScene } from './ui/scene-rooms.js';
@@ -27,8 +27,10 @@ function go(name, ...args) {
     let node;
     switch (name) {
       case 'menu': node = menuScene({ onNew: () => go('class'), onContinue: resumeRun }); break;
-      case 'class': node = classScene({ onPick: pickDifficulty, onBack: () => go('menu') }); break;
-      // 难度选择：只在通关过一次后出现（见 pickDifficulty 的调用点）
+      case 'class': node = classScene({ onPick: askNoviceOrVeteran, onBack: () => go('menu') }); break;
+      // 新手/老手询问：只在**从未通关过**时出现（见 askNoviceOrVeteran）
+      case 'veteran': node = veteranScene({ clsId: args[0], onNovice: () => startRun(args[0], []), onVeteran: () => go('difficulty', args[0]), onBack: () => go('class') }); break;
+      // 难度选择
       case 'difficulty': node = difficultyScene({ clsId: args[0], onStart: startRun, onBack: () => go('class') }); break;
       case 'map': node = mapScene({ onEnter: enterRoom }); break;
       case 'battle': node = battleScene(args[0], { onFinish: onBattleEnd, onQuit: quitRun, resumed: !!args[1] }); break;
@@ -57,12 +59,23 @@ function go(name, ...args) {
 }
 
 /* ================= 开局 ================= */
-/** 选了职业之后：通关过就先进难度选择，否则直接开（0 分 = 标准难度） */
-function pickDifficulty(clsId) {
+/** 选了职业之后决定去哪：
+ *   · **从未通关过** → 问一句"新手 / 老手"
+ *       新手 → 直接开局（0 分标准难度）
+ *       老手 → 难度与增益选择界面
+ *   · **通关过一次之后** → 不再问，一律当老手，直接进难度界面
+ *     （那时玩家已经熟悉规则，再问只是多一次点击）
+ *
+ *  这样"通关一次解锁难度系统"这条旧规则**被新界面取代**了：
+ *  没通关也能选老手进难度界面，只是默认给新手一条更省事的路。 */
+function askNoviceOrVeteran(clsId) {
   const meta = loadMeta();
-  if (!meta.wins) { startRun(clsId, []); return; }   // 没通关过：难度系统未解锁
-  go('difficulty', clsId);
+  if (meta.wins > 0) { go('difficulty', clsId); return; }   // 已通关 = 默认老手
+  go('veteran', clsId);
 }
+
+/** 兼容旧调用名（测试与调试入口用过 pickDifficulty） */
+function pickDifficulty(clsId) { askNoviceOrVeteran(clsId); }
 
 function startRun(clsId, picks = []) {
   newRun(clsId, undefined, picks);
