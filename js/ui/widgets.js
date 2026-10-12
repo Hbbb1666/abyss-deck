@@ -190,12 +190,17 @@ export function onLongPress(node, fn, ms = 380) {
 /* ---------------- 「点一下看说明，再点一下执行」 ---------------- */
 let armedState = null;   // { node, onAction, timer } —— 当前已点开、等待第二次确认的那个
 
-/** 收起当前气泡并解除待确认状态 */
+/** 收起当前气泡并解除待确认状态。
+    注意：**即使 armedState 为空也要清定时器**（用独立的句柄）——
+    否则前一次的超时回调会在 5 秒后回来，把**新开**的气泡关掉：
+    玩家点开说明、还没看够就自己消失了。 */
+let armTimer = null;
 export function disarmTipAction() {
-  if (!armedState) { hideTip(); return; }
-  clearTimeout(armedState.timer);
-  armedState.node?.classList.remove('armed');
-  armedState = null;
+  if (armTimer) { clearTimeout(armTimer); armTimer = null; }
+  if (armedState) {
+    armedState.node?.classList.remove('armed');
+    armedState = null;
+  }
   hideTip();
 }
 
@@ -221,10 +226,11 @@ export function bindTipAction(node, { html, onAction, hint = '再点一次使用
     return onAction ? `${body}<br><span class="dim tiny">${hint}</span>` : body;
   };
   const arm = () => {
-    disarmTipAction();                       // 同时只允许一个处于待确认状态
+    disarmTipAction();                       // 同时只允许一个处于待确认状态（并清掉旧定时器）
     if (onAction) node.classList.add('armed');
     showTip(node, render());
-    armedState = { node, onAction, timer: setTimeout(disarmTipAction, 5000) };
+    armTimer = setTimeout(disarmTipAction, 5000);
+    armedState = { node, onAction };
   };
   node.addEventListener('click', ev => {
     ev.stopPropagation();

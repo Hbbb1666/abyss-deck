@@ -141,7 +141,7 @@ export const CARDS = {
     fx: [{ t: 'buff', k: 'berserk', v: 'nrg' }, { t: 'buff', k: 'berserk_dmg', v: 'selfdmg' }],
   },
   shield_wall: {
-    name: '盾墙', cls: 'knight', type: 'skill', rarity: 'uncommon', cost: 2, target: 'self',
+    name: '盾墙', cls: 'knight', type: 'skill', rarity: 'uncommon', cost: 3, target: 'self',
     art: 'bars', blk: 15, draw: 1, up: { blk: 20 },
     text: c => `获得 <b>${c.blk}</b> 点护甲，抽 <b>${c.draw}</b> 张牌。`,
     fx: [{ t: 'block', v: 'blk' }, { t: 'draw', v: 'draw' }],
@@ -233,13 +233,13 @@ export const CARDS = {
     fx: [{ t: 'dmg', v: 'dmg' }, { t: 'debuff', k: 'vulnerable', v: 'vul' }],
   },
   ice_barrier: {
-    name: '寒冰屏障', cls: 'mage', type: 'skill', rarity: 'uncommon', cost: 2, target: 'self',
+    name: '寒冰屏障', cls: 'mage', type: 'skill', rarity: 'uncommon', cost: 3, target: 'self',
     art: 'door', blk: 12, draw: 1, up: { blk: 16 },
     text: c => `获得 <b>${c.blk}</b> 点护甲，抽 <b>${c.draw}</b> 张牌。`,
     fx: [{ t: 'block', v: 'blk' }, { t: 'draw', v: 'draw' }],
   },
   hex: {
-    name: '痛苦诅咒', cls: 'mage', type: 'skill', rarity: 'uncommon', cost: 1, target: 'enemy',
+    name: '痛苦诅咒', cls: 'mage', type: 'skill', rarity: 'uncommon', cost: 2, target: 'enemy',
     art: 'grave_cross', vul: 3, weak: 3, up: { vul: 4, weak: 4 },
     text: c => `施加 <b>${c.vul}</b> 层易伤和 <b>${c.weak}</b> 层虚弱。`,
     fx: [{ t: 'debuff', k: 'vulnerable', v: 'vul' }, { t: 'debuff', k: 'weak', v: 'weak' }],

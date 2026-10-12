@@ -121,3 +121,60 @@ export const EVENTS = [
   },
 ];
 for (const e of EVENTS) e.art = e.art || 'gargoyle';
+
+/* =====================================================================
+   每层开场的「初始事件」（类似《杀戮尖塔》的 Neow）
+   ---------------------------------------------------------------------
+   与随机事件的区别：
+     · 一定在**每层刚进入时**触发，不是路上随机遇到
+     · 选项互斥、**只能选一次**，选完立刻开始这一层
+     · 第 1 层给的是"开局礼物"，第 2–4 层给的是"适应下一层的补强"
+   数值都刻意保守：它是起手助力，不该顶得上一个遗物 + 一次营火。
+   ===================================================================== */
+export const ACT_INTROS = [
+  /* ---- 第 1 层：三选一起手 ---- */
+  {
+    id: 'intro_1', act: 1, name: '深渊入口', art: 'portal',
+    text: '你站在深渊入口。前方的黑暗里传来滴水声，还有某种更深处的东西在缓慢呼吸。',
+    options: [
+      { label: '拾起旧装备', desc: '最大生命 +8，并获得 40 金币', run: (G, api) => { api.maxHp(8); api.gold(40); } },
+      { label: '调匀呼吸', desc: '获得一件随机遗物', run: (G, api) => api.addRelic(api.randomRelic(['common'])) },
+      { label: '在火边休息', desc: '回复 25 点生命，最大生命 +4', run: (G, api) => { api.heal(25); api.maxHp(4); } },
+    ],
+  },
+  /* ---- 第 2 层：三选一，开始给"代价换收益" ---- */
+  {
+    id: 'intro_2', act: 2, name: '腐锈的岔路', art: 'gate',
+    text: '通往下一层的路被锈蚀的铁门挡着。门边散落着上一位旅人的东西。',
+    options: [
+      { label: '撬开门锁', desc: '获得 60 金币和一瓶随机药水', run: (G, api) => { api.gold(60); api.addPotion(); } },
+      { label: '搜刮遗物', desc: '失去 10 点生命，获得一件随机遗物', run: (G, api) => { api.damage(10); api.addRelic(api.randomRelic(['common', 'uncommon'])); } },
+      { label: '只作休整', desc: '回复 35% 最大生命', run: (G, api) => api.heal(Math.floor(G.maxHp * 0.35)) },
+    ],
+  },
+  /* ---- 第 3 层：三选一，出现"删牌/升级"这种构筑向选项 ---- */
+  {
+    id: 'intro_3', act: 3, name: '深渊回廊', art: 'gargoyle',
+    text: '回廊两侧的石像眼窝里燃着幽火。它们看着你整理自己的卡组。',
+    options: [
+      { label: '在石板上磨砺', desc: '升级一张卡牌', run: (G, api) => api.upgradeCard() },
+      { label: '丢掉负担', desc: '移除一张卡牌', run: (G, api) => api.removeCard() },
+      { label: '汲取幽火', desc: '最大生命 +12，获得 30 金币', run: (G, api) => { api.maxHp(12); api.gold(30); } },
+    ],
+  },
+  /* ---- 第 4 层：最后一层，补强同时给出强力但带代价的选项 ---- */
+  {
+    id: 'intro_4', act: 4, name: '深渊之底', art: 'boss_gargoyle',
+    text: '没有更下面了。空气安静得不像话，只有你自己的心跳，和某种正在成形的注视。',
+    options: [
+      { label: '豁出性命', desc: '获得一件稀有遗物，但最大生命 -8', run: (G, api) => { api.maxHp(-8); api.addRelic(api.randomRelic(['rare'])); } },
+      { label: '最后一次休整', desc: '回复 45% 最大生命，最大生命 +6', run: (G, api) => { api.heal(Math.floor(G.maxHp * 0.45)); api.maxHp(6); } },
+      { label: '重整卡组', desc: '升级**两张**卡牌', run: async (G, api) => { await api.upgradeCard(); await api.upgradeCard(); } },
+    ],
+  },
+];
+
+/** 取某一层的开场事件（层数越界时退回最后一层） */
+export function actIntro(act) {
+  return ACT_INTROS.find(e => e.act === act) || ACT_INTROS[ACT_INTROS.length - 1];
+}

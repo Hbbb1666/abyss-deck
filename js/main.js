@@ -3,6 +3,7 @@ import { G, newRun, save, hasSave, loadSave, clearSave, loadMeta, saveMeta, bump
 import { generateMap, MAP_ROWS } from './core/map.js';
 import { Battle } from './core/battle.js';
 import { ENCOUNTERS, TOTAL_ACTS } from './data/enemies.js';
+import { actIntro } from './data/events.js';
 import { CARDS } from './data/cards.js';
 import { RELICS } from './data/relics.js';
 import { CLASSES } from './data/classes.js';
@@ -30,7 +31,9 @@ function go(name, ...args) {
       case 'battle': node = battleScene(args[0], { onFinish: onBattleEnd, onQuit: quitRun, resumed: !!args[1] }); break;
       case 'reward': node = rewardScene(args[0], { onDone: afterRoom }); break;
       case 'shop': node = shopScene({ onDone: afterRoom }); break;
-      case 'event': node = eventScene({ onDone: afterRoom, onFight: () => startBattle('elite', 'elite') }); break;
+      case 'event': node = eventScene({ onDone: afterRoom, onFight: () => startBattle('elite', 'elite'), ...(args[0] || {}) }); break;
+      // 每层开场事件：onDone 是 afterIntro（直接回地图），区别于普通事件的 afterRoom
+      case 'intro': node = eventScene({ onDone: afterIntro, onFight: () => startBattle('elite', 'elite'), ev: actIntro(G.act), intro: true }); break;
       case 'rest': node = restScene({ onDone: afterRoom }); break;
       case 'treasure': node = treasureScene({ onDone: afterRoom }); break;
       case 'end': node = endScene(args[0], { onMenu: () => go('menu'), onRetry: () => go('class') }); break;
@@ -56,10 +59,21 @@ function startRun(clsId) {
   bumpMetaStat({ runs: loadMeta().runs + 1 });
   G.pending = null;
   G.map = generateMap(G.seed, 1);
+  G.act = 1;
   save();
   sfx.door();
   toast(`${CLASSES[clsId].name} 出发了`, 1400);
-  go('map');
+  // 每层开始都先过一个「开场事件」（类似杀戮尖塔的 Neow）：
+  // 先选起手增益，再进这一层的地图。
+  go('intro');
+}
+
+/** 开场事件：只给这一层用，选完就往地图走。
+    必须走 'intro' 分支 —— 它把 onDone 绑到 afterIntro（回地图），
+    而普通 'event' 的 onDone 是 afterRoom（会去判断"是不是 Boss 房间"）。 */
+function goIntro() {
+  setPending({ scene: 'intro', act: G.act });
+  go('intro');
 }
 
 function resumeRun() {
@@ -68,6 +82,7 @@ function resumeRun() {
   const p = g.pending;
   if (p && p.scene === 'battle') { resumeBattle(p); return; }
   if (p && p.scene === 'reward') { go('reward', p.kind); return; }
+  if (p && p.scene === 'intro') { go('intro'); return; }        // 开场事件中途关页面，回来还在
   if (p && ['shop', 'rest', 'treasure', 'event'].includes(p.scene)) { go(p.scene); return; }
   go('map');
 }
@@ -151,10 +166,19 @@ function afterRoom() {
     toast(`进入第 ${G.act} 层`, 1600);
     sfx.bell();
     save();
-    go('map');
+    // 每一层都先过开场事件，再开始探索
+    goIntro();
     return;
   }
   save();
+  go('map');
+}
+
+/** 开场事件结束 → 正式开始这一层 */
+function afterIntro() {
+  setPending(null);
+  save();
+  sfx.door();
   go('map');
 }
 

@@ -434,12 +434,36 @@ section('C. DOM 层 —— 真实点击流程');
 
   // 选骑士
   byText('铁誓骑士').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
-  await new Promise(r => setTimeout(r, 120));
+  await new Promise(r => setTimeout(r, 160));
+
+  /* --- 开局先过「开场事件」（每层开始都有，类似杀戮尖塔的 Neow）--- */
+  // 注意：事件名只出现在标题/正文里，**不在任何按钮里** ——
+  // byText 只查 button/.btn，用它找事件名会永远落空。这里直接查正文。
+  const bodyText = () => (doc.querySelector('.screen')?.textContent || '');
+  ok(bodyText().includes('深渊入口'), '选完职业后先进入第 1 层的开场事件',
+     bodyText().slice(0, 60));
+  ok(doc.querySelectorAll('.screen .btn').length >= 3, '开场事件给出多个选项');
+  {
+    // 选第一个选项，然后点「进入第 N 层」
+    const opt = [...doc.querySelectorAll('.screen .btn')].find(b => txt(b).includes('拾起旧装备'));
+    ok(!!opt, '开场事件里能找到具体选项（拾起旧装备）');
+    const hp0 = A.G.maxHp, gold0 = A.G.gold;
+    opt.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    await new Promise(r => setTimeout(r, 200));
+    ok(A.G.maxHp === hp0 + 8 && A.G.gold === gold0 + 40,
+       `选项真的生效（最大生命 ${hp0}→${A.G.maxHp}、金币 ${gold0}→${A.G.gold}）`);
+    const enter = [...doc.querySelectorAll('.screen .btn')].find(b => txt(b).includes('进入第 1 层'));
+    ok(!!enter, '开场事件给出「进入第 1 层」按钮');
+    enter.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    await new Promise(r => setTimeout(r, 220));
+  }
+
   const nodes = doc.querySelectorAll('.mnode');
   ok(nodes.length > 10, `地图渲染出节点（${nodes.length} 个）`);
   ok(doc.querySelectorAll('.mnode.avail').length > 0, '有可前往的节点');
   ok(doc.querySelectorAll('.map-lines line').length > 0, '地图连线已绘制');
   ok(doc.querySelectorAll('.relic').length > 0, '遗物条已渲染');
+  ok(!doc.querySelector('.screen .btn.block'), '开场事件已经关闭（回到地图）');
 
   // 进入第一个可用节点（强制改成战斗，保证能测战斗）
   const G = A.G;
@@ -1595,15 +1619,16 @@ section('P. 药水/遗物：点一下看说明，再点一下使用');
   /* --- P1. 战斗中药水：第一次点击只弹说明、不消耗 --- */
   {
     A.startRun('knight');
-    const B = new A.Battle(['slime'], { kind: 'battle' });
-    A.go('battle', B);
-    await sleep3(250);
-    // 手动放一瓶药水进去（避免依赖随机掉落）
+    // 药水必须在**进入场景之前**就放好。
+    // 若先进场景再塞药水 + sync()，后台战斗的动画还会继续调 sync()，
+    // 重建药水节点时会顺手 disarmTipAction()，把刚点开的气泡清掉 ——
+    // 那是测试的竞态，不是产品行为。
     const { POTIONS } = await import('file://' + join(ROOT, 'js/data/potions.js'));
     A.G.potions = [{ ...POTIONS.heal }];
-    B.view.sync?.();
-    await sleep3(200);
-    const bar = doc.querySelector('.potionbar') || doc.querySelectorAll('.relicbar')[1];
+    const B = new A.Battle(['slime'], { kind: 'battle' });
+    A.go('battle', B);
+    await sleep3(400);
+    const bar = doc.querySelector('.potionbar');
     const potion = bar?.querySelector('.relic.potion');
     ok(!!potion, '战斗界面渲染出药水图标');
 
@@ -1807,6 +1832,141 @@ section('Q. 虚弱按层递减 / 斩杀 / 毒死即结算');
     await B.endTurn();
     ok(es[1].dead, '第二只被毒死');
     ok(B.over === false, '第一只还活着，战斗继续（不该提前结算）');
+  }
+}
+
+section('R. 遗物扩充 / 蓝色卡提费 / 开局事件');
+{
+  const { RELICS, relicPool } = await import('file://' + join(ROOT, 'js/data/relics.js'));
+  const { EVENTS, ACT_INTROS, actIntro } = await import('file://' + join(ROOT, 'js/data/events.js'));
+  const { CARDS } = await import('file://' + join(ROOT, 'js/data/cards.js'));
+  const battleSrc = readFileSync(join(ROOT, 'js/core/battle.js'), 'utf8');
+  const spritesSrc = JSON.parse(readFileSync(join(ROOT, 'assets/sprites.json'), 'utf8'));
+  const spriteKeys = new Set(Object.keys(spritesSrc));
+
+  /* --- R1. 遗物数量增加，且每件都真的可用 --- */
+  {
+    const ids = Object.keys(RELICS);
+    ok(ids.length >= 35, `遗物数量已扩充（${ids.length} 件）`);
+    // mods 的键分散在两处读取：战斗内看 battle.js，战斗外看 scene-rooms.js
+    // （battleGold / shopDiscount / cardChoice 都是场景层读的）。
+    const sceneSrc = readFileSync(join(ROOT, 'js/ui/scene-rooms.js'), 'utf8');
+    const bad = [];
+    for (const [id, r] of Object.entries(RELICS)) {
+      if (!r.name || !r.desc) bad.push(`${id} 缺 name/desc`);
+      if (!r.rarity) bad.push(`${id} 缺 rarity`);
+      if (!spriteKeys.has(r.sprite)) bad.push(`${id} 立绘不存在: ${r.sprite}`);
+      for (const k of Object.keys(r.mods || {})) {
+        if (['maxHp', 'potionSlots'].includes(k)) continue;   // 这两个在 state.js 的 addRelic 里读
+        const inBattle = new RegExp(`m\\.${k}\\b`).test(battleSrc);
+        const inScene = new RegExp(`relicMods\\(\\)\\.${k}`).test(sceneSrc);
+        if (!inBattle && !inScene) bad.push(`${id}.mods.${k} 引擎从不读取`);
+      }
+      for (const m of JSON.stringify(r.hooks || {}).matchAll(/B\.(\w+)\(/g)) {
+        if (!new RegExp(`\\b${m[1]}\\s*\\(`).test(battleSrc)) bad.push(`${id}: B.${m[1]}() 不存在`);
+      }
+    }
+    ok(bad.length === 0, '每件遗物的立绘/mods 键/hooks 方法都真实可用', bad.slice(0, 5).join(' | '));
+  }
+
+  /* --- R2. 负面效果已削减到阈值内 --- */
+  {
+    const tooHarsh = [];
+    for (const [id, r] of Object.entries(RELICS)) {
+      const m = r.mods || {};
+      if (m.maxHp != null && m.maxHp <= -6) tooHarsh.push(`${r.name} maxHp ${m.maxHp}`);
+      if (m.startLoseHp != null && m.startLoseHp >= 5) tooHarsh.push(`${r.name} startLoseHp ${m.startLoseHp}`);
+      if (m.potionSlots != null && m.potionSlots <= -2) tooHarsh.push(`${r.name} potionSlots ${m.potionSlots}`);
+    }
+    ok(tooHarsh.length === 0, '没有过重的负面效果（maxHp≥-5 / startLoseHp≤4 / potionSlots≥-1）', tooHarsh.join(', '));
+  }
+
+  /* --- R3. 新增遗物不能是同类普通遗物的"加强版"（按每件自身判定） --- */
+  {
+    // 参照物：铁腰带 开局 6 护甲；尖刺护腕 开局 3 荆棘；血瓶 3 血
+    // 刻意**不把 battleGold 列入**：金币是资源不是战力，多给几枚不构成"纯加强"。
+    const refs = { startBlock: 6, startThorns: 3, startHeal: 3, startStrength: 1, startDexterity: 1 };
+    const bad = [];
+    for (const [id, r] of Object.entries(RELICS)) {
+      if (r.rarity !== 'common' && r.rarity !== 'uncommon') continue;
+      const m = r.mods || {};
+      const hasCost = (m.maxHp || 0) < 0 || (m.drawPerTurn || 0) < 0 || (m.potionSlots || 0) < 0 || m.startLoseHp;
+      for (const [k, ref] of Object.entries(refs)) {
+        if (m[k] == null) continue;
+        if (m[k] > ref && !hasCost) bad.push(`${r.name}.${k}=${m[k]} > 参照 ${ref} 且无代价`);
+      }
+    }
+    ok(bad.length === 0, '没有"纯加强版"遗物（超过同类普通遗物就必须带代价）', bad.join(', '));
+  }
+
+  /* --- R4. 蓝色（罕见）卡：单卡不得明显强于同费同类普通牌 --- */
+  {
+    // 与 tools 里那份价值模型一致：只用来做"相对比较"，不看绝对值
+    const W = { dmg: 1.0, block: 0.9, draw: 2.0, energy: 3.0, str: 2.5, vul: 1.5, weak: 1.5, poi: 1.2, thn: 1.2, heal: 0.8, undying: 2.5 };
+    const ALL = 1.3;
+    const val = c => {
+      let v = 0;
+      for (const f of (c.fx || [])) {
+        const n = k => (typeof c[k] === 'number' ? c[k] : 0);
+        if (f.t === 'dmg') v += n('dmg') * (c.hits || 1) * W.dmg;
+        else if (f.t === 'dmgAll') v += n('dmg') * (c.hits || 1) * W.dmg * ALL;
+        else if (f.t === 'dmgBlock') v += 8 * W.dmg;
+        else if (f.t === 'dmgPoison') v += 12 * W.dmg;
+        else if (f.t === 'block') v += n('blk') * W.block;
+        else if (f.t === 'blockFromBlock') v += 10 * W.block;
+        else if (f.t === 'draw') v += n('draw') * W.draw;
+        else if (f.t === 'energy') v += n('nrg') * W.energy;
+        else if (f.t === 'heal') v += n('heal') * W.heal;
+        else if (f.t === 'buff' && f.k === 'strength') v += n('str') * W.str;
+        else if (f.t === 'buff' && f.k === 'thorns') v += n('thn') * W.thn;
+        else if (f.t === 'buff' && f.k === 'undying') v += n('blk') * W.undying;
+        else if (f.t === 'debuff' && f.k === 'vulnerable') v += n('vul') * W.vul;
+        else if (f.t === 'debuff' && f.k === 'weak') v += n('weak') * W.weak;
+        else if (f.t === 'debuff' && f.k === 'poison') v += n('poi') * W.poi;
+        else if (f.t === 'debuffAll' && f.k === 'weak') v += n('weak') * W.weak * ALL;
+      }
+      if (c.exhaust) v -= 1.5;
+      return v;
+    };
+    const all = Object.entries(CARDS).filter(([, c]) => c.type !== 'curse' && c.type !== 'status')
+      .map(([id, c]) => ({ id, ...c, v: val(c) }));
+    const offenders = [];
+    for (const x of all.filter(c => c.rarity === 'uncommon')) {
+      const peers = all.filter(p => p.rarity === 'common' && p.cls === x.cls && p.type === x.type && p.cost === x.cost);
+      if (!peers.length) continue;
+      const best = Math.max(...peers.map(p => p.v));
+      if (x.v - best >= 4) offenders.push(`${x.name}(+${(x.v - best).toFixed(1)})`);
+    }
+    ok(offenders.length === 0,
+       '蓝色卡里没有"明显强于同费同类普通牌"的（阈值 +4）', offenders.join(', '));
+    // 提费确实生效
+    ok(CARDS.shield_wall.cost === 3, `盾墙已提费到 ${CARDS.shield_wall.cost}`);
+    ok(CARDS.ice_barrier.cost === 3, `寒冰屏障已提费到 ${CARDS.ice_barrier.cost}`);
+    ok(CARDS.hex.cost === 2, `痛苦诅咒已提费到 ${CARDS.hex.cost}`);
+  }
+
+  /* --- R5. 每层都有开场事件，结构完整 --- */
+  {
+    ok(ACT_INTROS.length === 4, `四层各有一个开场事件（${ACT_INTROS.length} 个）`);
+    const bad = [];
+    for (const ev of ACT_INTROS) {
+      if (!ev.name || !ev.text) bad.push(`${ev.id} 缺 name/text`);
+      if (!spriteKeys.has(ev.art)) bad.push(`${ev.id} 立绘不存在`);
+      if (!ev.options || ev.options.length < 3) bad.push(`${ev.id} 选项少于 3 个`);
+      for (const o of ev.options) {
+        if (!o.label || !o.desc || typeof o.run !== 'function') bad.push(`${ev.id} 选项结构不完整`);
+      }
+    }
+    ok(bad.length === 0, '开场事件结构完整（名称/文案/立绘/≥3 选项）', bad.slice(0, 4).join(' | '));
+    for (let a = 1; a <= 4; a++) ok(actIntro(a).act === a, `第 ${a} 层的开场事件能取到`);
+    ok(actIntro(99).act === 4, '层数越界时退回最后一个开场事件，不崩');
+    // 开场事件与普通随机事件是两套，不能混进普通池
+    ok(!EVENTS.some(e => String(e.id).startsWith('intro_')),
+       '开场事件没有混进普通随机事件池');
+    // 文案长度也要在门禁内（复用 B 段的预算：≤28 单位）
+    const units = s => { let u = 0; for (const ch of String(s)) { if (/\s/.test(ch)) u += 0.34; else u += /[\x00-\xff]/.test(ch) ? 0.5 : 1.0; } return u; };
+    const tooLong = ACT_INTROS.flatMap(e => e.options).filter(o => units(o.desc) > 40).map(o => o.label);
+    ok(tooLong.length === 0, '开场事件的选项描述不会长到撑破布局', tooLong.join(', '));
   }
 }
 

@@ -264,12 +264,17 @@ export function shopScene({ onDone }) {
 /* =====================================================================
    随机事件
    ===================================================================== */
-export function eventScene({ onDone, onFight }) {
-  const ev = G.rng.pick(EVENTS);
+/**
+ * 事件场景。
+ *   ev  —— 可传入指定事件（每层的开场事件走这条路）；不传就随机抽一个。
+ *   intro —— true 时是「开场事件」，标题与继续按钮的文案不同。
+ */
+export function eventScene({ onDone, onFight, ev: givenEv, intro } = {}) {
+  const ev = givenEv || G.rng.pick(EVENTS);
   const root = el('div', { class: 'screen' });
   const body = el('div', { class: 'scroll grow', style: { padding: '0 14px 14px' } });
   const evStrip = statusStrip();
-  root.append(topbar('事件', {}), evStrip);
+  root.append(topbar(intro ? `第 ${ev.act} 层 · ${ev.name}` : '事件', {}), evStrip);
 
   body.append(el('div', { class: 'col center', style: { padding: '10px 0' } },
     el('div', { style: { width: '76px', height: '76px', backgroundImage: `url(${SPR(ev.art)})`, backgroundSize: 'contain', backgroundRepeat: 'no-repeat', backgroundPosition: 'center', filter: 'drop-shadow(0 4px 6px #0008)' } }),
@@ -285,7 +290,7 @@ export function eventScene({ onDone, onFight }) {
   body.append(optWrap);
 
   let done = false;
-  const cont = el('button', { class: 'btn primary block mt16', text: '继续前进 →', onClick: () => { sfx.confirm(); onDone(); } });
+  const cont = el('button', { class: 'btn primary block mt16', text: intro ? `进入第 ${ev.act} 层 →` : '继续前进 →', onClick: () => { sfx.confirm(); onDone(); } });
   cont.classList.add('disabled');
   body.append(cont);
 

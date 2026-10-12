@@ -81,7 +81,7 @@ export const RELICS = {
   },
   greedy_heart: {
     name: '贪婪之心', sprite: 'chest_gold', rarity: 'uncommon',
-    desc: '战斗结束后额外获得 <b>15</b> 金币，但最大生命 <b>-6</b>。', mods: { battleGold: 15, maxHp: -6 },
+    desc: '战斗结束后额外获得 <b>15</b> 金币，但最大生命 <b>-3</b>。', mods: { battleGold: 15, maxHp: -3 },
   },
   hourglass: {
     name: '时光沙漏', sprite: 'coil', rarity: 'uncommon',
@@ -90,7 +90,7 @@ export const RELICS = {
   },
   thorn_heart: {
     name: '荆棘之心', sprite: 'gravestone', rarity: 'uncommon',
-    desc: '战斗开始时获得 <b>5</b> 层荆棘，最大生命 <b>-4</b>。', mods: { startThorns: 5, maxHp: -4 },
+    desc: '战斗开始时获得 <b>5</b> 层荆棘，最大生命 <b>-2</b>。', mods: { startThorns: 5, maxHp: -2 },
   },
   energy_core: {
     name: '能量核心', sprite: 'portal', rarity: 'rare',
@@ -106,7 +106,7 @@ export const RELICS = {
   },
   war_horn: {
     name: '战争号角', sprite: 'key_red', rarity: 'rare',
-    desc: '战斗开始时获得 <b>1</b> 层力量，但最大生命 <b>-8</b>。', mods: { startStrength: 1, maxHp: -8 },
+    desc: '战斗开始时获得 <b>1</b> 层力量，但最大生命 <b>-4</b>。', mods: { startStrength: 1, maxHp: -4 },
   },
   obsidian_heart: {
     name: '黑曜石之心', sprite: 'boss_demon', rarity: 'rare',
@@ -115,7 +115,7 @@ export const RELICS = {
   },
   philosopher_stone: {
     name: '贤者之石', sprite: 'arcane_orb', rarity: 'rare',
-    desc: '每回合 <b>+1</b> 能量，最大生命 <b>-10</b>。', mods: { energyPerTurn: 1, maxHp: -10 },
+    desc: '每回合 <b>+1</b> 能量，最大生命 <b>-5</b>。', mods: { energyPerTurn: 1, maxHp: -5 },
   },
   crown: {
     name: '王者之冠', sprite: 'chest_gem', rarity: 'boss',
@@ -123,8 +123,8 @@ export const RELICS = {
   },
   demon_eye: {
     name: '恶魔之眼', sprite: 'boss_demon', rarity: 'boss',
-    desc: '战斗开始时获得 <b>3</b> 层力量，但每场战斗开始失去 <b>5</b> 点生命。',
-    mods: { startStrength: 3, startLoseHp: 5 },
+    desc: '战斗开始时获得 <b>3</b> 层力量，但每场战斗开始失去 <b>3</b> 点生命。',
+    mods: { startStrength: 3, startLoseHp: 3 },
   },
   abyss_seal: {
     name: '深渊封印', sprite: 'portal', rarity: 'boss',
@@ -132,7 +132,52 @@ export const RELICS = {
   },
   immortal_heart: {
     name: '不朽之心', sprite: 'boss_gargoyle', rarity: 'boss',
-    desc: '最大生命 <b>+25</b>，但药水槽 <b>-2</b>。', mods: { maxHp: 25, potionSlots: -2 },
+    desc: '最大生命 <b>+25</b>，但药水槽 <b>-1</b>。', mods: { maxHp: 25, potionSlots: -1 },
+  },
+
+  /* ============ 新增遗物 ============
+     定值前提：**和同类普通遗物对照**，不做出"更强的同名件"。
+     参照物：铁腰带 = 开局 6 护甲（普通）· 尖刺护腕 = 开局 3 荆棘（普通）
+             血瓶 3 血 · 幸运币 8 金 · 磨刀石 1 力量 · 蛇之戒指 首回合多抽 1
+             学者笔记 = 每回合多抽 1（稀有）
+     所以下面每一件的效果都**换了维度**或**带了代价**，
+     而不是把上面某件普通遗物的数字直接调大。 */
+  brass_knuckles: {
+    name: '黄铜指虎', sprite: 'hammer', rarity: 'common',
+    desc: '战斗第一回合额外获得 <b>2</b> 点力量。',
+    hooks: { battleStart(B) { B.add(B.player, 'strength', 2); } },
+  },
+  sun_visor: {
+    name: '日冕护目镜', sprite: 'key_blue', rarity: 'common',
+    desc: '战斗开始时获得 <b>8</b> 点护甲，但每回合少抽 <b>1</b> 张牌。',
+    mods: { startBlock: 8, drawPerTurn: -1 },
+  },
+  thorned_boots: {
+    name: '钉刺长靴', sprite: 'crabdemon', rarity: 'common',
+    desc: '每当一个敌人被击败，获得 <b>3</b> 点护甲。',
+    hooks: { kill(B) { B.gainBlock(B.player, 3); } },
+  },
+  lucky_clover: {
+    name: '四叶草', sprite: 'key_green', rarity: 'uncommon',
+    desc: '战斗结束后额外获得 <b>12</b> 金币。', mods: { battleGold: 12 },
+  },
+  silver_anvil: {
+    name: '银砧', sprite: 'anvil', rarity: 'uncommon',
+    desc: '战斗开始时获得 <b>2</b> 点敏捷，但最大生命 <b>-3</b>。',
+    mods: { startDexterity: 2, maxHp: -3 },
+  },
+  warding_charm: {
+    name: '守护符', sprite: 'key_purple', rarity: 'uncommon',
+    desc: '最大生命 <b>+14</b>。', mods: { maxHp: 14 },
+  },
+  bottled_lightning: {
+    name: '瓶中闪电', sprite: 'potion_blue', rarity: 'rare',
+    desc: '战斗第 <b>4</b> 回合开始时，获得 <b>2</b> 点能量并抽 <b>1</b> 张牌。',
+    hooks: { turnStart(B) { if (B.turn === 4) { B.energy += 2; B.view?.onEnergy?.(); B.drawCards(1); } } },
+  },
+  vault_key: {
+    name: '金库钥匙', sprite: 'key_gold', rarity: 'rare',
+    desc: '商店物品价格 <b>降低 40%</b>。', mods: { shopDiscount: 0.4 },
   },
 };
 
