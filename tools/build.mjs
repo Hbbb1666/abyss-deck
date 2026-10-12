@@ -203,16 +203,23 @@ async function buildPrecache() {
    手工维护版本号必然被忘记（README 原先就写着"改动代码后把 VERSION 加一"），
    所以这里按内容算哈希自动盖戳。幂等：内容没变就不会改写 sw.js。 */
 async function stampServiceWorkerVersion() {
+  const swPath = join(ROOT, 'sw.js');
+  const sw = await readFile(swPath, 'utf8');
+  const cur = /const VERSION = '([^']*)'/.exec(sw)?.[1];
+
   const h = createHash('sha1');
   // precache.json 覆盖了"文件集合"（新增/删除素材都会变），
   // bundle/index.html/css 覆盖了"内容"（改了逻辑或样式就会变）。
   for (const f of ['precache.json', 'index.html', 'css/style.css', 'dist/bundle.js']) {
     try { h.update(await readFile(join(ROOT, f))); } catch { /* 缺了就不参与哈希 */ }
   }
+  // sw.js **自身**也要参与（把 VERSION 那一行剔掉，否则自指、永远在变）。
+  // 不加的话有个坑：只改 SW 逻辑（比如这次回退掉 navigate）时 VERSION 不变，
+  // 浏览器认为 SW 没更新、不会重新 install —— 修复推不下去。
+  // 实测踩到了：回退 navigate 之后线上 sw.js 变了，但 VERSION 还是旧的。
+  h.update(sw.replace(/const VERSION = '[^']*'/, ''));
+
   const ver = 'abyss-' + h.digest('hex').slice(0, 12);
-  const swPath = join(ROOT, 'sw.js');
-  const sw = await readFile(swPath, 'utf8');
-  const cur = /const VERSION = '([^']*)'/.exec(sw)?.[1];
   if (cur === ver) return { changed: false, to: ver, from: cur };
   await writeFile(swPath, sw.replace(/const VERSION = '[^']*'/, `const VERSION = '${ver}'`));
   return { changed: true, from: cur, to: ver };

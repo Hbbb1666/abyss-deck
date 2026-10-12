@@ -977,6 +977,15 @@ section('H. PWA / 预缓存清单（离线可玩）');
   ok(ver !== 'abyss-v1' && ver !== 'abyss-dev',
      'VERSION 不是手写的固定值（那种永远不触发 SW 更新）');
 
+  // sw.js **自身**必须参与版本哈希（把 VERSION 行剔掉再算，避免自指）。
+  // 实测踩到过：只回退 SW 逻辑（去掉 navigate）时 VERSION 没变，
+  // 浏览器就认为 SW 没更新、不重新 install —— 修复推不到用户那里。
+  {
+    const buildSrc = readFileSync(join(ROOT, 'tools/build.mjs'), 'utf8');
+    ok(/h\.update\(sw\.replace\(\/const VERSION/.test(buildSrc),
+       'sw.js 自身的改动也参与版本哈希（否则只改 SW 时版本不变、更新推不下去）');
+  }
+
   /* --- 更新链必须完整（漏一环就是"修好了但用户还看到旧的"）---
      实测踩到过：部署完新版本，浏览器里同时存在 **两个版本之前** 的缓存
      和上一版缓存，页面加载到的是旧 JS —— 因为 SW 的 fetch 是"缓存优先"，
