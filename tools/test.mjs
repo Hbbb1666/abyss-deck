@@ -1642,6 +1642,135 @@ section('P. 药水/遗物：点一下看说明，再点一下使用');
   }
 }
 
+section('Q. 虚弱按层递减 / 斩杀 / 毒死即结算');
+{
+  const noopView = { step: async () => {}, sync() {}, log() {}, onDamage() {}, onHeal() {}, onBlock() {},
+    onStatus() {}, onDraw() {}, onPlay() {}, onExhaust() {}, onEnergy() {}, onGold() {},
+    onTurnStart() {}, onEnemyAct() {}, onSummon() {}, onDeath() {}, onEnd() {}, onPotion() {}, beforeEndTurn() {} };
+  const { makeCard: mkCard } = await import('file://' + join(ROOT, 'js/data/cards.js'));
+  const { WEAK_PER_STACK } = await import('file://' + join(ROOT, 'js/core/battle.js'));
+
+  const mk = (ids = ['golem']) => {
+    A.startRun('knight');
+    const B = new A.Battle(ids, { kind: 'battle' });
+    B.view = { ...noopView };
+    B.rollIntents();
+    return B;
+  };
+
+  /* --- Q1. 虚弱随层数递减，4 层 = 0 伤害 ---
+     旧代码是 `if (get(atk,'weak') > 0) d *= 0.75` —— 只判断"有没有"，
+     叠到 20 层也只减 25%，玩家堆虚弱等于白堆。 */
+  {
+    const B = mk();
+    await B.start();
+    const e = B.aliveEnemies()[0];
+    const rows = [];
+    for (const n of [0, 1, 2, 3, 4, 8]) {
+      B.player.st.weak = n;
+      rows.push([n, B.calcDamage(20, B.player, e)]);
+    }
+    const expect = [[0, 20], [1, 15], [2, 10], [3, 5], [4, 0], [8, 0]];
+    ok(JSON.stringify(rows) === JSON.stringify(expect),
+       `虚弱每层 -25%、4 层归零（实测 ${rows.map(r => r[0] + '层→' + r[1]).join(' ')}）`);
+    ok(WEAK_PER_STACK === 0.25, `每层虚弱 = ${WEAK_PER_STACK * 100}%`);
+  }
+
+  /* --- Q2. 0 伤害就是真的打不动（不掉血、不误杀） --- */
+  {
+    const B = mk();
+    await B.start();
+    const e = B.aliveEnemies()[0];
+    e.hp = 20; e.maxHp = 20; e.block = 0;
+    B.add(B.player, 'weak', 4);
+    const hp0 = e.hp;
+    await B.damage(e, 99, '测试', { attacker: B.player });
+    ok(e.hp === hp0, `4 层虚弱下 99 点攻击打出 0 伤害（${hp0} -> ${e.hp}）`);
+    ok(!e.dead, '也没有把它打成负血/打死');
+  }
+
+  /* --- Q3. 斩杀：伤害打不死、但打完低于阈值 → 处决 --- */
+  {
+    const B = mk(['boss_abyss']);
+    await B.start();
+    const e = B.aliveEnemies()[0];
+    e.maxHp = 200;
+    e.hp = 60;                                   // 打 10 点后剩 50 = 25%（含边界）
+    e.block = 0;
+    const card = mkCard('assassinate');
+    await B.resolve(card.fx, { card, target: e, melee: true });
+    ok(e.dead, `斩杀触发：60/200（30%）挨 10 点后到 25%，被处决（剩 ${e.hp}）`);
+  }
+
+  /* --- Q4. 高于阈值不触发 --- */
+  {
+    const B = mk(['boss_abyss']);
+    await B.start();
+    const e = B.aliveEnemies()[0];
+    e.maxHp = 200; e.hp = 120; e.block = 0;       // 打完 110 = 55%
+    const card = mkCard('assassinate');
+    await B.resolve(card.fx, { card, target: e, melee: true });
+    ok(!e.dead, `55% 血量不会被斩杀（剩 ${e.hp}）`);
+  }
+
+  /* --- Q5. 用户的实际场景：**虚弱状态下**打 Boss，斩杀仍要生效 ---
+     虚弱只降低那 10 点伤害，不该影响"低于阈值就处决"这件事。 */
+  {
+    const B = mk(['boss_abyss']);
+    await B.start();
+    const e = B.aliveEnemies()[0];
+    e.maxHp = 200;
+    e.hp = 45;                                   // 22.5%，低于 25%
+    e.block = 0;
+    B.add(B.player, 'weak', 2);
+    const dmg = B.calcDamage(10, B.player, e);
+    const card = mkCard('assassinate');
+    await B.resolve(card.fx, { card, target: e, melee: true });
+    ok(dmg === 5, `虚弱 2 层把 10 点削到 ${dmg} 点`);
+    ok(e.dead, `★ 虚弱状态下斩杀照常触发（45/200 = 22.5% < 25%）`);
+  }
+
+  /* --- Q6. 斩杀不会误伤已经死掉的目标 / 不会对玩家生效 --- */
+  {
+    const B = mk(['slime', 'golem']);
+    await B.start();
+    const dead = B.aliveEnemies()[0];
+    await B.kill(dead);
+    const card = mkCard('assassinate');
+    const killed = await B.tryExecute({ execute: 'exec' }, { target: dead }, card, B.aliveEnemies()[0]);
+    ok(killed === false, '对已死亡的目标不会再触发斩杀');
+  }
+
+  /* --- Q7. 敌人在怪物回合被毒死 → 必须当场结算，不需要再点一次「结束回合」 ---
+     旧代码 kill() 里是 `if (brood.length) checkOver()`，而 enemyTurn 的中毒分支
+     走的是 `continue`，跳过了循环末尾的 checkOver() → 战斗不结束、又轮回玩家。 */
+  {
+    const B = mk(['slime']);
+    await B.start();
+    const e = B.aliveEnemies()[0];
+    e.hp = 3; e.maxHp = 20;
+    B.applyDebuff(e, 'poison', 9);               // 毒 9 点，必然毒死
+    ok(B.over === false, '开打前战斗还没结束');
+    await B.endTurn();                           // 玩家结束回合 → 怪物回合中毒身亡
+    ok(e.dead, '敌人在怪物回合被毒死');
+    ok(B.over === true, '★ 战斗**当场**结束（不需要再点一次「结束回合」）');
+    ok(B.result === 'win', `结算为胜利（result=${B.result}）`);
+  }
+
+  /* --- Q8. 多只敌人时，毒死最后一只同样立刻结算 --- */
+  {
+    const B = mk(['slime', 'bat']);
+    await B.start();
+    const es = B.aliveEnemies();
+    es[0].hp = 99; es[0].maxHp = 99;             // 第一只扛得住
+    es[1].hp = 2; es[1].maxHp = 20;
+    B.applyDebuff(es[1], 'poison', 9);
+    await B.endTurn();
+    ok(es[1].dead, '第二只被毒死');
+    ok(B.over === false, '第一只还活着，战斗继续（不该提前结算）');
+  }
+}
+
 section('运行期 JS 错误');
 {
   const real = jsErrors.filter(e => !/Not implemented|Could not parse CSS|audio/i.test(e));

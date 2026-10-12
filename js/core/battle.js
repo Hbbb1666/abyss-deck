@@ -27,11 +27,15 @@ export function stText(k, n) {
   return d.desc.replace(/N/g, String(n ?? 0));
 }
 
+/** 每层虚弱减少的伤害比例。**4 层 → 0 伤害**（堆够层数就是完全打不动）。
+    改这个数就等于调整整条虚弱曲线，别在两处各写一遍。 */
+export const WEAK_PER_STACK = 0.25;
+
 export const ST = {
   strength: { name: '力量', icon: '⬆', desc: '攻击伤害 +N', buff: true, color: '#ff8a5c' },
   dexterity: { name: '敏捷', icon: '✦', desc: '获得的护甲 +N', buff: true, color: '#6ee7a8' },
   vulnerable: { name: '易伤', icon: '✸', desc: '受到的伤害 +50%，回合结束 -1', color: '#ff5c8a' },
-  weak: { name: '虚弱', icon: '↓', desc: '造成的伤害 -25%，回合结束 -1', color: '#c07bff' },
+  weak: { name: '虚弱', icon: '↓', desc: '每层使造成的伤害 -25%（4 层即 0），回合结束 -1', color: '#c07bff' },
   poison: { name: '中毒', icon: '☠', desc: '回合开始失去 N 点生命，然后 -1', color: '#7ee787' },
   regen: { name: '再生', icon: '✚', desc: '回合结束回复 N 点生命，然后 -1', buff: true, color: '#7ee787' },
   thorns: { name: '荆棘', icon: '✹', desc: '被攻击时反弹 N 点伤害', buff: true, color: '#ffb04a' },
@@ -219,7 +223,11 @@ export class Battle {
   /* ---------------- 数值计算 ---------------- */
   calcDamage(base, atk, def) {
     let d = base + this.get(atk, 'strength');
-    if (this.get(atk, 'weak') > 0) d = Math.floor(d * 0.75);
+    // 虚弱**按层数**递减伤害，每层 -25%：1 层和以前一样是 -25%，
+    // 但 4 层就是 0 伤害了。旧代码只判断 `> 0`（有/没有），
+    // 于是叠多少层都只减 25% —— 玩家把虚弱堆到十几层，伤害纹丝不动。
+    const weak = this.get(atk, 'weak');
+    if (weak > 0) d = Math.floor(d * Math.max(0, 1 - WEAK_PER_STACK * weak));
     if (this.get(def, 'vulnerable') > 0) d = Math.floor(d * 1.5);
     return Math.max(0, d);
   }
@@ -316,12 +324,42 @@ export class Battle {
       this.view.onDeath?.(m);
       await this.view.step?.(60);
     }
-    // 连带清场之后必须重新判定胜负，否则 Boss 和小弟一起死时会卡在"敌人全死了但战斗没结束"
-    if (brood.length) this.checkOver();
+    // 判定胜负：**任何敌人死亡之后都要重判**，不能只在"有召唤物连带清场"时判。
+    //
+    // 旧代码是 `if (brood.length) this.checkOver();`，而 enemyTurn() 里敌人被中毒
+    // 打死走的是 `continue`，会跳过循环末尾那句 checkOver() —— 于是最后一个敌人
+    // 被毒死时战斗不会结束，又回到玩家回合（场上一只敌人都没有），
+    // 玩家还得自己点一次「结束回合」才进结算界面。
+    // 放在这里，所有"敌人死亡"的路径（毒、反伤、自爆、斩杀…）都自动覆盖。
+    this.checkOver();
   }
 
   /* ---------------- 效果结算 ---------------- */
   num(v, card) { return typeof v === 'string' ? (card?.[v] ?? 0) : (v || 0); }
+
+  /** 处理 fx 上的 execute 字段：造成伤害之后，生命低于阈值的目标直接处决。
+   *
+   *  为什么单独拎出来：`execute` 以前**只写在卡牌数据里**，引擎从来没读过它 ——
+   *  也就是说「暗杀」的斩杀效果**从来没有触发过**（不是虚弱导致的，虚弱只是
+   *  让伤害更低、更容易被误以为是"因为虚弱所以没斩杀"）。
+   *
+   *  阈值是百分比（卡面写「若敌人生命低于 25%」）。边界取**含等号**：
+   *  这样界面上显示 25% 时点下去确实会处决，不会出现"明明到了却没触发"的观感。
+   *  只在 dmg 之后判定；目标已被这次伤害打死就无需再处决。 */
+  async tryExecute(f, ctx, card, fallback) {
+    if (f.execute == null) return false;
+    const pct = this.num(f.execute, card);
+    if (!(pct > 0)) return false;
+    const t = (ctx.target && !ctx.target.dead) ? ctx.target
+      : (fallback && !fallback.dead) ? fallback
+        : this.aliveEnemies()[0];
+    if (!t || t.dead || t.hp <= 0 || t.isPlayer) return false;
+    if (t.hp > t.maxHp * pct / 100) return false;
+    this.pushLog(`「${card?.name || '效果'}」处决了 ${t.name}`);
+    this.view.onExecute?.(t, card);
+    await this.kill(t);
+    return true;
+  }
 
   /** 玩家卡牌/药水的效果 */
   async resolve(fxList, ctx) {
@@ -342,6 +380,8 @@ export class Battle {
             if (!t) break;
             await this.damage(t, v, card?.name || '效果', { attacker: this.player, melee: !!ctx.melee });
           }
+          // 斩杀（fx 上的 execute 字段）：伤害结算完之后再判定
+          await this.tryExecute(f, ctx, card, target);
           break;
         }
         case 'dmgAll': {

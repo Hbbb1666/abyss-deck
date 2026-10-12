@@ -524,6 +524,14 @@ export function battleScene(B, { onFinish, onQuit, resumed }) {
       if (refs) refs.node.classList.add('dead');
       sfx.bell();
     },
+    // 斩杀触发时给一次明显反馈 —— 不然玩家只看到敌人突然没了，不知道是效果生效
+    onExecute(e, card) {
+      const refs = enemyNodes.get(e.uid);
+      if (refs) fxFloat(refs.sprite, '斩杀！', 'dmg big');
+      sfx.bell();
+      screenFlash();
+      toast(`「${card?.name || '效果'}」直接斩杀了 <b>${e.name}</b>`, 1500);
+    },
     onVanish(e) {
       const refs = enemyNodes.get(e.uid);
       if (refs) refs.node.classList.add('dead');
