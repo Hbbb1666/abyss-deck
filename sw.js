@@ -30,24 +30,15 @@ self.addEventListener('install', e => {
 self.addEventListener('activate', e => {
   e.waitUntil((async () => {
     const keys = await caches.keys();
-    // 判断这是「更新」还是「首次安装」：更新前一定存在别的版本的缓存。
-    // 必须在这里、删之前算，删完就分辨不出来了。
-    const isUpdate = keys.some(k => k !== VERSION);
+    // 删掉旧版本的缓存，只留当前的；激活后立刻接管已打开的页面。
+    //
+    // ⚠️ 这里**不要**做 clients.navigate() 去"推"页面重载。
+    // 我试过（本意是连旧版 index.html 也一起救回来），结果**页面直接卡死**：
+    // 在 activate 里对受控客户端调用 navigate()，等的大概是这次导航自身的完成，
+    // 于是 SW 卡在那个 await 上，页面的请求全被挂住。已线上复现并回退。
+    // 页面重载交给 index.html 里的 controllerchange 监听（标准做法，见那边的注释）。
     await Promise.all(keys.filter(k => k !== VERSION).map(k => caches.delete(k)));
     await self.clients.claim();
-
-    // 更新时：主动让所有受控页面重新加载。
-    //
-    // 为什么要在 SW 侧做，而不是只靠页面里的 controllerchange 监听：
-    // 本补丁发布之前，用户缓存里的 index.html **没有那个监听**，
-    // 光靠页面自己永远不会刷新 —— 他们会一直跑旧代码，
-    // 而我们没法回头去改已经缓存在他们机器上的那个 HTML。
-    // 从 SW 侧推一把，连旧页面也能救回来。
-    // 首次安装时不做（那时没有旧缓存，也没必要多刷一次）。
-    if (isUpdate) {
-      const cs = await self.clients.matchAll({ type: 'window' });
-      for (const c of cs) { try { await c.navigate(c.url); } catch { /* 个别客户端不允许就直接跳过 */ } }
-    }
   })());
 });
 
