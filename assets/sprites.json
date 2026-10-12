@@ -235,6 +235,6 @@
   7,
   4
  ],
- "hero_assassin": "recolor:hero_rogue/shadow",
+ "hero_assassin": "custom:tools/make-sprites.mjs",
  "boss_abyss": "custom:tools/make-sprites.mjs"
 }

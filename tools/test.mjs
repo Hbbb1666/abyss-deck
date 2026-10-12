@@ -2417,6 +2417,77 @@ section('V. 贴图：源码即真相（PNG 必须与字符地图一致）');
     //    本段回归靠上面的**选择器覆盖率**分析 —— 它才是"当初为什么失效"的那条逻辑。
     ok(true, '（说明）元素级 image-rendering 需真浏览器量；jsdom 不支持该属性，故用选择器覆盖分析代替');
   }
+
+  /* --- V7. 四个职业立绘必须彼此不同，且刺客不能退回"整张改色" === */
+  {
+    const { CLASSES } = await import('file://' + join(ROOT, 'js/data/classes.js'));
+    const spritesJson = JSON.parse(readFileSync(join(ROOT, 'assets/sprites.json'), 'utf8'));
+
+    const heroes = Object.values(CLASSES).map(c => ({ cls: c.id, file: c.sprite }));
+    ok(heroes.length >= 4, `职业数 ≥ 4（实际 ${heroes.length}）`);
+    const files = heroes.map(h => h.file);
+    ok(new Set(files).size === files.length,
+       `每个职业用不同的立绘文件：${heroes.map(h => `${h.cls}:${h.file}`).join(' / ')}`, files.join(', '));
+    const missing = files.filter(f => !existsSync(join(ROOT, 'assets/sprites', `${f}.png`)));
+    ok(missing.length === 0, '每个职业的立绘文件都存在', missing.join(', '));
+
+    /* 关键回归：暗影刺客曾经是"把 hero_rogue 整张重新着色"（sprites.json 里写
+       `recolor:hero_rogue/shadow`），后果是①连皮肤都变紫、没有五官
+       ②用了 6 种紫色与法师撞色 ③与游侠逐像素同形。
+       现在它是自绘贴图，必须：
+         a) 在 sprites.json 里标成 custom（不再声明来自改色）
+         b) 不出现在任何 `recolor:` 值里
+         c) 与游侠的像素**不完全相同** */
+    ok(!heroes.some(h => h.file === undefined), '每个职业都有 sprite 字段');
+
+    const recolorVals = Object.entries(spritesJson)
+      .filter(([, v]) => typeof v === 'string' && v.startsWith('recolor:'));
+    ok(recolorVals.length === 0,
+       'sprites.json 里不再有 recolor 改色条目（改色会产生"同形而撞色"的贴图）',
+       recolorVals.map(([k, v]) => `${k}=${v}`).join(', '));
+
+    const assassinPng = readFileSync(join(ROOT, 'assets/sprites/hero_assassin.png'));
+    const roguePng = readFileSync(join(ROOT, 'assets/sprites/hero_rogue.png'));
+    ok(!assassinPng.equals(roguePng), '刺客立绘与游侠立绘不是同一份像素数据');
+    ok(String(spritesJson.hero_assassin || '').startsWith('custom:'),
+       `刺客立绘在 sprites.json 里标为自绘（实际 ${spritesJson.hero_assassin}）`);
+    ok(Object.keys(SPRITES).includes('hero_assassin'),
+       '刺客立绘由 tools/make-sprites.mjs 的字符地图生成（改了要重新生成）');
+
+    // 立绘必须"看得出是人"：这是历史缺陷的核心 —— 旧版把游侠**整张**重新着色，
+    // 连皮肤都变成紫的，于是没有五官、只剩一团紫色。
+    // 判据：字符地图里必须同时存在 ①肤色字符 ②眼睛用的高饱和色。
+    // ⚠️ 这里**不能**去读 hero_mage 的主色来比"是否撞色"：
+    //    hero_mage 不是自绘贴图（不在 SPRITES 里），取到的是 undefined，
+    //    写在 `if (a && b)` 里会**静默跳过整条断言**（正是错题本 031 的"假测试"）。
+    //    所以只对**自绘贴图**做这条检查，不依赖其它职业的解析结果。
+    const SKIN = new Set(['t', 'u', 'o', 'O']);          // 肤色/皮革暖色
+    const EYE = new Set(['R', 'r', 'y', 'b', 'Q']);       // 眼睛用的高饱和色
+    const rows = SPRITES.hero_assassin;
+    ok(Array.isArray(rows), '刺客是自绘贴图（能拿到字符地图）');
+    if (Array.isArray(rows)) {
+      const chars = new Set(rows.join('').split('').filter(c => c !== '.'));
+      const skinUsed = [...chars].filter(c => SKIN.has(c));
+      const eyeUsed = [...chars].filter(c => EYE.has(c));
+      ok(skinUsed.length >= 1,
+         `刺客立绘保留了可见面部（肤色调 ${skinUsed.join('') || '无'}）—— 旧版整张刷紫时没有`,
+         [...chars].join(''));
+      ok(eyeUsed.length >= 1,
+         `刺客立绘有眼睛用的高饱和色（${eyeUsed.join('') || '无'}）`, [...chars].join(''));
+
+      // 主色不能全是紫色系：那样会和法师（亮紫长袍）撞色。
+      // 看**除描边外**用得最多的两个颜色，要求**不能两个都是紫**。
+      const PURPLE = new Set(['p', 'P', 'Q', 'D', '9']);
+      const cnt = {};
+      for (const line of rows) for (const ch of line) {
+        if (ch === '.' || ch === '1' || ch === 'N') continue;   // 跳过透明与描边
+        cnt[ch] = (cnt[ch] || 0) + 1;
+      }
+      const top2 = Object.entries(cnt).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([c]) => c);
+      ok(top2.length === 0 || !top2.every(c => PURPLE.has(c)),
+         `刺客主色不是"两个都紫"（实际用量前二：${top2.join('')}）`);
+    }
+  }
 }
 
 section('运行期 JS 错误');
