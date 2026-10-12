@@ -7,6 +7,7 @@ import { CARDS, makeCard, rewardPool } from '../data/cards.js';
 import { RELICS, relicPool } from '../data/relics.js';
 import { POTIONS } from '../data/potions.js';
 import { CLASSES, startingDeck } from '../data/classes.js';
+import { pickById, scoreOf } from '../data/difficulty.js';
 
 const SAVE_KEY = 'abyss_deck_save_v1';
 const META_KEY = 'abyss_deck_meta_v1';
@@ -14,7 +15,7 @@ const META_KEY = 'abyss_deck_meta_v1';
 export let G = null;
 
 /* ---------- 新开一局 ---------- */
-export function newRun(clsId, seed) {
+export function newRun(clsId, seed, picks = []) {
   const cls = CLASSES[clsId];
   const s = seed ?? (Math.random() * 0xffffffff) >>> 0;
   G = {
@@ -30,6 +31,7 @@ export function newRun(clsId, seed) {
     deck: startingDeck(clsId).map(id => ({ id, up: false })),
     relics: [],
     potions: [],
+    picks: [...picks],              // 本局选的难度/增益条目（id 数组）
     map: null,
     node: null,
     pending: null,
@@ -40,7 +42,54 @@ export function newRun(clsId, seed) {
     over: null, // 'win' | 'dead'
   };
   addRelic(cls.relic, true);
+  applyPickStartBonuses();
   return G;
+}
+
+/**
+ * 只汇总"难度/增益"那部分修正。
+ * ⚠️ 开局加成必须用这个，**不能用 relicMods()** ——
+ * 后者把遗物也算进来了，而遗物的 maxHp/potionSlots 已经在 addRelic() 里生效过一次，
+ * 再套一遍就是**重复叠加**（选一件 +10 生命的遗物会变成 +20）。
+ * 我第一版就是直接用 relicMods()，靠这条注释才没把 bug 留下来。
+ */
+export function pickMods() {
+  const out = {};
+  for (const id of (G.picks || [])) {
+    const def = pickById(id);
+    if (!def) continue;
+    for (const [k, v] of Object.entries(def.mods || {})) {
+      if (typeof v === 'number') out[k] = (out[k] || 0) + v;
+      else out[k] = v;
+    }
+  }
+  return out;
+}
+
+/**
+ * 把"开局生效"的难度/增益修正落到实处。
+ * 为什么单独一步而不是在 relicMods() 读的时候顺手做：
+ *   maxHp / potionSlots / 初始金币 / 初始药水 / 额外遗物 都是**一次性**效果，
+ *   而 relicMods() 每场战斗都会调用 —— 放在那里会被反复叠加。
+ * 顺序：先调属性，再给遗物（额外遗物自身还可能带 maxHp 等修正）。
+ */
+function applyPickStartBonuses() {
+  const m = pickMods();                       // ← 只取难度/增益，不含遗物
+  if (m.maxHp) gainMaxHp(m.maxHp);
+  if (m.potionSlots) G.potionSlots = Math.max(1, G.potionSlots + m.potionSlots);
+  if (m.bonusGold) G.gold = Math.max(0, G.gold + m.bonusGold);
+  if (m.startExtraRelic) {
+    for (let i = 0; i < m.startExtraRelic; i++) {
+      const id = rollRelic(['common', 'uncommon']);
+      if (id) addRelic(id, true);
+    }
+  }
+  if (m.startPotion) {
+    for (let i = 0; i < m.startPotion; i++) {
+      if (G.potions.length >= G.potionSlots) break;
+      addPotion(rollPotion());
+    }
+  }
 }
 
 /* ---------- 生命上限 ----------
@@ -72,27 +121,58 @@ export function addRelic(id, silent) {
   return true;
 }
 
-/** 汇总所有遗物的静态修正 */
+/** 汇总所有遗物**以及所选难度/增益**的静态修正。
+ *
+ * 为什么把难度并进来：难度规则的效果（怪物血量/攻击、商店价格、营火治疗…）
+ * 和遗物是同一类东西 —— 都是"若干条静态修正"。并进来之后，
+ * 战斗、地图、商店、营火照旧只读 `relicMods()`，完全不需要知道难度的存在，
+ * 也不用在二十几个调用点各判断一次"有没有开这条难度"。 */
 export function relicMods() {
   const out = {};
-  for (const id of G.relics) {
-    const def = RELICS[id];
-    if (!def) continue;                       // 防线：脏 id 直接跳过
+  const add = def => {
     for (const [k, v] of Object.entries(def.mods || {})) {
       if (typeof v === 'number') out[k] = (out[k] || 0) + v;
       else out[k] = v;
     }
+  };
+  for (const id of G.relics) {
+    const def = RELICS[id];
+    if (!def) continue;                       // 防线：脏 id 直接跳过
+    add(def);
+  }
+  for (const id of (G.picks || [])) {
+    const def = pickById(id);
+    if (!def) continue;                       // 防线：难度条目被删掉后老存档还留着 id
+    add(def);
   }
   return out;
 }
 
-/** 汇总遗物钩子 */
+/** 汇总遗物与难度/增益的钩子。
+ *
+ * 返回 `[id, 函数, 定义]` 三元组 —— **第三个元素是必须的**：
+ * 调用点以前写的是 `hook(this, card, RELICS[id])`，而 id 现在也可能是难度条目
+ * （不在 RELICS 里）→ 那里会变成 `undefined`。把定义一起带出来，
+ * 调用点就不必关心钩子来自遗物还是难度。
+ */
 export function relicHooks(name) {
-  return G.relics
-    .filter(id => RELICS[id])                 // 防线：脏 id 直接跳过
-    .map(id => RELICS[id].hooks?.[name] && [id, RELICS[id].hooks[name]])
-    .filter(Boolean);
+  const out = [];
+  for (const id of G.relics) {
+    if (!RELICS[id]) continue;                // 防线：脏 id 直接跳过
+    const fn = RELICS[id].hooks?.[name];
+    if (fn) out.push([id, fn, RELICS[id]]);
+  }
+  for (const id of (G.picks || [])) {
+    const def = pickById(id);
+    const fn = def?.hooks?.[name];
+    if (fn) out.push([id, fn, def]);
+  }
+  return out;
 }
+
+/* ---------- 难度选择 ---------- */
+export const hasPicks = id => (G.picks || []).includes(id);
+export const pickScore = () => scoreOf(G.picks || []);
 
 /* ---------- 卡组 ---------- */
 export function addCardToDeck(id, up = false) { G.deck.push({ id, up }); }

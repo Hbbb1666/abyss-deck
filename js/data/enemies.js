@@ -21,9 +21,11 @@ const A = (name, dmg, extra = {}) => ({ name, intent: 'attack', dmg, ...extra })
 
 /** 每层相对第 1 层的强度倍率。改这里就能调整整条难度曲线。
     hp: 1 → 1.25 → 1.5 → 1.75（每层 +25%）
-    atk: 1 → 1.2 → 1.4 → 1.6（每层 +20%） */
+    atk: 1 → 1.15 → 1.30 → 1.45（每层 +15%）
+    攻击增幅 2026-10-12 由 +20% 下调到 +15%（产品要求"降低难度"）；
+    难度系统里另有"每层额外 +8% 攻击"的选项可以把难度加回去。 */
 export const ACT_HP_STEP = 0.25;
-export const ACT_ATK_STEP = 0.20;
+export const ACT_ATK_STEP = 0.15;
 export const TOTAL_ACTS = 4;
 export function actScale(act) {
   const n = Math.max(0, (act | 0) - 1);

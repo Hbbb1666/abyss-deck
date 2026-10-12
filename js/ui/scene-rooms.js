@@ -120,15 +120,27 @@ export function rewardScene(kind, { onDone }) {
    商店
    ===================================================================== */
 export function shopScene({ onDone }) {
-  const discount = relicMods().shopDiscount || 0;
-  const price = p => Math.max(1, Math.round(p * (1 - discount)));
+  const mods = relicMods();
+  const discount = mods.shopDiscount || 0;
+  // 难度「奸商」：所有商品涨价（在遗物折扣之后乘，两者可以同时存在）
+  const priceMult = (mods.shopPriceMult || 1);
+  const price = p => Math.max(1, Math.round(p * (1 - discount) * priceMult));
+  // 难度「药水禁令」：药水栏整个不出现
+  const noPotion = !!mods.shopNoPotion;
+  // 难度「奸商」：本次进店最多只能移除 1 张
+  const removeLimit = mods.shopRemoveLimit || Infinity;
+  // 增益「熟人折扣」：卡牌栏里有一张 5 折
+  const hasHalfCard = !!mods.shopHalfCard;
+  // 难度「诅咒缠身」：进店就往卡组塞一张诅咒（只塞一次）
+  const curseOnShop = !!mods.curseOnShop;
   const root = el('div', { class: 'screen' });
   const body = el('div', { class: 'scroll grow', style: { padding: '0 12px 12px' } });
   const shopStrip = statusStrip();
   root.append(topbar('商店', {}), shopStrip);
 
   // 商品
-  const cardStock = rollCardChoices(5).map(c => ({ ...c, price: price(cardPrice(c)) }));
+  const cardStock = rollCardChoices(5).map((c, i) => ({ ...c, half: hasHalfCard && i === 0, price: 0 }));
+  for (const c of cardStock) c.price = Math.max(1, Math.round(price(cardPrice(c)) * (c.half ? 0.5 : 1)));
   const relicStock = (() => {
     const out = [];
     for (let i = 0; i < 2; i++) {
@@ -137,15 +149,26 @@ export function shopScene({ onDone }) {
     }
     return out;
   })();
-  const potionStock = (() => {
+  const potionStock = noPotion ? [] : (() => {
     const out = [];
     for (let i = 0; i < 3; i++) { const p = rollPotion(); if (!out.some(x => x.id === p.id)) out.push({ ...p, price: price(p.price) }); }
     return out;
   })();
-  // 移除卡牌不限次数：同一次进店每移除一张涨 50 金（75 / 125 / 175…），
-  // 别再限制死一次 —— 那样会卡住玩家的卡组构筑。
+
+  // 进店塞诅咒（不占商品位、不可拒绝 —— 这正是这条难度的代价）
+  let curseMsg = '';
+  if (curseOnShop) {
+    const cid = G.rng.pick(['curse_wound', 'curse_pain', 'curse_regret']);
+    addCardToDeck(cid);
+    curseMsg = `「诅咒缠身」：一张「${CARDS[cid].name}」被塞进了你的卡组`;
+    save();
+  }
+
+  // 移除卡牌：同一次进店每移除一张涨 50 金（75 / 125 / 175…）。
+  // 难度「奸商」把次数限制到 1 次。
   let removalsThisVisit = 0;
   const removePriceOf = () => price(75 + removalsThisVisit * 50);
+  const removeLeft = () => Math.max(0, removeLimit - removalsThisVisit);
 
   function cardPrice(c) {
     // 加防护：老存档里的卡 id 可能已经不存在了，不能因为查不到稀有度就崩
@@ -162,13 +185,15 @@ export function shopScene({ onDone }) {
   function rerender() {
     clear(body);
     if (discount) body.append(el('div', { class: 'tiny dim', style: { paddingTop: '10px' }, html: `「商人徽章」生效中：价格已降低 <b>${Math.round(discount * 100)}%</b>` }));
+    if (priceMult !== 1) body.append(el('div', { class: 'tiny', style: { paddingTop: '10px', color: '#ff8a8a' }, html: `难度「奸商」生效中：所有商品涨价 <b>${Math.round((priceMult - 1) * 100)}%</b>` }));
+    if (curseMsg) body.append(el('div', { class: 'tiny', style: { paddingTop: '6px', color: '#c07bff' }, html: curseMsg }));
     /* 卡牌 */
     body.append(section('卡牌'));
     const cg = el('div', { class: 'shop-grid' });
     for (const c of cardStock) {
       if (c.bought) { cg.append(el('div', { class: 'reward-card gone' }, cardEl(makeCard(c.id)))); continue; }
       const node = cardEl(makeCard(c.id));
-      const price_ = el('div', { class: 'price' + (G.gold < c.price ? ' cant' : ''), html: `<span style="color:#ffcc52">◉</span>${c.price}` });
+      const price_ = el('div', { class: 'price' + (G.gold < c.price ? ' cant' : ''), html: `${c.half ? '<span style="color:#7ee787">5折</span> ' : ''}<span style="color:#ffcc52">◉</span>${c.price}` });
       const wrap = el('div', { class: 'reward-card' }, node, price_);
       node.addEventListener('click', () => buy(c.price, () => { c.bought = true; addCardToDeck(c.id); toast(`买下了「${CARDS[c.id].name}」`); }, rerender));
       cg.append(wrap);
@@ -214,13 +239,20 @@ export function shopScene({ onDone }) {
     /* 移除卡牌（可重复） */
     body.append(section('服务'));
     const rmPrice = removePriceOf();
-    const rm = el('div', { class: 'row gap8', style: { border: '2px solid #ffffff18', borderRadius: '6px', padding: '8px' } },
+    const outOfRemovals = removeLeft() <= 0;
+    const rmHint = outOfRemovals
+      ? `本次进店已用完（难度「奸商」限 ${removeLimit} 次）`
+      : removeLimit !== Infinity
+        ? `把碍事的牌从卡组里拿掉 · 本次还可移除 ${removeLeft()} 次`
+        : removalsThisVisit ? `本次已移除 ${removalsThisVisit} 张 · 可以继续移除` : '把碍事的牌从卡组里拿掉 · 可重复购买';
+    const rm = el('div', { class: 'row gap8', style: { border: '2px solid #ffffff18', borderRadius: '6px', padding: '8px', opacity: outOfRemovals ? '.45' : '1' } },
       el('div', { class: 'relic', style: { width: '36px', height: '36px', backgroundImage: `url(${SPR('coil')})`, flex: 'none' } }),
       el('div', { class: 'grow col' },
         el('div', { class: 'small', text: '移除一张卡牌' }),
-        el('div', { class: 'tiny dim', text: removalsThisVisit ? `本次已移除 ${removalsThisVisit} 张 · 可以继续移除` : '把碍事的牌从卡组里拿掉 · 可重复购买' })),
-      el('div', { class: 'price' + (G.gold < rmPrice ? ' cant' : ''), html: `<span style="color:#ffcc52">◉</span>${rmPrice}` }));
+        el('div', { class: 'tiny dim', text: rmHint })),
+      el('div', { class: 'price' + (G.gold < rmPrice || outOfRemovals ? ' cant' : ''), html: `<span style="color:#ffcc52">◉</span>${rmPrice}` }));
     rm.addEventListener('click', () => {
+      if (outOfRemovals) { sfx.error(); toast(`难度「奸商」：本次进店最多只能移除 ${removeLimit} 张`, 1800); return; }
       if (G.gold < rmPrice) { sfx.error(); toast('金币不够'); return; }
       pickCards(G.deck.map(e => makeCard(e.id, e.up)), {
         n: 1, title: '移除一张卡牌', hint: '选中的牌会永久离开你的卡组',
@@ -388,6 +420,11 @@ export function eventScene({ onDone, onFight, ev: givenEv, intro } = {}) {
    营火
    ===================================================================== */
 export function restScene({ onDone }) {
+  const mods = relicMods();
+  // 难度「冷掉的余烬」：营火治疗量降低 50%
+  const healMult = mods.restHealMult || 1;
+  // 增益「血之献祭」：多出一个"花 5 点生命换随机遗物"的选项
+  const hpForRelic = !!mods.restHpForRelic;
   const root = el('div', { class: 'screen' });
   const body = el('div', { class: 'scroll grow', style: { padding: '0 14px 14px' } });
   const restStrip = statusStrip();
@@ -398,7 +435,7 @@ export function restScene({ onDone }) {
     el('div', { class: 'small dim', style: { marginTop: '10px', textAlign: 'center', lineHeight: '1.8' }, html: '篝火噼啪作响。<br>你可以在这里歇一会儿。' }),
   ));
 
-  const healAmt = Math.floor(G.maxHp * 0.3);
+  const healAmt = Math.floor(G.maxHp * 0.3 * healMult);
   const opts = el('div', { class: 'col gap8' });
   const cont = el('button', { class: 'btn primary block mt16', text: '继续前进 →', onClick: () => { sfx.confirm(); onDone(); } });
   cont.classList.add('disabled');
@@ -449,8 +486,23 @@ export function restScene({ onDone }) {
     clear(opts);
     if (used) { done(); return; }
     const upgradable = G.deck.filter(e => CARDS[e.id].up && !e.up);
-    opts.append(option('🔥 休息', `回复 <b>${healAmt}</b> 点生命（当前 ${G.hp}/${G.maxHp}）`, doRest, G.hp >= G.maxHp));
+    opts.append(option('🔥 休息', `回复 <b>${healAmt}</b> 点生命（当前 ${G.hp}/${G.maxHp}）${healMult !== 1 ? '<span style="color:#ff8a8a"> · 难度减半</span>' : ''}`, doRest, G.hp >= G.maxHp));
     opts.append(option('⚒ 锻造', upgradable.length ? `升级一张卡牌（可升级 <b>${upgradable.length}</b> 张）` : '<span class="dim">没有可升级的卡牌</span>', doForge, !upgradable.length));
+    // 增益「血之献祭」：花 5 点生命换随机遗物（血不足 6 点时禁用 —— 不能把自己扣死）
+    if (hpForRelic) {
+      const canPay = G.hp > 5;
+      opts.append(option('🩸 血之献祭',
+        canPay ? '消耗 <b>5</b> 点生命，获得一件<b>随机遗物</b>' : '<span class="dim">生命不足，无法献祭</span>',
+        doBloodPact, !canPay));
+    }
+  };
+
+  const doBloodPact = () => {
+    G.hp = Math.max(1, G.hp - 5);          // 至少留 1 点，别让"献祭"把自己变成尸体
+    const id = rollRelic(['common', 'uncommon', 'rare']);
+    if (id) { addRelic(id); toast(`献出 5 点生命，获得「<b>${RELICS[id].name}</b>」`, 1800); sfx.bell(); }
+    else { G.gold += 50; toast('已经没有可拿的遗物了，改为获得 50 金币', 1800); }
+    save();
   };
 
   render();

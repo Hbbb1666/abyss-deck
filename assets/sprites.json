@@ -236,5 +236,8 @@
   4
  ],
  "hero_assassin": "custom:tools/make-sprites.mjs",
- "boss_abyss": "custom:tools/make-sprites.mjs"
+ "boss_abyss": "custom:tools/make-sprites.mjs",
+ "node_battle": "custom:tools/make-sprites.mjs",
+ "node_elite": "custom:tools/make-sprites.mjs",
+ "node_boss": "custom:tools/make-sprites.mjs"
 }

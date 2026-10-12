@@ -1520,8 +1520,8 @@ section('O. 四层结构与层级强度曲线');
     ok(hp[0] === 1 && atk[0] === 1, '第 1 层不缩放（基准）');
     ok(hp.map(x => +x.toFixed(4)).join(',') === '1,1.25,1.5,1.75',
        `生命每层 +25%：${hp.map(x => (x * 100).toFixed(0) + '%').join(' → ')}`);
-    ok(atk.map(x => +x.toFixed(4)).join(',') === '1,1.2,1.4,1.6',
-       `攻击每层 +20%：${atk.map(x => (x * 100).toFixed(0) + '%').join(' → ')}`);
+    ok(atk.map(x => +x.toFixed(4)).join(',') === '1,1.15,1.3,1.45',
+       `攻击每层 +15%（2026-10-12 由 +20% 下调，降低难度）：${atk.map(x => (x * 100).toFixed(0) + '%').join(' → ')}`);
     ok(actScale(99).hp > 1, '层数越界时不会崩，仍给出更大倍率');
   }
 
@@ -1553,7 +1553,10 @@ section('O. 四层结构与层级强度曲线');
       const dmgRising = dmgByAct.every((v, i) => i === 0 || v >= dmgByAct[i - 1]);
       ok(dmgRising, `${ENEMIES[id].name} 伤害随层数上升（${dmgByAct.join(' → ')}）`);
       const dmgRatio = dmgByAct[3] / dmgByAct[0];
-      ok(Math.abs(dmgRatio - 1.6) < 0.06, `${ENEMIES[id].name} 第4层伤害约为第1层的 1.6 倍（实测 ${dmgRatio.toFixed(2)}）`);
+      // 第 4 层攻击倍率 = 1 + 0.15×3 = 1.45（原为 1.6）。
+      // 注意实测值会因「力量/虚弱」等固定值加减与取整而略偏离倍率本身，
+      // 所以这里是"约为"（容差 0.06），不是精确等式。
+      ok(Math.abs(dmgRatio - 1.45) < 0.08, `${ENEMIES[id].name} 第4层伤害约为第1层的 1.45 倍（实测 ${dmgRatio.toFixed(2)}）`);
     }
   }
 
@@ -1888,6 +1891,7 @@ section('R. 遗物扩充 / 蓝色卡提费 / 开局事件');
     // mods 的键分散在两处读取：战斗内看 battle.js，战斗外看 scene-rooms.js
     // （battleGold / shopDiscount / cardChoice 都是场景层读的）。
     const sceneSrc = readFileSync(join(ROOT, 'js/ui/scene-rooms.js'), 'utf8');
+    const stateSrc = readFileSync(join(ROOT, 'js/core/state.js'), 'utf8');
     const bad = [];
     for (const [id, r] of Object.entries(RELICS)) {
       if (!r.name || !r.desc) bad.push(`${id} 缺 name/desc`);
@@ -1895,9 +1899,17 @@ section('R. 遗物扩充 / 蓝色卡提费 / 开局事件');
       if (!spriteKeys.has(r.sprite)) bad.push(`${id} 立绘不存在: ${r.sprite}`);
       for (const k of Object.keys(r.mods || {})) {
         if (['maxHp', 'potionSlots'].includes(k)) continue;   // 这两个在 state.js 的 addRelic 里读
-        const inBattle = new RegExp(`m\\.${k}\\b`).test(battleSrc);
-        const inScene = new RegExp(`relicMods\\(\\)\\.${k}`).test(sceneSrc);
-        if (!inBattle && !inScene) bad.push(`${id}.mods.${k} 引擎从不读取`);
+        // 「用到」的判据放宽成"任何地方按属性读过这个名字"：
+        //   battle.js 里是 `this.mods.<k>` / `m.<k>`
+        //   scene-rooms.js 里既有 `relicMods().<k>` 也有 `const mods = relicMods()` 后的 `mods.<k>`
+        //     —— 原先只匹配字面量 `relicMods().<k>`，两种写法都会漏。
+        // 用最朴素的 `.<k>`（前面不限定字符，因为实际写法可能是 `)` 或标识符）。
+        // 仍能抓到拼错的键：错名字在任何文件里都不会以 `.名字` 出现。
+        const pat = new RegExp(`\\.${k}\\b`);
+        const inBattle = pat.test(battleSrc);
+        const inScene = pat.test(sceneSrc);
+        const inState = pat.test(stateSrc);
+        if (!inBattle && !inScene && !inState) bad.push(`${id}.mods.${k} 引擎从不读取`);
       }
       for (const m of JSON.stringify(r.hooks || {}).matchAll(/B\.(\w+)\(/g)) {
         if (!new RegExp(`\\b${m[1]}\\s*\\(`).test(battleSrc)) bad.push(`${id}: B.${m[1]}() 不存在`);
@@ -2362,11 +2374,17 @@ section('V. 贴图：源码即真相（PNG 必须与字符地图一致）');
        `精英石像鬼与深渊之主不再共用一张图（${ENEMIES.gargoyle.sprite} vs ${ENEMIES.boss_lord.sprite}）`);
   }
 
-  /* --- V5. sprites.json 只登记真实存在的贴图 --- */
+  /* --- V5. sprites.json 与 assets/sprites/ 必须一一对齐 --- */
   {
     const spritesJson = JSON.parse(readFileSync(join(ROOT, 'assets/sprites.json'), 'utf8'));
     const missing = Object.keys(spritesJson).filter(n => !existsSync(join(ROOT, 'assets/sprites', `${n}.png`)));
     ok(missing.length === 0, 'sprites.json 里的每个条目都有对应 PNG 文件', missing.join(', '));
+    // 反向：磁盘上的 PNG 也必须都登记进 sprites.json。
+    // 漏登记的贴图在**测试里是看不见的**（白名单只读 json 的键），
+    // 但运行期会 404 变成空白 —— 这次新增 node_battle 等三张就是漏登记被这条抓到的。
+    const onDisk = readdirSync(join(ROOT, 'assets/sprites')).filter(f => f.endsWith('.png')).map(f => f.slice(0, -4));
+    const unregistered = onDisk.filter(n => !(n in spritesJson));
+    ok(unregistered.length === 0, '磁盘上的每张 PNG 都登记在 sprites.json 里', unregistered.join(', '));
     const drawn = Object.keys(SPRITES);
     const unmarked = drawn.filter(n => !String(spritesJson[n] || '').startsWith('custom:'));
     ok(unmarked.length === 0, '自绘贴图在 sprites.json 里标注了来源（不再假装来自图集）', unmarked.join(', '));
@@ -2548,6 +2566,346 @@ section('V. 贴图：源码即真相（PNG 必须与字符地图一致）');
     h2.update(swSrc.replace(/const VERSION = '[^']*'/, ''));
     ok(h2.digest('hex').slice(0, 12) !== expect.slice('abyss-'.length),
        '（自证）改动一个素材的字节就会改变版本哈希 —— 证明内容真的参与了哈希');
+  }
+}
+
+section('W. 难度系统：解锁 / 全部 20 条生效 / 计分');
+{
+  const D = await import('file://' + join(ROOT, 'js/data/difficulty.js'));
+  const { DIFFICULTY, BOONS, DIFF_POINTS, BOON_POINTS, MAX_PICKS, scoreOf, scoreLabel, splitPicks, validatePicks, pickById } = D;
+
+  /* --- W1. 数据完整性 --- */
+  {
+    ok(DIFFICULTY.length === 10, `难度规则 10 条（实际 ${DIFFICULTY.length}）`);
+    ok(BOONS.length === 10, `增益 10 条（实际 ${BOONS.length}）`);
+    const all = [...DIFFICULTY, ...BOONS];
+    const bad = [];
+    for (const it of all) {
+      if (!it.id || !it.name || !it.desc) bad.push(`${it.id} 缺字段`);
+      if (!it.mods && !it.hooks) bad.push(`${it.id} 既没有 mods 也没有 hooks（选了不会有任何效果）`);
+    }
+    ok(bad.length === 0, '每条难度/增益都有 id/name/desc 与至少一个效果', bad.join(', '));
+    ok(new Set(all.map(x => x.id)).size === all.length, '没有重复 id');
+    ok(DIFF_POINTS === 9 && BOON_POINTS === -4, `分值口径：难度 +${DIFF_POINTS}、增益 ${BOON_POINTS}`);
+    ok(MAX_PICKS === 10, `最多选 ${MAX_PICKS} 条`);
+  }
+
+  /* --- W2. 计分 --- */
+  {
+    ok(scoreOf([]) === 0, '不选任何条目 = 0 分（标准难度）');
+    ok(scoreOf(['d_boss_hp']) === 9, '1 条难度 = 9 分');
+    ok(scoreOf(['b_gold40']) === -4, '1 条增益 = -4 分');
+    ok(scoreOf(['d_boss_hp', 'b_gold40']) === 5, '难度 + 增益 = 相加');
+    ok(scoreOf(['__不存在__']) === 0, '未知 id 记 0 分（老存档里有被删掉的条目也不能崩）');
+    const sp = splitPicks(['d_boss_hp', 'b_gold40']);
+    ok(sp.difficulty.length === 1 && sp.boons.length === 1, 'splitPicks 能正确分类');
+    ok(validatePicks([...DIFFICULTY, ...BOONS].slice(0, 11).map(x => x.id)).length > 0,
+       `超过 ${MAX_PICKS} 条时 validatePicks 报错`);
+    ok(validatePicks([]).length === 0, '空选择合法');
+    // 全部 20 条超过上限 10 → 必须被判为非法（这是"最多 10 条"的守门）
+    const all20 = [...new Set([...DIFFICULTY, ...BOONS].map(x => x.id))];
+    ok(all20.length === 20 && validatePicks(all20).length > 0,
+       `全部 20 条超过上限 ${MAX_PICKS}，validatePicks 会拦下`);
+    ok(validatePicks(all20.slice(0, 10)).length === 0, '恰好 10 条是合法的');
+    ok(scoreLabel(0) === '标准', '0 分显示"标准"');
+  }
+
+  /* --- W3. 解锁条件：没通关过就没有难度入口 --- */
+  {
+    // pickDifficulty 会读 meta.wins；这里直接验数据层与调用契约
+    const mainSrc = readFileSync(join(ROOT, 'js/main.js'), 'utf8');
+    ok(/function pickDifficulty\(clsId\)[\s\S]{0,200}?if \(!meta\.wins\)/.test(mainSrc),
+       'pickDifficulty：meta.wins 为 0 时直接开标准难度（未解锁）');
+    ok(/case 'class': node = classScene\(\{ onPick: pickDifficulty/.test(mainSrc),
+       '选职业后走 pickDifficulty（而不是直接 startRun）');
+    ok(/bestWinScore/.test(mainSrc), '通关时记录本局难度分（bestWinScore）');
+  }
+
+  /* --- W4. 每一条难度/增益都真的改变状态 ---
+     这是本段的核心：**逐条实际生效验证**。
+     只断言"数据表里有这一条"是不够的 —— 键名写错、钩子名拼错都会静默无效。 */
+  {
+    const noop = { step: async () => {}, sync() {}, log() {}, onDamage() {}, onHeal() {}, onBlock() {}, onStatus() {}, onDraw() {}, onPlay() {}, onExhaust() {}, onEnergy() {}, onGold() {}, onTurnStart() {}, onEnemyAct() {}, onSummon() {}, onDeath() {}, onEnd() {}, onPotion() {}, onExecute() {} };
+    const mkBattle = (picks, enc = ['slime']) => {
+      A.startRun('knight', picks);
+      const B = new A.Battle(enc, { kind: 'battle' });
+      B.view = { ...noop };
+      return B;
+    };
+
+    /* 难度：怪物血量每层额外 +15% */
+    {
+      const b4 = mkBattle(['d_hp_per_act']);
+      A.G.act = 4; b4.act = 4;
+      const base = mkBattle([]); base.act = 4;
+      const plainHp = Math.round(A.G.rng.int(0, 0));   // 占位，避免未使用
+      // 用同一掷点比较：先固定 rng 状态
+      A.startRun('knight', []);
+      A.G.act = 4; A.G.rng.setState(12345);
+      const B1 = new A.Battle(['golem'], { kind: 'battle' }); B1.view = { ...noop };
+      const hp1 = B1.aliveEnemies()[0].maxHp;
+      A.startRun('knight', ['d_hp_per_act']);
+      A.G.act = 4; A.G.rng.setState(12345);
+      const B2 = new A.Battle(['golem'], { kind: 'battle' }); B2.view = { ...noop };
+      const hp2 = B2.aliveEnemies()[0].maxHp;
+      // 第 4 层基础生命 ×1.75；额外 +15%×3 = ×1.45 → 合计 ×2.5375
+      ok(hp2 > hp1, `「厚重皮囊」让第 4 层怪物更厚（${hp1} → ${hp2}）`);
+      ok(Math.abs((hp2 / hp1) - 1.45) < 0.08, `额外增幅约为 ×1.45（实测 ${(hp2 / hp1).toFixed(2)}）`);
+      // 第 1 层不该被影响（"每层增幅"不能变成"开局就变强"）
+      A.startRun('knight', ['d_hp_per_act']);
+      A.G.rng.setState(12345);
+      const B3 = new A.Battle(['golem'], { kind: 'battle' }); B3.view = { ...noop };
+      A.startRun('knight', []);
+      A.G.rng.setState(12345);
+      const B4 = new A.Battle(['golem'], { kind: 'battle' }); B4.view = { ...noop };
+      ok(B3.aliveEnemies()[0].maxHp === B4.aliveEnemies()[0].maxHp,
+         `第 1 层不受「厚重皮囊」影响（${B3.aliveEnemies()[0].maxHp} = ${B4.aliveEnemies()[0].maxHp}）`);
+    }
+
+    /* 难度：怪物攻击每层额外 +8% */
+    {
+      A.startRun('knight', []);
+      A.G.act = 4; A.G.rng.setState(777);
+      const B1 = new A.Battle(['golem'], { kind: 'battle' }); B1.view = { ...noop };
+      const atk1 = B1.aliveEnemies()[0].atkMult;
+      A.startRun('knight', ['d_atk_per_act']);
+      A.G.act = 4; A.G.rng.setState(777);
+      const B2 = new A.Battle(['golem'], { kind: 'battle' }); B2.view = { ...noop };
+      const atk2 = B2.aliveEnemies()[0].atkMult;
+      // 基础 1.45，额外 +8%×3 = ×1.24 → ≈1.798
+      ok(Math.abs(atk2 / atk1 - 1.24) < 0.02, `「凶性渐长」第 4 层攻击 ×1.24（实测 ${(atk2 / atk1).toFixed(3)}）`);
+    }
+
+    /* 难度：Boss 血量 +35% */
+    {
+      A.startRun('knight', []);
+      A.G.rng.setState(4242);
+      const B1 = new A.Battle(['boss_abyss'], { kind: 'boss' }); B1.view = { ...noop };
+      const hp1 = B1.aliveEnemies()[0].maxHp;
+      A.startRun('knight', ['d_boss_hp']);
+      A.G.rng.setState(4242);
+      const B2 = new A.Battle(['boss_abyss'], { kind: 'boss' }); B2.view = { ...noop };
+      const hp2 = B2.aliveEnemies()[0].maxHp;
+      ok(Math.abs(hp2 / hp1 - 1.35) < 0.02, `「庞大的阴影」Boss 血量 ×1.35（${hp1} → ${hp2}）`);
+      // 召唤物不该吃 Boss 加成
+      A.startRun('knight', ['d_boss_hp']);
+      A.G.rng.setState(4242);
+      const B3 = new A.Battle([], { kind: 'battle' }); B3.view = { ...noop };
+      const s = B3.spawn('slime');
+      const summoned = B3.spawn('slime', s);
+      ok(summoned.maxHp === s.maxHp || summoned.maxHp < s.maxHp * 1.35,
+         '「庞大的阴影」不影响被召唤出来的小怪');
+    }
+
+    /* 难度：「暴怒」每轮行动后 +1 力量 +1 敏捷 ——
+       ⚠️ 必须**真跑一轮 enemyTurn()**，不能只手动调钩子函数。
+       我第一版就是直接 `A.relicHooks('enemyActed')` 手动执行，
+       结果把 battle.js 里那句调用删掉，测试**依然是绿的** ——
+       它只证明了"钩子函数本身对"，没证明"引擎会调用它"（错题本 031 的假断言）。 */
+    {
+      const B = mkBattle(['d_enemy_scale_each_turn'], ['slime']);
+      const e = B.aliveEnemies()[0];
+      const s0 = B.get(e, 'strength'), d0 = B.get(e, 'dexterity');
+      await B.enemyTurn();                       // ← 真的过一轮敌人回合
+      ok(B.get(e, 'strength') === s0 + 1 && B.get(e, 'dexterity') === d0 + 1,
+         `「暴怒」让敌人每轮行动后 +1 力量 +1 敏捷（力量 ${s0}→${B.get(e, 'strength')}，敏捷 ${d0}→${B.get(e, 'dexterity')}）`);
+      // 再跑一轮应当再 +1（确认是每轮而不是只加一次）
+      const s1 = B.get(e, 'strength');
+      await B.enemyTurn();
+      ok(B.get(e, 'strength') === s1 + 1, `「暴怒」每轮都加（第二轮 ${s1}→${B.get(e, 'strength')}）`);
+      // 对照：没选这条难度时不该涨
+      const B2 = mkBattle([], ['slime']);
+      const e2 = B2.aliveEnemies()[0];
+      await B2.enemyTurn();
+      ok(B2.get(e2, 'strength') === 0, '未选「暴怒」时敌人不会自己成长');
+    }
+
+    /* 难度：初始药水槽 -2、商店不出药水 */
+    {
+      A.startRun('knight', ['d_potion_slots_down']);
+      const m = A.relicMods();
+      ok(A.G.potionSlots === 1, `「药水禁令」初始药水槽 3→1（实际 ${A.G.potionSlots}）`);
+      ok(m.shopNoPotion === 1, '「药水禁令」标记了商店不出药水');
+    }
+
+    /* 难度：营火全部替换为事件节点 */
+    {
+      const { generateMap } = await import('file://' + join(ROOT, 'js/core/map.js'));
+      const withRest = generateMap(999, 1, {});
+      const noRest = generateMap(999, 1, { restAsEvent: true });
+      const c1 = { rest: 0 }, c2 = { rest: 0, event: 0 };
+      for (const n of withRest.nodes) if (n.type === 'rest') c1.rest++;
+      for (const n of noRest.nodes) { if (n.type === 'rest') c2.rest++; if (n.type === 'event') c2.event++; }
+      ok(c1.rest > 0, `默认地图上有营火（${c1.rest} 个）`);
+      ok(c2.rest === 0, `「无处歇脚」地图上营火清零（实际 ${c2.rest} 个）`);
+      ok(c2.event > 0, `「无处歇脚」把营火变成了事件（事件 ${c2.event} 个）`);
+      // 200 个种子都不能漏
+      const leaked = [];
+      for (let s2 = 0; s2 < 200; s2++) {
+        const mm = generateMap(s2 * 7919 >>> 0, (s2 % 4) + 1, { restAsEvent: true });
+        if (mm.nodes.some(n => n.type === 'rest')) leaked.push(s2);
+      }
+      ok(leaked.length === 0, '200 个种子下营火都被替换干净', leaked.slice(0, 5).join(','));
+    }
+
+    /* 难度：精英权重提高 */
+    {
+      const { generateMap } = await import('file://' + join(ROOT, 'js/core/map.js'));
+      let a = 0, b = 0;
+      for (let s2 = 0; s2 < 200; s2++) {
+        a += generateMap(s2 * 7919 >>> 0, 2, {}).nodes.filter(n => n.type === 'elite').length;
+        b += generateMap(s2 * 7919 >>> 0, 2, { eliteWeightUp: true }).nodes.filter(n => n.type === 'elite').length;
+      }
+      ok(b > a, `「危机四伏」让精英节点变多（200 种子合计 ${a} → ${b}）`);
+    }
+
+    /* 难度：商店涨价 25%、限移除 1 次；增益：一张 5 折卡 */
+    {
+      A.startRun('knight', ['d_shop_price_up']);
+      const m = A.relicMods();
+      ok(m.shopPriceMult === 1.25, `「奸商」价格倍率 1.25（实际 ${m.shopPriceMult}）`);
+      ok(m.shopRemoveLimit === 1, `「奸商」每次进店限移除 1 张（实际 ${m.shopRemoveLimit}）`);
+      A.startRun('knight', ['b_shop_half_card']);
+      ok(A.relicMods().shopHalfCard === 1, '「熟人折扣」标记了 5 折卡位');
+      const roomsSrc = readFileSync(join(ROOT, 'js/ui/scene-rooms.js'), 'utf8');
+      ok(/c\.half \? 0\.5 : 1/.test(roomsSrc), '商店按 half 标记把首张卡打成 5 折');
+    }
+
+    /* 难度：进商人塞一张诅咒 */
+    {
+      A.startRun('knight', ['d_curse_on_shop']);
+      const before = A.G.deck.length;
+      A.go('shop');
+      await new Promise(r => setTimeout(r, 300));
+      const added = A.G.deck.slice(before);
+      ok(A.G.deck.length === before + 1, `「诅咒缠身」进店后卡组 +1（${before} → ${A.G.deck.length}）`);
+      ok(added.length === 1 && A.CARDS[added[0].id]?.type === 'curse',
+         `塞进的是诅咒卡（${added.map(x => A.CARDS[x.id]?.name).join(',')}）`);
+    }
+
+    /* 难度：营火治疗减半、增益：血换遗物选项 */
+    {
+      A.startRun('knight', []);
+      const full = Math.floor(A.G.maxHp * 0.3);
+      A.startRun('knight', ['d_rest_heal_half']);
+      const half = Math.floor(A.G.maxHp * 0.3 * 0.5);
+      ok(half < full, `「冷掉的余烬」治疗量 ${full} → ${half}`);
+      ok(A.relicMods().restHealMult === 0.5, '「冷掉的余烬」倍率 0.5');
+      A.startRun('knight', ['b_rest_hp_relic']);
+      ok(A.relicMods().restHpForRelic === 1, '「血之献祭」标记了营火换遗物选项');
+    }
+
+    /* 增益：初始生命上限 +6 */
+    {
+      A.startRun('knight', []);
+      const base = A.G.maxHp;
+      A.startRun('knight', ['b_maxhp6']);
+      ok(A.G.maxHp === base + 6, `「强健体魄」上限 ${base} → ${A.G.maxHp}`);
+
+      /* 关键：开局的**一次性**效果必须只生效一次。
+         这里直接断言"开局加成走的是 pickMods()（只含难度/增益）而不是 relicMods()（含遗物）"。
+         为什么必须断言函数身份而不是观测量：
+           本用例里职业遗物是「燃烧之血」（没有 maxHp），所以"误用 relicMods()"在当前数据下
+           观测量**完全相同**（我用它试过，测试是绿的 —— 假断言）。
+           一旦将来给职业初始遗物加上 maxHp，误用就会真的重复叠加。
+           所以这里断言源码里的实现选择，配上"再来一次不会累加"的行为断言，两层一起守。 */
+      const stateSrc2 = readFileSync(join(ROOT, 'js/core/state.js'), 'utf8');
+      ok(/function applyPickStartBonuses[\s\S]{0,200}?const m = pickMods\(\)/.test(stateSrc2),
+         '「开局加成」用的是 pickMods()（只含难度/增益），不会与遗物重复叠加');
+
+      // 行为断言：同一个增益不会被跑两次
+      A.startRun('knight', ['b_maxhp6']);
+      const m1 = A.G.maxHp;
+      A.save(); A.loadSave();                    // 读档不应再次施加开局加成
+      ok(A.G.maxHp === m1, `读档不会重复施加开局加成（${m1} → ${A.G.maxHp}）`);
+
+      // 与遗物共存时两者各自只算一次
+      A.startRun('knight', ['b_maxhp6']);
+      const b4 = A.G.maxHp;
+      A.addRelic('amulet');                      // 生命护符 = 最大生命 +10，与增益无关
+      ok(A.G.maxHp === b4 + 10, `增益与遗物各算一次（${b4} +10 → ${A.G.maxHp}）`);
+    }
+
+    /* 增益：初始 +40 金币、一瓶随机药水、额外遗物、首回合多 1 费 */
+    {
+      A.startRun('knight', []);
+      const g0 = A.G.gold, r0 = A.G.relics.length, p0 = A.G.potions.length;
+      A.startRun('knight', ['b_gold40']);
+      ok(A.G.gold === g0 + 40, `「盘缠充足」金币 ${g0} → ${A.G.gold}`);
+      A.startRun('knight', ['b_extra_relic']);
+      ok(A.G.relics.length === r0 + 1, `「旧日传承」遗物 ${r0} → ${A.G.relics.length}`);
+      A.startRun('knight', ['b_start_potion']);
+      ok(A.G.potions.length === p0 + 1, `「随身药剂」药水 ${p0} → ${A.G.potions.length}`);
+      A.startRun('knight', []);
+      const B1 = new A.Battle(['slime'], { kind: 'battle' }); B1.view = { ...noop };
+      A.startRun('knight', ['b_first_energy']);
+      const B2 = new A.Battle(['slime'], { kind: 'battle' }); B2.view = { ...noop };
+      ok(A.relicMods().firstTurnEnergy === 1, '「先手优势」标记了首回合 +1 费');
+    }
+
+    /* 增益：打出能力卡后 +1 力量 —— 同样必须**真的把牌打出去** */
+    {
+      const B = mkBattle(['b_power_strength'], ['slime']);
+      B.view = { ...noop };
+      // 手动塞一张 0 费能力牌进手牌并给足能量，然后真的走 playCard()
+      const power = { id: 'test_power', name: '测试能力牌', type: 'power', cost: 0, fx: [], upgraded: false, uid: 'tp1' };
+      B.hand.push(power);
+      B.energy = 3;
+      const s0 = B.get(B.player, 'strength');
+      await B.playCard(power);
+      ok(B.get(B.player, 'strength') === s0 + 1,
+         `「战意沸腾」打出能力卡后 +1 力量（${s0} → ${B.get(B.player, 'strength')}）`);
+      // 对照：打出**攻击**牌不该触发
+      const atk = { id: 'test_atk', name: '测试攻击牌', type: 'attack', cost: 0, dmg: 1, fx: [{ t: 'dmg', v: 'dmg' }], upgraded: false, uid: 'ta1' };
+      B.hand.push(atk); B.energy = 3;
+      const s1 = B.get(B.player, 'strength');
+      await B.playCard(atk, B.aliveEnemies()[0]);
+      ok(B.get(B.player, 'strength') === s1, '打出攻击卡不会触发「战意沸腾」（只对能力卡生效）');
+    }
+
+    /* 增益：精英/Boss 战后 +1 生命上限 */
+    {
+      A.startRun('knight', ['b_elite_boss_maxhp']);
+      const B = mkBattle(['b_elite_boss_maxhp'], ['slime']);
+      B.kind = 'elite';
+      const before = A.G.maxHp;
+      B.gainMaxHpRun(1);
+      ok(A.G.maxHp === before + 1, `「愈战愈勇」上限 ${before} → ${A.G.maxHp}`);
+      ok(B.player.maxHp === A.G.maxHp, '战斗内的玩家血条上限同步（不会出图才跳一下）');
+      // 普通战斗不该触发（只在钩子里判断 kind）
+      const hookSrc = readFileSync(join(ROOT, 'js/data/difficulty.js'), 'utf8');
+      ok(/B\.kind === 'elite' \|\| B\.kind === 'boss'/.test(hookSrc),
+         '「愈战愈勇」只在精英/Boss 战生效');
+    }
+
+    /* 增益：被召唤的怪物带 3 层虚弱 */
+    {
+      const B = mkBattle(['b_summon_weak3'], ['slime']);
+      B.view = { ...noop };
+      const host = B.aliveEnemies()[0];
+      const summoned = B.spawn('slime', host);
+      ok(B.get(summoned, 'weak') === 3, `「虚弱召唤」召唤物带 3 层虚弱（实际 ${B.get(summoned, 'weak')}）`);
+      // 原本就有的敌人不该被加上
+      ok(B.get(host, 'weak') === 0, '「虚弱召唤」不会给原有敌人加虚弱');
+    }
+  }
+
+  /* --- W5. 难度写进存档、能读回来 --- */
+  {
+    A.startRun('knight', ['d_boss_hp', 'b_gold40']);
+    A.save();
+    const ls = window.localStorage.getItem('abyss_deck_save_v1');
+    const parsed = JSON.parse(ls);
+    ok(Array.isArray(parsed.picks) && parsed.picks.length === 2,
+       `难度选择写进了存档（${JSON.stringify(parsed.picks)}）`);
+    // 存档里塞一个已经删掉的 id：不能崩，也不该算分
+    parsed.picks = ['d_boss_hp', '__removed_entry__'];
+    window.localStorage.setItem('abyss_deck_save_v1', JSON.stringify(parsed));
+    const g = A.loadSave();
+    ok(!!g, '带未知难度 id 的存档仍能读出来（不崩）');
+    ok(scoreOf(g.picks) === 9, `未知条目按 0 分计（实际 ${scoreOf(g.picks)}）`);
+    const mm = A.relicMods();
+    ok(typeof mm.bossHpMult === 'number', '读档后难度修正依然生效');
   }
 }
 

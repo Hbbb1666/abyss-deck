@@ -1,5 +1,5 @@
 import { el, clear, sleep, toast, fitStage, disposeScene } from './core/util.js';
-import { G, newRun, save, hasSave, loadSave, clearSave, loadMeta, saveMeta, bumpMeta, addRelic, gainMaxHp } from './core/state.js';
+import { G, newRun, save, hasSave, loadSave, clearSave, loadMeta, saveMeta, bumpMeta, addRelic, gainMaxHp, relicMods, relicHooks } from './core/state.js';
 import { generateMap, MAP_ROWS } from './core/map.js';
 import { Battle } from './core/battle.js';
 import { ENCOUNTERS, TOTAL_ACTS } from './data/enemies.js';
@@ -7,12 +7,13 @@ import { actIntro } from './data/events.js';
 import { CARDS } from './data/cards.js';
 import { RELICS } from './data/relics.js';
 import { CLASSES } from './data/classes.js';
-import { sfx, initAudio, setMuted } from './core/audio.js';
+import { scoreOf, splitPicks, pickById, MAX_PICKS } from './data/difficulty.js';import { sfx, initAudio, setMuted } from './core/audio.js';
 import { fitAllCards } from './ui/widgets.js';
 import { menuScene, classScene, endScene } from './ui/scene-menu.js';
 import { mapScene } from './ui/scene-map.js';
 import { battleScene } from './ui/scene-battle.js';
 import { rewardScene, shopScene, eventScene, restScene, treasureScene } from './ui/scene-rooms.js';
+import { difficultyScene } from './ui/scene-difficulty.js';
 
 const app = document.getElementById('app');
 let rendering = false;
@@ -26,7 +27,9 @@ function go(name, ...args) {
     let node;
     switch (name) {
       case 'menu': node = menuScene({ onNew: () => go('class'), onContinue: resumeRun }); break;
-      case 'class': node = classScene({ onPick: startRun, onBack: () => go('menu') }); break;
+      case 'class': node = classScene({ onPick: pickDifficulty, onBack: () => go('menu') }); break;
+      // 难度选择：只在通关过一次后出现（见 pickDifficulty 的调用点）
+      case 'difficulty': node = difficultyScene({ clsId: args[0], onStart: startRun, onBack: () => go('class') }); break;
       case 'map': node = mapScene({ onEnter: enterRoom }); break;
       case 'battle': node = battleScene(args[0], { onFinish: onBattleEnd, onQuit: quitRun, resumed: !!args[1] }); break;
       case 'reward': node = rewardScene(args[0], { onDone: afterRoom }); break;
@@ -54,18 +57,32 @@ function go(name, ...args) {
 }
 
 /* ================= 开局 ================= */
-function startRun(clsId) {
-  newRun(clsId);
+/** 选了职业之后：通关过就先进难度选择，否则直接开（0 分 = 标准难度） */
+function pickDifficulty(clsId) {
+  const meta = loadMeta();
+  if (!meta.wins) { startRun(clsId, []); return; }   // 没通关过：难度系统未解锁
+  go('difficulty', clsId);
+}
+
+function startRun(clsId, picks = []) {
+  newRun(clsId, undefined, picks);
   bumpMetaStat({ runs: loadMeta().runs + 1 });
   G.pending = null;
-  G.map = generateMap(G.seed, 1);
+  G.map = generateMap(G.seed, 1, mapOpts());
   G.act = 1;
   save();
   sfx.door();
-  toast(`${CLASSES[clsId].name} 出发了`, 1400);
+  const sc = scoreOf(picks);
+  toast(`${CLASSES[clsId].name} 出发了${sc ? `（${sc > 0 ? '+' : ''}${sc} 分）` : ''}`, 1400);
   // 每层开始都先过一个「开场事件」（类似杀戮尖塔的 Neow）：
   // 先选起手增益，再进这一层的地图。
   go('intro');
+}
+
+/** 地图生成需要知道的难度开关 */
+function mapOpts() {
+  const m = relicMods();
+  return { eliteWeightUp: !!m.eliteWeightUp, restAsEvent: !!m.restAsEvent };
 }
 
 /** 开场事件：只给这一层用，选完就往地图走。
@@ -107,9 +124,13 @@ function pickEncounter(kind) {
 
 function enterRoom(node) {
   sfx.step();
+  const m = relicMods();
+  // 难度「无处歇脚」把营火换成事件：地图上已经是 event 了，这里再兜一层，
+  // 防止老存档里还留着 rest 节点（地图是存进存档的，改难度不会重生成旧地图）。
+  const type = (node.type === 'rest' && m.restAsEvent) ? 'event' : node.type;
   // 记下当前房间：中途关掉页面再回来，能原样回到这个房间，不会白白跳过
   const strong = node.r >= 5 && G.rng.chance(0.55);
-  switch (node.type) {
+  switch (type) {
     case 'battle': startBattle(strong ? 'strong' : 'weak', 'battle'); break;
     case 'elite': startBattle('elite', 'elite'); break;
     case 'boss': startBattle('boss', 'boss'); break;
@@ -162,7 +183,7 @@ function afterRoom() {
     G.act++;
     G.node = null;
     G.visited = {};
-    G.map = generateMap((G.seed * 7919 + G.act * 104729) >>> 0, G.act);
+    G.map = generateMap((G.seed * 7919 + G.act * 104729) >>> 0, G.act, mapOpts());
     toast(`进入第 ${G.act} 层`, 1600);
     sfx.bell();
     save();
@@ -185,11 +206,16 @@ function afterIntro() {
 function finishRun(win) {
   G.over = win ? 'win' : 'dead';
   const meta = loadMeta();
+  const sc = scoreOf(G.picks || []);
   saveMeta({
     ...meta,
     wins: meta.wins + (win ? 1 : 0),
     best: Math.max(meta.best || 0, G.stats.floors || 0),
     totalKills: (meta.totalKills || 0) + (G.stats.kills || 0),
+    // 通关时记录本局难度分。只有赢的局算数 —— 输了不代表"这个难度能通"。
+    // bestScore 记的是**通关过的最高分**，未通关为 0（从未通关 = 0 分难度）。
+    bestWinScore: win ? Math.max(meta.bestWinScore || 0, sc) : (meta.bestWinScore || 0),
+    lastScore: sc,
   });
   clearSave();
   go('end', win ? 'win' : 'lose');
@@ -220,5 +246,17 @@ document.body.addEventListener('touchmove', e => {
 go('menu');
 
 // 调试入口（headless 验证用）
-window.__ABYSS__ = { go, startRun, get G() { return G; }, enterRoom, pickEncounter, Battle, startBattle, CARDS, RELICS, fitStage, addRelic, gainMaxHp };
+// ⚠️ 测试必须通过这里拿函数，**不能 `import` 源码模块**：
+//    `import('js/core/state.js')` 会创建**另一份模块实例**，它有自己独立的 `G`（通常是 null），
+//    于是 relicHooks/loadSave 全都作用在另一个世界上，断言会静默失效。
+//    我踩过一次：难度钩子的测试直接 import 了 state.js，钩子拿到空数组，
+//    表现成"这条难度没生效"，其实是测试连错了世界。
+window.__ABYSS__ = {
+  go, startRun, pickDifficulty, enterRoom, pickEncounter, startBattle, fitStage,
+  Battle, CARDS, RELICS, addRelic, gainMaxHp, relicMods, mapOpts, scoreOf, MAX_PICKS,
+  // 与运行时**同一份实例**的状态与工具
+  get G() { return G; },
+  save, loadSave, clearSave, hasSave, loadMeta, saveMeta, bumpMeta,
+  relicHooks, splitPicks, pickById,
+};
 

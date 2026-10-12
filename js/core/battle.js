@@ -2,16 +2,25 @@
  * 战斗引擎
  * 与 UI 解耦：所有展示通过 this.view 回调，引擎只负责规则与状态。
  */
-import { G, relicMods, relicHooks, hydrate } from './state.js';
+import { G, relicMods, relicHooks, hydrate, gainMaxHp } from './state.js';
 import { ENEMIES, actScale } from '../data/enemies.js';
 import { CARDS, makeCard } from '../data/cards.js';
 import { RELICS } from '../data/relics.js';
 import { sleep, clamp } from './util.js';
 
 /* ================= 状态效果定义 ================= */
-/** 敌人强度的层级缩放。规则集中在 data/enemies.js 的 actScale()，
-    这里只是转发并补一个兜底（act 缺失/非法时按第 1 层算）。 */
-const enemyScale = act => actScale(act || 1);
+/** 敌人强度的层级缩放。基础曲线在 data/enemies.js 的 actScale()，
+    这里再叠加**难度选项**的"每层额外增幅"（enemyHpPerAct / enemyAtkPerAct），
+    并补一个兜底（act 缺失/非法时按第 1 层算）。
+    第 1 层不吃额外增幅（n=0）—— 否则"每层增幅"会变成"开局就变强"。 */
+const enemyScale = (act, mods = {}) => {
+  const base = actScale(act || 1);
+  const n = Math.max(0, (act | 0) - 1);          // 第 1 层不吃难度里的"每层额外增幅"
+  return {
+    hp: base.hp * (1 + (mods.enemyHpPerAct || 0) * n),
+    atk: base.atk * (1 + (mods.enemyAtkPerAct || 0) * n),
+  };
+};
 
 /** 敌人招式的"层级缩放后"基础伤害（还没算力量/虚弱/易伤）。
     界面预告与实际结算都把这个值交给 calcDamage() —— 用同一个函数，
@@ -182,13 +191,16 @@ export class Battle {
   /* ---------------- 基础 ---------------- */
   spawn(id, summoner) {
     const d = ENEMIES[id];
-    // 按**当前层**缩放：同一张敌人表被 4 层复用，数值随层数走高（每层 +25% 生命、+20% 攻击）。
+    // 按**当前层**缩放：同一张敌人表被 4 层复用，数值随层数走高（每层 +25% 生命、+15% 攻击）。
+    // 难度选项可以在基础曲线上再加"每层额外 +hp%/+atk%"。
     // 关键：倍率只作用在"敌人自己的属性"上 —— 生命、以及招式里的 dmg。
     // 玩家卡牌给的易伤/虚弱在 calcDamage() 里照常生效，所以界面预告的伤害
     // （intentOf 也会乘同一份 atk）和敌人真打出来的数字始终一致。
-    const sc = enemyScale(this.act);
+    const sc = enemyScale(this.act, this.mods);
     const raw = this.rng.int(d.hp[0], d.hp[1]);
-    const hp = Math.max(1, Math.round(raw * sc.hp));
+    // Boss 额外血量（难度"庞大的阴影"）。召唤物不算 —— 它不该吃 Boss 加成。
+    const bossHpX = (d.boss && !summoner) ? (this.mods.bossHpMult || 1) : 1;
+    const hp = Math.max(1, Math.round(raw * sc.hp * bossHpX));
     const e = {
       uid: 'e' + (++this.uid), defId: id, def: d, name: d.name, sprite: d.sprite,
       hp, maxHp: hp, block: 0, st: {}, turn: 0, moveId: null, body: d.body || 1,
@@ -197,6 +209,9 @@ export class Battle {
       summonedBy: summoner ? summoner.uid : null,   // 谁召出来的
     };
     this.enemies.push(e);
+    // 增益「虚弱召唤」：被召唤出来的怪物带 3 层虚弱（数值修正，不走钩子）
+    if (e.summonedBy && this.mods.summonWeak) this.applyDebuff(e, 'weak', this.mods.summonWeak);
+    if (e.summonedBy) for (const [, hook] of relicHooks('summoned')) hook(this, e);
     return e;
   }
 
@@ -315,7 +330,7 @@ export class Battle {
     this.pushLog(`${e.name} 被击败了`);
     if (e.isPlayer) { await this.endBattle(false); return; }
     G.stats.kills++;
-    for (const [id, hook] of relicHooks('kill')) hook(this, e, RELICS[id]);
+    for (const [id, hook, def] of relicHooks('kill')) hook(this, e, def);
     this.view.onDeath?.(e);
     await this.view.step?.();
 
@@ -562,7 +577,10 @@ export class Battle {
     await this.view.step?.(120);
 
     await this.resolve(card.fx || [], { card, target: target || this.aliveEnemies()[0], melee: card.type === 'attack' });
-    for (const [id, hook] of relicHooks('cardPlayed')) hook(this, card, RELICS[id]);
+    for (const [id, hook, def] of relicHooks('cardPlayed')) hook(this, card, def);
+    // 增益「战意沸腾」：打出**能力卡**后获得 1 层力量（走 powerPlayed 钩子）。
+    // 用 card.type === 'power' 判断，因为"能力"是卡牌类型，与效果怎么实现无关。
+    if (card.type === 'power') for (const [, hook] of relicHooks('powerPlayed')) hook(this, card);
 
     if (card.exhaust) { this.exhaustPile.push(card); this.view.onExhaust?.(card); }
     else this.discard.push(card);
@@ -593,7 +611,7 @@ export class Battle {
     if (m.startThorns) this.add(this.player, 'thorns', m.startThorns);
     if (m.startPoisonAll) for (const e of this.aliveEnemies()) this.applyDebuff(e, 'poison', m.startPoisonAll);
     if (m.startDebuffAll) for (const e of this.aliveEnemies()) for (const [k, v] of Object.entries(m.startDebuffAll)) this.applyDebuff(e, k, v);
-    for (const [id, hook] of relicHooks('battleStart')) hook(this, RELICS[id]);
+    for (const [id, hook, def] of relicHooks('battleStart')) hook(this, def);
     this.view.sync?.();
     await this.view.step?.(250);
     if (this.player.hp <= 0) { await this.kill(this.player); return; }
@@ -640,7 +658,7 @@ export class Battle {
     this.discard.push(...keep);
     await this.drawCards(n);
 
-    for (const [id, hook] of relicHooks('turnStart')) hook(this, RELICS[id]);
+    for (const [id, hook, def] of relicHooks('turnStart')) hook(this, def);
     this.rollIntents();
     this.view.onTurnStart?.(this.turn);
     this.view.sync?.();
@@ -669,7 +687,7 @@ export class Battle {
     this.tickEnd(this.player);
     // 再生
     if (this.get(this.player, 'regen') > 0) { await this.heal(this.player, this.get(this.player, 'regen')); this.add(this.player, 'regen', -1); }
-    for (const [id, hook] of relicHooks('turnEnd')) hook(this, RELICS[id]);
+    for (const [id, hook, def] of relicHooks('turnEnd')) hook(this, def);
     this.view.sync?.();
     this.view.afterAction?.();
     if (this.checkOver()) return;
@@ -722,6 +740,10 @@ export class Battle {
       if (def.selfDamage) await this.loseHp(e, def.selfDamage, { credit: 'none' });
       if (def.fx) await this.resolveEnemyFx(def.fx, e);
       this.tickEnd(e);
+      // 难度「暴怒」：每个敌人**行动之后**获得力量与敏捷（走 enemyActed 钩子）。
+      // 放在 tickEnd 之后 = 这一击按旧数值结算，成长从下一轮才体现 ——
+      // 否则玩家看到的意图预告会和实际打出来的伤害对不上。
+      if (!e.dead) for (const [, hook] of relicHooks('enemyActed')) hook(this, e);
       this.view.sync?.();
       await this.view.step?.(160);
 
@@ -790,10 +812,23 @@ export class Battle {
       G.stats.floors++;
       const m = relicMods();
       if (m.healAfterBattle) G.hp = Math.min(G.maxHp, G.hp + m.healAfterBattle);
-      for (const [id, hook] of relicHooks('battleWin')) hook(this, RELICS[id]);
+      for (const [id, hook, def] of relicHooks('battleWin')) hook(this, def);
     } else {
       G.hp = 0;
     }
     this.view.onEnd?.(this.result);
+  }
+
+  /* 供钩子使用的**整局**生命上限入口（增益「愈战愈勇」用）。
+     为什么不让钩子直接调 state.js 的 gainMaxHp：
+     钩子只拿到 (B, …)，而 B 是唯一稳定的调用上下文。
+     同时会同步 this.player.maxHp —— 否则战斗界面上的玩家血条按旧上限显示，
+     打完这一场出图才"跳"一下。 */
+  gainMaxHpRun(n) {
+    if (!n) return;
+    gainMaxHp(n);
+    this.player.maxHp = G.maxHp;
+    if (this.player.hp > this.player.maxHp) this.player.hp = this.player.maxHp;
+    this.view.sync?.();
   }
 }

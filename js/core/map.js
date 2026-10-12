@@ -9,18 +9,28 @@ export const MAP_COLS = 4;
 export const MAP_ROWS = 15;      // 含 Boss 行
 export const PATHS = 6;
 
+/* 节点图标：
+   - battle 以前用 'bars'（监狱铁栏），跟"战斗"毫无关系，看着像牢房 ——
+     换成专门的交剑图标 `node_battle`。
+   - elite 以前借用 `boss_demon`（那其实是第 1 层 Boss 的立绘），
+     地图上一眼分不清"这是精英还是 Boss" —— 换成带角的骷髅 `node_elite`。
+   - boss 用 `gate` 没错，但配 `node_boss` 更明确（骷髅 + 王冠）。
+   这三张和 Boss 立绘一样是**字符地图自绘**，见 tools/make-sprites.mjs。 */
 export const NODE_TYPES = {
-  battle: { label: '战斗', icon: 'bars', color: '#e05a4a' },
-  elite: { label: '精英', icon: 'boss_demon', color: '#ff3b6b' },
+  battle: { label: '战斗', icon: 'node_battle', color: '#e05a4a' },
+  elite: { label: '精英', icon: 'node_elite', color: '#ff3b6b' },
   event: { label: '事件', icon: 'gargoyle', color: '#c07bff' },
   shop: { label: '商店', icon: 'anvil', color: '#ffcc52' },
   rest: { label: '营火', icon: 'torch', color: '#ff9a3c' },
   treasure: { label: '宝箱', icon: 'chest_gold', color: '#6ee7a8' },
-  boss: { label: 'Boss', icon: 'gate', color: '#ff2d55' },
+  boss: { label: 'Boss', icon: 'node_boss', color: '#ff2d55' },
   start: { label: '起点', icon: 'portal', color: '#8fa8c0' },
 };
 
-export function generateMap(seed, act = 1) {
+export function generateMap(seed, act = 1, opts = {}) {
+  // 难度选项：精英权重提高、营火替换为事件
+  const eliteUp = !!opts.eliteWeightUp;
+  const restAsEvent = !!opts.restAsEvent;
   const rng = makeRng(seed);
   const grid = new Map();          // key `r,c` -> node
   const key = (r, c) => `${r},${c}`;
@@ -74,9 +84,9 @@ export function generateMap(seed, act = 1) {
 
   /* ---- 3. 分配房间类型 ---- */
   const rowsWith = r => [...grid.values()].filter(n => n.r === r).sort((a, b) => a.c - b.c);
-  // 固定行
+  // 固定行（倒数第二行本来是"营火行"；难度「无处歇脚」时改成事件行）
   for (const n of rowsWith(0)) n.type = 'battle';
-  for (const n of rowsWith(TOP_ROW)) n.type = 'rest';
+  for (const n of rowsWith(TOP_ROW)) n.type = restAsEvent ? 'event' : 'rest';
   for (const n of rowsWith(1)) n.type = 'battle';
   // 宝箱行
   for (const n of rowsWith(8)) if (rng.chance(0.7)) n.type = 'treasure';
@@ -85,9 +95,11 @@ export function generateMap(seed, act = 1) {
     const p = [];
     p.push(['battle', 46]);
     p.push(['event', 24]);
-    if (n.r >= 4) p.push(['elite', n.r >= 10 ? 20 : 13]);
+    // 难度「危机四伏」：精英权重提高（13/20 → 26/34），总体上明显更容易遇到精英
+    if (n.r >= 4) p.push(['elite', eliteUp ? (n.r >= 10 ? 34 : 26) : (n.r >= 10 ? 20 : 13)]);
     if (n.r >= 4) p.push(['shop', 11]);
-    if (n.r >= 5) p.push(['rest', 13]);
+    // 难度「无处歇脚」：不再产生营火节点（保底那一步也会跳过 rest）
+    if (n.r >= 5 && !restAsEvent) p.push(['rest', 13]);
     if (n.r >= 6) p.push(['treasure', 5]);
     return p;
   };
@@ -108,8 +120,13 @@ export function generateMap(seed, act = 1) {
     }
   };
   ensure('shop', 2, 4, TOP_ROW - 1);
-  ensure('rest', 3, 5, TOP_ROW);
-  ensure('elite', 3, 4, TOP_ROW - 1);
+  if (!restAsEvent) ensure('rest', 3, 5, TOP_ROW);   // 「无处歇脚」时不再补营火
+  ensure('elite', eliteUp ? 5 : 3, 4, TOP_ROW - 1);  // 精英权重提高时也把保底数量抬上去
+
+  /* 保底完成后复查一次：ensure('elite') 可能把节点改成了精英，
+     而它随手挑的候选里可能有营火 —— 那会绕开上面 restAsEvent 的过滤。
+     所以最后统一把幸存的 rest 节点改成 event，确保"所有营火节点都被替换"。 */
+  if (restAsEvent) for (const n of grid.values()) if (n.type === 'rest') n.type = 'event';
 
   /* ---- 5. Boss 节点 ----
      注意两点：
