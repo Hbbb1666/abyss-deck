@@ -8,6 +8,7 @@
  */
 import { readFile, writeFile, mkdir, readdir, stat } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { join, extname, dirname, relative } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -173,12 +174,40 @@ async function buildPrecache() {
   return list.length;
 }
 
+/* ---------- 给 Service Worker 盖上版本戳 ----------
+   sw.js 里的 VERSION 决定缓存名，也决定浏览器会不会重新安装这个 SW。
+   它的**字节必须随内容变化** —— 否则发版后老用户永远在跑旧代码：
+     · 浏览器只在 sw.js 字节变化时才重新 install，install 才会重新预缓存
+     · activate 只删「缓存名 != VERSION」的旧缓存，版本不变就永远不清理
+   手工维护版本号必然被忘记（README 原先就写着"改动代码后把 VERSION 加一"），
+   所以这里按内容算哈希自动盖戳。幂等：内容没变就不会改写 sw.js。 */
+async function stampServiceWorkerVersion() {
+  const h = createHash('sha1');
+  // precache.json 覆盖了"文件集合"（新增/删除素材都会变），
+  // bundle/index.html/css 覆盖了"内容"（改了逻辑或样式就会变）。
+  for (const f of ['precache.json', 'index.html', 'css/style.css', 'dist/bundle.js']) {
+    try { h.update(await readFile(join(ROOT, f))); } catch { /* 缺了就不参与哈希 */ }
+  }
+  const ver = 'abyss-' + h.digest('hex').slice(0, 12);
+  const swPath = join(ROOT, 'sw.js');
+  const sw = await readFile(swPath, 'utf8');
+  const cur = /const VERSION = '([^']*)'/.exec(sw)?.[1];
+  if (cur === ver) return { changed: false, to: ver, from: cur };
+  await writeFile(swPath, sw.replace(/const VERSION = '[^']*'/, `const VERSION = '${ver}'`));
+  return { changed: true, from: cur, to: ver };
+}
+
 /* ---------- 跑 ---------- */
 const code = await bundleJS();
 console.log(`✅ JS 打包完成  dist/bundle.js  (${(code.length / 1024).toFixed(0)} KB)`);
 
 const nPre = await buildPrecache();
 console.log(`✅ 预缓存清单  precache.json  (${nPre} 个资源)`);
+
+const sw = await stampServiceWorkerVersion();
+console.log(sw.changed
+  ? `✅ Service Worker 版本 stamped  ${sw.from} → ${sw.to}`
+  : `✅ Service Worker 版本未变  ${sw.to}`);
 
 if (SINGLE) {
   const r = await buildSingle(code);

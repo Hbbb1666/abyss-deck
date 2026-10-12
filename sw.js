@@ -1,7 +1,11 @@
 /* 深渊牌局 · Service Worker
    游戏是纯静态的，所以策略很简单：优先用缓存，缓存没有再走网络并顺便存下来。
-   首次访问后即可完全离线游玩。改动代码后把 VERSION 加一就会自动更新。 */
-const VERSION = 'abyss-v1';
+   首次访问后即可完全离线游玩。 */
+/* ⚠️ 这一行由 `npm run build` 自动盖戳，**不要手改**。
+   浏览器只在 sw.js 字节变化时才重新安装 SW，安装才会重新预缓存；
+   版本号不变，老用户就会一直跑旧代码（第一次打开拿到的是上一版）。
+   构建脚本按内容算哈希写进这里，详见 tools/build.mjs 的 stampServiceWorkerVersion()。 */
+const VERSION = 'abyss-b042b895292d';
 
 /* 预缓存清单由 tools/build.mjs 生成（precache.json）。
    必须预缓存而不是"用到才存"：精灵图和音效都是懒加载的，

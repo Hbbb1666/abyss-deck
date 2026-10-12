@@ -862,8 +862,7 @@ section('H. PWA / 预缓存清单（离线可玩）');
   }
 
   // manifest 本身也要完整，否则安卓弹不出安装框
-  const mf = JSON.parse(readFileSync(join(ROOT, 'manifest.webmanifest'), 'utf8'));
-  ok(!!mf.name && !!mf.short_name, 'manifest 有 name / short_name');
+  const mf = JSON.parse(readFileSync(join(ROOT, 'manifest.webmanifest'), 'utf8'));  ok(!!mf.name && !!mf.short_name, 'manifest 有 name / short_name');
   ok(!!mf.start_url && !!mf.display, 'manifest 有 start_url / display');
   const sizes = (mf.icons || []).map(i => i.sizes);
   ok(sizes.includes('192x192') && sizes.includes('512x512'), 'manifest 含 192 与 512 图标', sizes.join(','));
@@ -871,6 +870,18 @@ section('H. PWA / 预缓存清单（离线可玩）');
   ok(iconMissing.length === 0, 'manifest 里每个图标文件都存在', iconMissing.map(i => i.src).join(', '));
   ok(!!mf.shortcuts?.every(s => (s.icons || []).every(i => existsSync(join(ROOT, i.src.replace(/^\.\//, ''))))),
      'manifest 快捷方式引用的图标也存在');
+
+  // 【这条是补的】sw.js 的 VERSION 必须是 `npm run build` 盖上的内容哈希。
+  // 手工版本号（原来的 'abyss-v1'）永远不变 → 浏览器不重新 install SW、
+  // activate 也不会清理旧缓存 → **发版后老用户第一次打开跑的还是旧代码**。
+  // 实测：本地验证时线上页面就是靠刷新才拿到新逻辑的，第一次打开确实是旧的。
+  const swSrc = readFileSync(join(ROOT, 'sw.js'), 'utf8');
+  const ver = /const VERSION = '([^']*)'/.exec(swSrc)?.[1];
+  ok(/^abyss-[0-9a-f]{12}$/.test(ver || ''),
+     `sw.js 的 VERSION 已被构建盖上内容哈希（当前 ${ver}）`,
+     '应是 abyss-<12位十六进制>；若为 abyss-dev 说明还没跑过 npm run build');
+  ok(ver !== 'abyss-v1' && ver !== 'abyss-dev',
+     'VERSION 不是手写的固定值（那种永远不触发 SW 更新）');
 }
 
 section('I. 弃牌代价（「飞刀」）');
