@@ -35,7 +35,6 @@ export function newRun(clsId, seed) {
     pending: null,
     visited: {},
     path: [],
-    battle: null,
     stats: { kills: 0, elites: 0, bosses: 0, floors: 0, cardsPlayed: 0, dmgDealt: 0, dmgTaken: 0, turns: 0 },
     startedAt: Date.now(),
     over: null, // 'win' | 'dead'
@@ -146,7 +145,6 @@ export function loadSave() {
     const s = JSON.parse(raw);
     s.rng = makeRng(s.seed);
     if (s.rngState != null) s.rng.setState(s.rngState);
-    s.battle = null;
     // JSON 反序列化后 map.nodes 与 map.byRow 是两份互不相干的对象，
     // 任何依赖对象引用相等的代码都会失效 —— 这里统一重建一次。
     if (s.map && Array.isArray(s.map.nodes)) {

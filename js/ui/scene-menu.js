@@ -1,6 +1,6 @@
 import { el, clear, sleep, toast } from '../core/util.js';
 import { G, hasSave, loadSave, clearSave, loadMeta, newRun } from '../core/state.js';
-import { CLASS_LIST, CLASSES } from '../data/classes.js';
+import { CLASS_LIST, CLASSES, className } from '../data/classes.js';
 import { RELICS } from '../data/relics.js';
 import { sfx } from '../core/audio.js';
 import { SPR, modal, relicEl, bindTip } from './widgets.js';
@@ -114,7 +114,7 @@ export function endScene(result, { onMenu, onRetry }) {
     el('div', { class: 'dim small', text: win ? '你击败了深渊之主，牌局结束了。' : '你的牌局到此为止。' }),
     el('div', {
       class: 'small', style: { margin: '14px 0', lineHeight: '2', textAlign: 'center' },
-      html: `职业：<b>${CLASSES[G.cls].name}</b><br>
+      html: `职业：<b>${className(G.cls)}</b><br>
         抵达：第 <b>${G.act}</b> 层 · 通过 <b>${G.stats.floors}</b> 个房间<br>
         击杀 <b>${G.stats.kills}</b> 个敌人（精英 ${G.stats.elites} · Boss ${G.stats.bosses}）<br>
         打出 <b>${G.stats.cardsPlayed}</b> 张牌 · 造成 <b>${G.stats.dmgDealt}</b> 伤害<br>

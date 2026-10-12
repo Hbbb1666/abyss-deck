@@ -2,21 +2,32 @@
  * 卡牌数据
  * ---------------------------------------------------------------
  * 效果 DSL（fx 数组，按顺序结算）：
- *   {t:'dmg',      v, hits?}   对目标造成伤害（hits 默认 1）
- *   {t:'dmgAll',   v, hits?}   对全体敌人造成伤害
- *   {t:'dmgBlock'}             造成等同于当前护甲的伤害
- *   {t:'dmgPoison',mult}       造成 (中毒层数 × mult) 的伤害
- *   {t:'block',    v}          获得护甲
- *   {t:'draw',     v}          抽牌
- *   {t:'energy',   v}          获得能量
- *   {t:'heal',     v}          回复生命
- *   {t:'loseHp',   v}          失去生命（无视护甲）
- *   {t:'buff',     k, v}       自身获得增益
- *   {t:'debuff',   k, v}       目标获得减益
- *   {t:'debuffAll',k, v}       全体获得减益
- *   {t:'gold',     v}          获得金币
- *   {t:'addCard',  id, to}     塞牌到 hand/discard/draw
+ *   {t:'dmg',       v, hits?}   对目标造成伤害（hits 默认 1，多段、每段单独结算）
+ *   {t:'dmgAll',    v, hits?}   对全体敌人造成伤害（hits 同上）
+ *   {t:'dmgBlock',  bonus?}     造成 当前护甲 + bonus 的伤害
+ *   {t:'dmgPoison', mult?}      造成 (目标中毒层数 × mult) 的伤害
+ *   {t:'dmgPerHand',v}          对目标造成 (手牌数 × v) 的伤害
+ *   {t:'block',     v}          获得护甲
+ *   {t:'blockFromBlock', mult?} 获得 (当前护甲 × mult) 的护甲
+ *   {t:'draw',      v}          抽牌
+ *   {t:'energy',    v}          获得能量
+ *   {t:'heal',      v}          回复生命
+ *   {t:'loseHp',    v}          失去生命（无视护甲）
+ *   {t:'buff',      k, v}       自身获得增益
+ *   {t:'debuff',    k, v}       目标获得减益
+ *   {t:'debuffAll', k, v}       全体获得减益
+ *   {t:'gold',      v}          获得金币
+ *   {t:'addCard',   id, to, n?} 塞牌给自己：to = hand / discard / draw
+ *   {t:'discard',   v}          弃掉自己手牌里的 v 张（**代价**，会让玩家选牌）
+ *
  *   v 可以是数字，也可以是卡牌字段名字符串（随升级同步变化）
+ *
+ * 敌人招式用的是**另一套**解析器（battle.js 的 resolveEnemyFx），支持：
+ *   buff / buffAll / debuff / healSelf / block / summon / addCard
+ * 两边不通用 —— 别把玩家的 t 写进敌人 moves。
+ *
+ * 注：上面这份清单是被测试盯着的（tools/test.mjs 会校验 fx 里引用的字符串
+ *     必须是卡上真实存在的字段）。新增 t 时请同时更新本注释和引擎的 resolve()。
  * ---------------------------------------------------------------
  * type: attack / skill / power / curse / status
  * rarity: basic / common / uncommon / rare / special

@@ -24,6 +24,18 @@ export const CLASSES = {
 };
 export const CLASS_LIST = Object.values(CLASSES);
 
+/** 职业立绘名。以前这段映射在 scene-battle.js 和 scene-map.js 里各抄了一份，
+    加职业时必然漏掉一处、而且静默回退成骑士 —— 统一放在这里。
+    刻意接收 clsId 而不是自己去读 G：data 层不该反向依赖 core/state。 */
+export function classSprite(clsId) {
+  return (CLASSES[clsId] || CLASSES.knight).sprite;
+}
+
+/** 职业中文名（战报里用）。同样别再各处硬编码那份 {knight:'铁誓骑士',…}。 */
+export function className(clsId) {
+  return (CLASSES[clsId] || CLASSES.knight).name;
+}
+
 /** 展开起始卡组为卡 id 数组 */
 export function startingDeck(clsId) {
   const out = [];

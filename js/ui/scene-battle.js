@@ -4,6 +4,7 @@ import { RELICS } from '../data/relics.js';
 import { CARDS, makeCard, RARITY, TYPE_LABEL } from '../data/cards.js';
 import { ST, stText } from '../core/battle.js';
 import { sfx } from '../core/audio.js';
+import { classSprite, className } from '../data/classes.js';
 import { cardEl, hpBar, updateHpBar, statusRow, SPR, relicEl, bindTip, onLongPress, modal, screenFlash, pickCards, fitAllCards } from './widgets.js';
 
 /**
@@ -15,7 +16,7 @@ export function battleScene(B, { onFinish, onQuit, resumed }) {
 
   /* ---------- 顶栏 ---------- */
   const topbar = el('div', { class: 'topbar' });
-  const avatar = el('div', { class: 'avatar', style: { backgroundImage: `url(${SPR(classSprite())})` } });
+  const avatar = el('div', { class: 'avatar', style: { backgroundImage: `url(${SPR(classSprite(G.cls))})` } });
   const hpWrap = el('div', { class: 'grow' });
   const playerBar = hpBar(B.player.hp, B.player.maxHp, B.player.block);
   hpWrap.append(playerBar);
@@ -127,7 +128,7 @@ export function battleScene(B, { onFinish, onQuit, resumed }) {
 
   /* ---------- 玩家区 ---------- */
   const playerZone = el('div', { class: 'player-zone' });
-  const playerSprite = el('div', { class: 'player-sprite', style: { backgroundImage: `url(${SPR(classSprite())})` } });
+  const playerSprite = el('div', { class: 'player-sprite', style: { backgroundImage: `url(${SPR(classSprite(G.cls))})` } });
   const playerSts = el('div', { class: 'sts' });
   const blockBadge = el('div', { class: 'blockbadge' });
   playerZone.append(playerSprite, el('div', { class: 'col center gap4' }, playerSts), blockBadge);
@@ -358,7 +359,7 @@ export function battleScene(B, { onFinish, onQuit, resumed }) {
     modal({
       title: '菜单', closable: true,
       body: `<div style="text-align:center;padding:6px" class="small dim">
-        职业：${({ knight: '铁誓骑士', mage: '流亡法师', rogue: '暗巷游侠' })[G.cls]}<br>
+        职业：${className(G.cls)}<br>
         第 ${G.act} 层 · 已走 ${G.stats.floors} 层<br>
         击杀 ${G.stats.kills} · 精英 ${G.stats.elites} · Boss ${G.stats.bosses}<br>
         <span class="tiny">进度已自动保存</span></div>`,
@@ -554,7 +555,6 @@ export function battleScene(B, { onFinish, onQuit, resumed }) {
 }
 
 /* ================= 引擎外的小工具 ================= */
-function classSprite() { return { knight: 'hero_knight', mage: 'hero_mage', rogue: 'hero_rogue' }[G.cls] || 'hero_knight'; }
 
 export function deckBody() {
   const body = el('div');

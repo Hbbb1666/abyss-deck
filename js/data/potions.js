@@ -54,8 +54,3 @@ export const POTIONS = {
   },
 };
 for (const [id, p] of Object.entries(POTIONS)) p.id = id;
-
-export function randomPotion(pick) {
-  const ids = Object.keys(POTIONS);
-  return { ...POTIONS[pick ? pick(ids) : ids[Math.floor(Math.random() * ids.length)]] };
-}

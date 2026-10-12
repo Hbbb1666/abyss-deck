@@ -5,7 +5,7 @@ import { RELICS } from '../data/relics.js';
 import { POTIONS } from '../data/potions.js';
 import { EVENTS } from '../data/events.js';
 import { sfx } from '../core/audio.js';
-import { cardEl, modal, pickCards, SPR, relicEl, bindTip, hpBar, updateHpBar } from './widgets.js';
+import { cardEl, modal, pickCards, SPR, relicEl, bindTip, hpBar, updateHpBar, fitAllCards } from './widgets.js';
 import { showHelp, deckBody } from './scene-battle.js';
 
 function topbar(title, { onBack } = {}) {
@@ -161,7 +161,6 @@ export function shopScene({ onDone }) {
   function rerender() {
     clear(body);
     if (discount) body.append(el('div', { class: 'tiny dim', style: { paddingTop: '10px' }, html: `「商人徽章」生效中：价格已降低 <b>${Math.round(discount * 100)}%</b>` }));
-
     /* 卡牌 */
     body.append(section('卡牌'));
     const cg = el('div', { class: 'shop-grid' });
@@ -242,6 +241,10 @@ export function shopScene({ onDone }) {
 
     body.append(el('button', { class: 'btn primary block', style: { marginTop: '18px' }, text: '离开商店 →', onClick: () => { sfx.door(); onDone(); } }));
     shopStrip.refresh();
+    // 买完会整块重建卡牌 —— 新卡是刚创建的，必须重算卡面字号，
+    // 否则它们会停在默认字号，长文案被 .ctext{overflow:hidden} 直接裁掉。
+    // （go() 只在首次进入场景时统一适配一次，管不到这里。）
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => fitAllCards(body));
   }
 
   function buy(cost, apply, after) {

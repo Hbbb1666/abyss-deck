@@ -1,6 +1,7 @@
 import { el, clear, sleep, toast, fxFloat, onScene } from '../core/util.js';
 import { G, save, hasRelic } from '../core/state.js';
 import { NODE_TYPES, reachable, nodeAt, layout, MAP_ROWS } from '../core/map.js';
+import { classSprite } from '../data/classes.js';
 import { sfx } from '../core/audio.js';
 import { SPR, relicEl, bindTip, hpBar, modal } from './widgets.js';
 import { showHelp, deckBody } from './scene-battle.js';
@@ -19,7 +20,7 @@ export function mapScene({ onEnter }) {
   const actStat = el('div', { class: 'stat', html: `<span class="dim">第</span>${G.act}<span class="dim">层</span>` });
   const btnDeck = el('button', { class: 'btn sm ghost', text: '卡组', onClick: showDeck });
   const btnHelp = el('button', { class: 'btn sm ghost', text: '?', onClick: showHelp });
-  topbar.append(el('div', { class: 'avatar', style: { backgroundImage: `url(${SPR(classSprite())})` } }), hpWrap, goldStat, actStat, btnDeck, btnHelp);
+  topbar.append(el('div', { class: 'avatar', style: { backgroundImage: `url(${SPR(classSprite(G.cls))})` } }), hpWrap, goldStat, actStat, btnDeck, btnHelp);
 
   /* ---------- 遗物条 ---------- */
   const relicbar = el('div', { class: 'relicbar' });
@@ -182,7 +183,6 @@ export function mapScene({ onEnter }) {
   return root;
 }
 
-function classSprite() { return { knight: 'hero_knight', mage: 'hero_mage', rogue: 'hero_rogue' }[G.cls] || 'hero_knight'; }
 
 function nodeHint(n) {
   return {

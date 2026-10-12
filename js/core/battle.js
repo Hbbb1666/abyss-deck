@@ -62,6 +62,8 @@ export class Battle {
     this.hand = []; this.discard = []; this.exhaustPile = [];
     this.energy = 0; this.energyMax = 3;
     this.cardsPlayedThisTurn = 0;
+    // 本轮意图是否已经掷过（rollIntents 的幂等标志，见 rollIntents 注释）
+    this.intentRolled = false;
 
     // 从存档恢复：直接套用快照，不要重新随机
     this.restoreFailed = false;
@@ -145,7 +147,11 @@ export class Battle {
     if (this.restoreFailed) return false;
     if (this.player.hp <= 0) { await this.endBattle(false); return; }
     if (!this.aliveEnemies().length) { await this.endBattle(true); return; }
-    this.rollIntents();
+    // 快照里已经带着每个敌人的 moveId（意图是上一轮掷好的），
+    // 所以这里**不能重掷** —— 重掷不仅会消耗随机数、还会让玩家眼前
+    // 的意图和敌人接下来真做的事对不上。只有快照里缺意图时才补掷。
+    if (this.aliveEnemies().some(e => !e.moveId)) this.rollIntents();
+    else this.intentRolled = true;
     // 存档时若正好在敌人回合，手牌是空的 —— 补一个完整回合
     if (!this.hand.length) await this.playerTurn();
     this.view.sync?.();
@@ -227,6 +233,25 @@ export class Battle {
     return real;
   }
 
+  /** 直接扣血（无视护甲）：中毒 / 狂战代价 / 生命消耗 / 敌人自伤都走这一条路径。
+      统计口径**只在这一处定义** —— 旧代码这些伤害直接在各自分支里 `hp -= n`，
+      全都绕过了 damage() 的统计，于是结算面板的「造成/受到伤害」明显偏低
+      （中毒流尤其离谱：一套毒打完，面板上几乎没涨）。
+      opts.credit: 'player'（默认）敌人掉血记入「造成伤害」；'none' 不计（敌人自伤不算玩家的功劳）。 */
+  async loseHp(target, n, opts = {}) {
+    if (target.dead || this.over || n <= 0) return 0;
+    const real = Math.max(0, Math.min(n, target.hp));   // 统计不超过剩余生命，别记出负数
+    target.hp -= n;
+    if (real > 0) {
+      if (target.isPlayer) G.stats.dmgTaken += real;
+      else if (opts.credit !== 'none') G.stats.dmgDealt += real;
+    }
+    this.view.onDamage?.(target, n, 0, n, opts.isDot);
+    if (opts.step) await this.view.step?.(opts.step);
+    if (target.hp <= 0) await this.kill(target);
+    return real;
+  }
+
   async damageAll(base, source, opts = {}) {
     for (const e of [...this.enemies]) if (!e.dead) await this.damage(e, base, source, opts);
   }
@@ -297,9 +322,18 @@ export class Battle {
           }
           break;
         }
-        case 'dmgAll':
-          await this.damageAll(v, card?.name || '效果', { attacker: this.player });
+        case 'dmgAll': {
+          // hits 要和 dmg 一样被尊重：文档里写了 hits?，旧代码却直接忽略它，
+          // 将来谁写一张"对所有敌人各打 2 次"的牌会静默只打 1 次。
+          // 注意这里**不传 melee**（保持现状）：群攻是否触发敌人荆棘是平衡性问题，
+          // 见 docs/开发与维护指南.md 的待修清单，不要在修 bug 时顺手改掉。
+          const n = this.num(f.hits, card) || 1;
+          for (let i = 0; i < n; i++) {
+            if (!this.aliveEnemies().length) break;
+            await this.damageAll(v, card?.name || '效果', { attacker: this.player });
+          }
           break;
+        }
         case 'dmgBlock':
           await this.damage(target, this.player.block + this.num(f.bonus, card), card?.name, { attacker: this.player });
           break;
@@ -326,10 +360,7 @@ export class Battle {
         case 'energy': this.energy += v; this.view.onEnergy?.(); await this.view.step?.(); break;
         case 'heal': await this.heal(this.player, v); break;
         case 'loseHp':
-          this.player.hp -= v;
-          this.view.onDamage?.(this.player, v, 0, v);
-          await this.view.step?.();
-          if (this.player.hp <= 0) await this.kill(this.player);
+          await this.loseHp(this.player, v, { step: 70 });
           break;
         case 'buff': this.add(this.player, f.k, v); this.view.onStatus?.(this.player); await this.view.step?.(); break;
         case 'debuff': {
@@ -341,6 +372,19 @@ export class Battle {
           for (const e of this.aliveEnemies()) { this.applyDebuff(e, f.k, v + (f.k === 'poison' ? this.get(this.player, 'poison_plus') : 0)); this.view.onStatus?.(e); }
           await this.view.step?.(); break;
         case 'gold': G.gold += v; this.view.onGold?.(v); await this.view.step?.(); break;
+        // 塞牌给自己（文档承诺过、但旧代码只有敌人侧实现，写进卡里会静默无效）
+        case 'addCard': {
+          const n = this.num(f.n, card) || 1;
+          for (let i = 0; i < n; i++) {
+            const c = makeCard(f.id);
+            if (f.to === 'hand') { if (this.hand.length < 10) this.hand.push(c); else this.discard.push(c); }
+            else if (f.to === 'draw') this.draw.splice(this.rng.int(0, this.draw.length), 0, c);
+            else this.discard.push(c);
+          }
+          this.pushLog(`「${CARDS[f.id]?.name || f.id}」被塞到了${f.to === 'hand' ? '手牌' : f.to === 'draw' ? '抽牌堆' : '弃牌堆'}`);
+          await this.view.step?.();
+          break;
+        }
         // 弃牌是「代价」不是「效果」，必须真的落在手牌上 —— 见 discardFromHand()。
         // 旧代码是 `this.view.requestDiscard?.(v)`：界面根本没实现这个回调，
         // 可选链把整条静默跳过 → 卡面写着"弃 1 张牌"却什么也没发生。
@@ -467,7 +511,7 @@ export class Battle {
     const m = this.mods;
     // 遗物：战斗开始
     if (m.startHeal) await this.heal(this.player, m.startHeal);
-    if (m.startLoseHp) { this.player.hp -= m.startLoseHp; this.view.onDamage?.(this.player, m.startLoseHp, 0, m.startLoseHp); }
+    if (m.startLoseHp) await this.loseHp(this.player, m.startLoseHp);
     if (m.startBlock) await this.gainBlock(this.player, m.startBlock);
     if (m.startStrength) this.add(this.player, 'strength', m.startStrength);
     if (m.startDexterity) this.add(this.player, 'dexterity', m.startDexterity);
@@ -494,15 +538,14 @@ export class Battle {
     // 中毒
     const poi = this.get(this.player, 'poison');
     if (poi > 0) {
-      this.player.hp -= poi;
-      this.view.onDamage?.(this.player, poi, 0, poi, true);
+      await this.loseHp(this.player, poi, { isDot: true });
       this.add(this.player, 'poison', -1);
       await this.view.step?.(180);
-      if (this.player.hp <= 0) { await this.kill(this.player); return; }
+      if (this.over || this.player.hp <= 0) return;
     }
     // 狂战代价
     const bd = this.get(this.player, 'berserk_dmg');
-    if (bd > 0) { this.player.hp -= bd; this.view.onDamage?.(this.player, bd, 0, bd); if (this.player.hp <= 0) { await this.kill(this.player); return; } }
+    if (bd > 0) { await this.loseHp(this.player, bd); if (this.over || this.player.hp <= 0) return; }
     // 不屈 / 仪式 / 备战
     if (this.get(this.player, 'undying') > 0) await this.gainBlock(this.player, this.get(this.player, 'undying'));
     if (this.get(this.player, 'block_next') > 0) { await this.gainBlock(this.player, this.get(this.player, 'block_next')); delete this.player.st.block_next; }
@@ -576,11 +619,10 @@ export class Battle {
       // 敌人中毒
       const poi = this.get(e, 'poison');
       if (poi > 0) {
-        e.hp -= poi;
-        this.view.onDamage?.(e, poi, 0, poi, true);
+        await this.loseHp(e, poi, { isDot: true });
         this.add(e, 'poison', -1);
         await this.view.step?.(200);
-        if (e.hp <= 0) { await this.kill(e); continue; }
+        if (e.dead || e.hp <= 0) continue;
       }
       if (this.over) return;
 
@@ -599,7 +641,7 @@ export class Battle {
           await this.damage(this.player, def.dmg, e.name, { attacker: e, melee: true });
         }
       }
-      if (def.selfDamage) { e.hp -= def.selfDamage; this.view.onDamage?.(e, def.selfDamage, 0, def.selfDamage); if (e.hp <= 0) await this.kill(e); }
+      if (def.selfDamage) await this.loseHp(e, def.selfDamage, { credit: 'none' });
       if (def.fx) await this.resolveEnemyFx(def.fx, e);
       this.tickEnd(e);
       this.view.sync?.();
@@ -610,6 +652,7 @@ export class Battle {
     }
     // 敌人行动完毕：重算「下一轮」的意图，再交回玩家
     if (!this.over) {
+      this.intentRolled = false;   // 本轮意图已经用掉，下一轮必须重新掷
       this.rollIntents();
       this.view.sync?.();
       await this.playerTurn();
@@ -643,9 +686,17 @@ export class Battle {
     return out;
   }
 
-  /** 开局预先决定所有敌人的意图 */
-  rollIntents() {
+  /** 预先决定所有敌人的意图。
+      **幂等**：同一轮里重复调用不会重掷。
+      为什么必须幂等 —— 用 rng 决定招式的敌人（怨灵的相位、各种 rng.chance）
+      每次重掷都会消耗随机数。旧代码在一个回合周期里掷了 2~3 次
+      （enemyTurn 末尾一次、紧接着 playerTurn 开头又一次、读档时再一次），
+      于是"关掉页面再进来"会走出一条和"没关过"完全不同的未来。
+      意图本该是一轮掷一次骰子，掷完就固定下来给玩家看。 */
+  rollIntents(force = false) {
+    if (!force && this.intentRolled) return;
     for (const e of this.aliveEnemies()) e.moveId = this.pickMove(e);
+    this.intentRolled = true;
   }
 
   checkOver() {

@@ -1094,6 +1094,245 @@ section('K. 场景监听器回收（切场景不累积泄漏）');
   ok(live() < addCount, `注册与摘除配对（累计 add ${addCount} / remove ${removeCount}，当前存活 ${live()}）`);
 }
 
+section('L. 伤害统计口径（结算面板不能少算）');
+{
+  // 【这条是补的】G.stats.dmgDealt / dmgTaken 只在 damage() 里累计，
+  // 而中毒、狂战代价、loseHp 卡、敌人 selfDamage 全都是各自分支里直接 `hp -= n`，
+  // 统统绕过了统计 —— 于是走中毒流的 rogue 打完一套，结算面板上的伤害几乎没涨。
+  // 现在所有"直接扣血"都走 Battle.loseHp()，统计口径只定义一次。
+  const noopView = { step: async () => {}, sync() {}, log() {}, onDamage() {}, onHeal() {}, onBlock() {},
+    onStatus() {}, onDraw() {}, onPlay() {}, onExhaust() {}, onEnergy() {}, onGold() {},
+    onTurnStart() {}, onEnemyAct() {}, onSummon() {}, onDeath() {}, onEnd() {}, onPotion() {}, beforeEndTurn() {} };
+
+  const mk = () => {
+    A.startRun('knight');
+    const B = new A.Battle(['golem'], { kind: 'battle' });   // 石傀儡 hp [24,30]，够扛
+    B.view = { ...noopView };
+    B.rollIntents();
+    return B;
+  };
+
+  /* --- L1. 敌人中毒：记入「造成伤害」 ---
+     注意触发点：**敌人**中毒是在 enemyTurn() 里结算的，playerTurn() 结算的是**玩家**中毒。
+     所以这里必须走 endTurn()（它会引发 enemyTurn），调 playerTurn() 是测不到的。 */
+  {
+    const B = mk();
+    await B.start();
+    const e = B.aliveEnemies()[0];
+    e.hp = 25; e.maxHp = 25;
+    B.applyDebuff(e, 'poison', 6);
+    const d0 = A.G.stats.dmgDealt;
+    const hp0 = e.hp;
+    await B.endTurn();                          // → enemyTurn：敌人中毒结算
+    ok(e.hp === hp0 - 6, `中毒扣了 6 血（${hp0} -> ${e.hp}）`);
+    ok(A.G.stats.dmgDealt === d0 + 6, `中毒伤害计入「造成伤害」（${d0} -> ${A.G.stats.dmgDealt}）`);
+  }
+
+  /* --- L2. 玩家中毒 / 狂战代价：记入「受到伤害」 --- */
+  {
+    const B = mk();
+    await B.start();
+    B.player.hp = 50; B.player.maxHp = 80;
+    B.applyDebuff(B.player, 'poison', 4);
+    const t0 = A.G.stats.dmgTaken;
+    await B.playerTurn();
+    ok(B.player.hp === 46, `玩家中毒扣了 4 血（剩 ${B.player.hp}）`);
+    ok(A.G.stats.dmgTaken === t0 + 4, `玩家中毒计入「受到伤害」（${t0} -> ${A.G.stats.dmgTaken}）`);
+  }
+
+  /* --- L3. 敌人自伤：不算玩家的战果（credit: none） --- */
+  {
+    const B = mk();
+    await B.start();
+    const e = B.aliveEnemies()[0];
+    e.hp = 25; e.maxHp = 25;
+    const d0 = A.G.stats.dmgDealt;
+    const t0 = A.G.stats.dmgTaken;
+    await B.loseHp(e, 10, { credit: 'none' });
+    ok(e.hp === 15, '自伤确实扣血了');
+    ok(A.G.stats.dmgDealt === d0, '敌人自伤不计入玩家「造成伤害」（不是玩家的功劳）');
+    ok(A.G.stats.dmgTaken === t0, '敌人自伤也不计入玩家「受到伤害」');
+  }
+
+  /* --- L4. 单次伤害的统计不超过剩余生命（不记出负数/超额） --- */
+  {
+    const B = mk();
+    await B.start();
+    const e = B.aliveEnemies()[0];
+    e.hp = 3; e.maxHp = 25;
+    const d0 = A.G.stats.dmgDealt;
+    await B.loseHp(e, 100, { credit: 'player' });
+    ok(e.dead, '敌人被击杀');
+    ok(A.G.stats.dmgDealt === d0 + 3, `统计按实际扣到的 3 点计（+${A.G.stats.dmgDealt - d0}）`);
+  }
+
+  /* --- L5. 普通攻击仍然照常统计（没有回归） --- */
+  {
+    const B = mk();
+    await B.start();
+    const e = B.aliveEnemies()[0];
+    e.hp = 25; e.maxHp = 25; e.block = 0;
+    const d0 = A.G.stats.dmgDealt;
+    await B.damage(e, 7, 'test', { attacker: B.player });
+    ok(A.G.stats.dmgDealt === d0 + 7, `普通伤害照常统计（${d0} -> ${A.G.stats.dmgDealt}）`);
+  }
+}
+
+section('M. 敌人意图一轮只掷一次（读档不能换未来）');
+{
+  // 【这条是补的】rollIntents() 原本在一个回合周期里被调用 2~3 次
+  // （enemyTurn 末尾一次、紧接着 playerTurn 开头又一次、读档时再一次）。
+  // 用 rng 决定招式的敌人（怨灵的相位、各种 rng.chance）每次重掷都消耗随机数，
+  // 于是「关掉页面再进来」会走出一条和「没关过」完全不同的未来。
+  // 修法：rollIntents 幂等（intentRolled 标志），一轮只掷一次。
+  const noopView = { step: async () => {}, sync() {}, log() {}, onDamage() {}, onHeal() {}, onBlock() {},
+    onStatus() {}, onDraw() {}, onPlay() {}, onExhaust() {}, onEnergy() {}, onGold() {},
+    onTurnStart() {}, onEnemyAct() {}, onSummon() {}, onDeath() {}, onEnd() {}, onPotion() {}, beforeEndTurn() {} };
+
+  const mk = () => {
+    A.startRun('knight');
+    const B = new A.Battle(['ghost', 'slime'], { kind: 'battle' });  // 怨灵 ai 会用 rng
+    B.view = { ...noopView };
+    return B;
+  };
+
+  /* --- M1. 重复调用不再消耗随机数 --- */
+  {
+    const B = mk();
+    B.rollIntents();
+    const stateAfterFirst = B.rng.getState();
+    const intents = B.aliveEnemies().map(e => e.moveId);
+    B.rollIntents();
+    B.rollIntents();
+    ok(B.rng.getState() === stateAfterFirst,
+       '重复调用 rollIntents 不再推进 RNG（意图已固定）');
+    ok(JSON.stringify(B.aliveEnemies().map(e => e.moveId)) === JSON.stringify(intents),
+       '重复调用不会改变已定的意图');
+  }
+
+  /* --- M2. force 可以强制重掷（给需要的场景留出口） --- */
+  {
+    const B = mk();
+    B.rollIntents();
+    const s0 = B.rng.getState();
+    B.rollIntents(true);
+    ok(B.rng.getState() !== s0, 'force=true 时仍可强制重掷');
+  }
+
+  /* --- M3. 一个完整回合里，意图只被掷一次 --- */
+  {
+    const B = mk();
+    await B.start();                      // 内部会走 playerTurn
+    const before = B.rng.getState();
+    await B.endTurn();                    // → enemyTurn → 末尾重掷下一轮
+    // 只能靠"下一轮意图确实变了/被掷过"来间接验证：这里验证不变量——
+    // enemyTurn 结束后每个存活敌人都必须有一个已定的 moveId
+    ok(B.aliveEnemies().every(e => !!e.moveId), 'enemyTurn 结束后每个敌人都已有下一轮意图');
+    ok(B.rng.getState() !== before, '下一轮意图确实重新掷过（RNG 已推进一次）');
+  }
+
+  /* --- M4. 关键：读档续战必须沿用快照里的意图，不重掷 --- */
+  {
+    const B = mk();
+    await B.start();
+    const snap = JSON.parse(JSON.stringify(B.serialize()));
+    const savedIntents = snap.enemies.filter(x => !x.dead).map(x => x.moveId);
+
+    // 模拟"关掉页面再进来"
+    A.startRun('knight');
+    const B2 = new A.Battle([], { kind: 'battle', restore: snap });
+    B2.view = { ...noopView };
+    ok(B2.restoreFailed === false, '快照正常恢复');
+    const rngBefore = B2.rng.getState();
+    await B2.resume();
+    const restoredIntents = B2.aliveEnemies().map(e => e.moveId);
+    ok(JSON.stringify(restoredIntents) === JSON.stringify(savedIntents),
+       `读档后意图与存档一致（${savedIntents} vs ${restoredIntents}）`);
+    ok(B2.rng.getState() === rngBefore,
+       '读档沿用了快照意图，没有为了重掷意图而消耗随机数');
+  }
+}
+
+section('N. 效果 DSL 的文档承诺必须真的生效');
+{
+  // 【这条是补的】cards.js 头部把 DSL 写成了契约，但有两处代码与注释不符：
+  //   ① {t:'addCard'} 注释里对玩家承诺了，engine 的 resolve() 却**没有这个 case**
+  //      （只有敌人侧 resolveEnemyFx 实现了）→ 照注释写一张塞牌卡会静默无效。
+  //   ② {t:'dmgAll', v, hits?} 声明了 hits，resolve 里却直接忽略 → 多段群攻只会打 1 次。
+  // 现在两处都补齐了，这里把「注释即契约」钉死。
+  const noopView = { step: async () => {}, sync() {}, log() {}, onDamage() {}, onHeal() {}, onBlock() {},
+    onStatus() {}, onDraw() {}, onPlay() {}, onExhaust() {}, onEnergy() {}, onGold() {},
+    onTurnStart() {}, onEnemyAct() {}, onSummon() {}, onDeath() {}, onEnd() {}, onPotion() {}, beforeEndTurn() {} };
+
+  const mk = (ids = ['slime', 'slime']) => {
+    A.startRun('knight');
+    const B = new A.Battle(ids, { kind: 'battle' });
+    B.view = { ...noopView };
+    B.rollIntents();
+    return B;
+  };
+
+  /* --- N1. dmgAll 尊重 hits --- */
+  {
+    const B = mk(['golem', 'golem']);
+    await B.start();
+    const es = B.aliveEnemies();
+    for (const e of es) { e.hp = 30; e.maxHp = 30; e.block = 0; }
+    const hp0 = es.map(e => e.hp);
+    await B.resolve([{ t: 'dmgAll', v: 4, hits: 3 }], { card: { name: '测试' }, target: null });
+    for (let i = 0; i < es.length; i++) {
+      ok(es[i].hp === hp0[i] - 12, `群攻 3 段各 4 点 = 12（敌人${i + 1}：${hp0[i]} -> ${es[i].hp}）`);
+    }
+  }
+
+  /* --- N2. dmgAll 不写 hits 时仍然只打 1 次（不破坏现有卡牌） --- */
+  {
+    const B = mk(['golem', 'golem']);
+    await B.start();
+    const es = B.aliveEnemies();
+    for (const e of es) { e.hp = 30; e.maxHp = 30; e.block = 0; }
+    const hp0 = es.map(e => e.hp);
+    await B.resolve([{ t: 'dmgAll', v: 5 }], { card: { name: '测试' }, target: null });
+    for (let i = 0; i < es.length; i++) ok(es[i].hp === hp0[i] - 5, `未写 hits 时只打 1 次（-5）`);
+  }
+
+  /* --- N3. 玩家的 addCard 真的能塞牌（旧代码没有这个 case） --- */
+  {
+    for (const [to, bucket] of [['discard', 'discard'], ['draw', 'draw'], ['hand', 'hand']]) {
+      const B = mk(['golem']);
+      await B.start();
+      B.hand = [];
+      B.discard = []; B.draw = [];
+      const n0 = B[bucket].length;
+      await B.resolve([{ t: 'addCard', id: 'curse_wound', to, n: 2 }], { card: { name: '测试' }, target: null });
+      ok(B[bucket].length === n0 + 2, `addCard 往 ${to} 塞了 2 张（${n0} -> ${B[bucket].length}）`);
+      ok(B[bucket].every(c => c.id === 'curse_wound'), `${to} 里的牌确实是指定的那张`);
+    }
+  }
+
+  /* --- N4. addCard 塞进手牌时不能突破 10 张上限 --- */
+  {
+    const B = mk(['golem']);
+    await B.start();
+    B.hand = []; B.discard = []; B.draw = [];
+    for (let i = 0; i < 10; i++) B.hand.push(A.CARDS.strike ? { id: 'strike', upgraded: false } : { id: 'strike' });
+    await B.resolve([{ t: 'addCard', id: 'curse_wound', to: 'hand', n: 3 }], { card: { name: '测试' }, target: null });
+    ok(B.hand.length === 10, `手牌不会超过 10 张（实际 ${B.hand.length}）`);
+    ok(B.discard.length === 3, `塞不下的进了弃牌堆（${B.discard.length} 张）`);
+  }
+
+  /* --- N5. 职业立绘/名称只此一份（加职业不会漏改） --- */
+  {
+    const mod = await import('file://' + join(ROOT, 'js/data/classes.js'));
+    for (const id of ['knight', 'mage', 'rogue']) {
+      ok(mod.classSprite(id) === mod.CLASSES[id].sprite, `classSprite('${id}') 与 CLASSES 一致`);
+      ok(mod.className(id) === mod.CLASSES[id].name, `className('${id}') 与 CLASSES 一致`);
+    }
+    ok(mod.classSprite('不存在') === mod.CLASSES.knight.sprite, '未知职业安全回退，不抛异常');
+    ok(mod.className('不存在') === mod.CLASSES.knight.name, '未知职业的名称也安全回退');
+  }
+}
+
 section('运行期 JS 错误');
 {
   const real = jsErrors.filter(e => !/Not implemented|Could not parse CSS|audio/i.test(e));
