@@ -12,6 +12,7 @@ import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { fileURLToPath } from 'node:url';
+import { createHash } from 'node:crypto';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 // jsdom 解析顺序：环境变量 → 本仓 node_modules → 之前的临时安装位置
@@ -2487,6 +2488,66 @@ section('V. 贴图：源码即真相（PNG 必须与字符地图一致）');
       ok(top2.length === 0 || !top2.every(c => PURPLE.has(c)),
          `刺客主色不是"两个都紫"（实际用量前二：${top2.join('')}）`);
     }
+  }
+
+  /* --- V8. SW 版本号必须跟随"预缓存资源的**内容**"变化 --- */
+  {
+    /* 【这条是补的，而且是真事故】2026-10-12：我把 Boss 立绘从 308B 重画成 128B
+       并部署上线 —— 线上 PNG 确实换了，但 `sw.js` 的 VERSION 没变，
+       于是浏览器认为 SW 没更新、**永不重新预缓存**，用户看到的还是旧贴图
+       （产品原话："贴图弄好了吗，看了好像没变化啊"）。
+       根因：旧的 stampServiceWorkerVersion 只哈希
+         precache.json + index.html + css + bundle.js + sw.js自身，
+       而 **precache.json 里只有「文件名列表」，不含任何内容哈希** →
+       只改素材内容（不改文件名）时哈希不变。
+
+       这里**独立重算一遍**（故意不 import build.mjs 的同一个函数 ——
+       那样两边一起错就测不出来了）：用与 build.mjs 相同的口径算 SHA1，
+       必须等于 sw.js 里的 VERSION。它能同时抓到三类问题：
+         ① build 漏哈希了某个预缓存资源
+         ② 有人手改了 sw.js 的 VERSION
+         ③ 改了素材但**忘了重新 build**（sw.js 还停在旧版本） */
+    const swSrc = readFileSync(join(ROOT, 'sw.js'), 'utf8');
+    const stamped = /const VERSION = '([^']*)'/.exec(swSrc)?.[1];
+    ok(!!stamped, 'sw.js 里有 VERSION 常量', String(stamped));
+
+    const precacheRaw = JSON.parse(readFileSync(join(ROOT, 'precache.json'), 'utf8'));
+    const files = new Set();
+    for (const u of precacheRaw) {
+      const rel = String(u).replace(/^\.\//, '');
+      if (rel) files.add(rel);
+    }
+    for (const f of ['precache.json', 'index.html', 'css/style.css', 'manifest.webmanifest', 'dist/bundle.js']) files.add(f);
+
+    const h = createHash('sha1');
+    const missing = [];
+    for (const f of [...files].sort()) {
+      h.update(f);
+      try { h.update(readFileSync(join(ROOT, f))); } catch { missing.push(f); }
+    }
+    h.update(swSrc.replace(/const VERSION = '[^']*'/, ''));
+    const expect = 'abyss-' + h.digest('hex').slice(0, 12);
+
+    ok(missing.length === 0, '预缓存清单里的每个资源在磁盘上都能读到（版本哈希才算得准）', missing.slice(0, 5).join(', '));
+    ok(stamped === expect,
+       `sw.js 的 VERSION 等于"全部预缓存资源内容"的哈希（跑 npm run build 盖章）`,
+       `期望 ${expect}，实际 ${stamped}`);
+
+    // 反向断言：哈希输入里必须**真的读到了素材内容**，而不是只读文件名。
+    // 做法：随便换掉一个图片的字节，哈希必须变 —— 若 build 只喂文件名，这一步不会变。
+    const probeFile = 'assets/sprites/anvil.png';
+    const orig = readFileSync(join(ROOT, probeFile));
+    const mutated = Buffer.from(orig);
+    mutated[Math.floor(mutated.length / 2)] ^= 0xff;
+    const h2 = createHash('sha1');
+    for (const f of [...files].sort()) {
+      h2.update(f);
+      const buf = f === probeFile ? mutated : readFileSync(join(ROOT, f));
+      try { h2.update(buf); } catch { /* 上面已报 */ }
+    }
+    h2.update(swSrc.replace(/const VERSION = '[^']*'/, ''));
+    ok(h2.digest('hex').slice(0, 12) !== expect.slice('abyss-'.length),
+       '（自证）改动一个素材的字节就会改变版本哈希 —— 证明内容真的参与了哈希');
   }
 }
 

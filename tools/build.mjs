@@ -201,28 +201,51 @@ async function buildPrecache() {
      · 浏览器只在 sw.js 字节变化时才重新 install，install 才会重新预缓存
      · activate 只删「缓存名 != VERSION」的旧缓存，版本不变就永远不清理
    手工维护版本号必然被忘记（README 原先就写着"改动代码后把 VERSION 加一"），
-   所以这里按内容算哈希自动盖戳。幂等：内容没变就不会改写 sw.js。 */
+   所以这里按内容算哈希自动盖戳。幂等：内容没变就不会改写 sw.js。
+
+   ⚠️ 2026-10-12 修了一个**严重的漏哈希**：原先只哈希
+      precache.json + index.html + css + dist/bundle.js + sw.js 自身，
+      而 **precache.json 里只有「文件名列表」，没有任何内容哈希** —— 于是
+      **只改素材内容（不改文件名）时 VERSION 不变** →
+      浏览器认为 SW 没更新 → 永不重新 install / 预缓存 →
+      **用户拿到的永远是旧贴图**。
+      实测就是它：我把 Boss 立绘从 308B 重画成 128B 并部署上线，
+      线上 PNG 确实换了，但 `sw.js` 的 VERSION 仍是旧的，
+      浏览器里看到的还是那三张灰色石面具（"改了好像没变化"）。
+      现在把**每一个预缓存资源的内容**都纳入哈希，这类"只换内容"的部署必然触发更新。 */
 async function stampServiceWorkerVersion() {
   const swPath = join(ROOT, 'sw.js');
   const sw = await readFile(swPath, 'utf8');
   const cur = /const VERSION = '([^']*)'/.exec(sw)?.[1];
 
   const h = createHash('sha1');
-  // precache.json 覆盖了"文件集合"（新增/删除素材都会变），
-  // bundle/index.html/css 覆盖了"内容"（改了逻辑或样式就会变）。
-  for (const f of ['precache.json', 'index.html', 'css/style.css', 'dist/bundle.js']) {
-    try { h.update(await readFile(join(ROOT, f))); } catch { /* 缺了就不参与哈希 */ }
+  // ① 所有预缓存资源的**内容**（这是覆盖面最广的一层：素材、js、css、字体、音频都在里面）
+  let precacheList = [];
+  try {
+    precacheList = JSON.parse(await readFile(join(ROOT, 'precache.json'), 'utf8'));
+  } catch { /* 没有清单就退回到下面那几项 */ }
+  const files = new Set();
+  for (const u of precacheList) {
+    const rel = String(u).replace(/^\.\//, '');
+    if (rel) files.add(rel);
   }
-  // sw.js **自身**也要参与（把 VERSION 那一行剔掉，否则自指、永远在变）。
-  // 不加的话有个坑：只改 SW 逻辑（比如这次回退掉 navigate）时 VERSION 不变，
-  // 浏览器认为 SW 没更新、不会重新 install —— 修复推不下去。
-  // 实测踩到了：回退 navigate 之后线上 sw.js 变了，但 VERSION 还是旧的。
+  // ② 清单本身 + 发布产物（单文件版、bundle）也参与，防止清单生成逻辑变化而内容未变
+  for (const f of ['precache.json', 'index.html', 'css/style.css', 'manifest.webmanifest', 'dist/bundle.js']) files.add(f);
+  // 排序后再哈希，让结果与文件系统枚举顺序无关（precache.json 已按码位序，这里再兜一次）
+  for (const f of [...files].sort()) {
+    h.update(f);                                  // 文件名也进哈希（新增/删除要变）
+    try { h.update(await readFile(join(ROOT, f))); } catch { /* 清单里有但磁盘没有，跳过 */ }
+  }
+  // ③ sw.js **自身**也要参与（把 VERSION 那一行剔掉，否则自指、永远在变）。
+  //    不加的话有个坑：只改 SW 逻辑（比如这次回退掉 navigate）时 VERSION 不变，
+  //    浏览器认为 SW 没更新、不会重新 install —— 修复推不下去。
+  //    实测踩到了：回退 navigate 之后线上 sw.js 变了，但 VERSION 还是旧的。
   h.update(sw.replace(/const VERSION = '[^']*'/, ''));
 
   const ver = 'abyss-' + h.digest('hex').slice(0, 12);
-  if (cur === ver) return { changed: false, to: ver, from: cur };
+  if (cur === ver) return { changed: false, to: ver, from: cur, files: files.size };
   await writeFile(swPath, sw.replace(/const VERSION = '[^']*'/, `const VERSION = '${ver}'`));
-  return { changed: true, from: cur, to: ver };
+  return { changed: true, from: cur, to: ver, files: files.size };
 }
 
 /* ---------- 跑 ---------- */
