@@ -239,5 +239,10 @@
  "boss_abyss": "custom:tools/make-sprites.mjs",
  "node_battle": "custom:tools/make-sprites.mjs",
  "node_elite": "custom:tools/make-sprites.mjs",
- "node_boss": "custom:tools/make-sprites.mjs"
+ "node_boss": "custom:tools/make-sprites.mjs",
+ "icon_burn": "custom:tools/make-sprites.mjs",
+ "icon_frost": "custom:tools/make-sprites.mjs",
+ "icon_freeze": "custom:tools/make-sprites.mjs",
+ "snowball": "custom:tools/make-sprites.mjs",
+ "hero_icemage": "recolor:hero_mage/ice"
 }

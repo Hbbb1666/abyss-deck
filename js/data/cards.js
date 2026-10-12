@@ -173,31 +173,31 @@ export const CARDS = {
     fx: [{ t: 'dmg', v: 'dmg' }],
   },
   ice_shard: {
-    name: '冰锥', cls: 'mage', type: 'attack', rarity: 'common', cost: 1, target: 'enemy',
+    name: '火矢', cls: 'mage', type: 'attack', rarity: 'common', cost: 1, target: 'enemy',
     art: 'sword_dagger', dmg: 5, weak: 1, up: { dmg: 8, weak: 2 },
     text: c => `造成 <b>${c.dmg}</b> 点伤害，施加 <b>${c.weak}</b> 层虚弱。`,
     fx: [{ t: 'dmg', v: 'dmg' }, { t: 'debuff', k: 'weak', v: 'weak' }],
   },
   magic_missile: {
-    name: '奥术飞弹', cls: 'mage', type: 'attack', rarity: 'common', cost: 1, target: 'enemy',
+    name: '火星飞溅', cls: 'mage', type: 'attack', rarity: 'common', cost: 1, target: 'enemy',
     art: 'sword_dagger', dmg: 3, hits: 3, up: { dmg: 4 },
     text: c => `造成 <b>${c.dmg}</b> 点伤害 <b>${c.hits}</b> 次。`,
     fx: [{ t: 'dmg', v: 'dmg', hits: 'hits' }],
   },
   chain_lightning: {
-    name: '闪电链', cls: 'mage', type: 'attack', rarity: 'uncommon', cost: 2, target: 'all',
+    name: '烈焰连锁', cls: 'mage', type: 'attack', rarity: 'uncommon', cost: 2, target: 'all',
     art: 'key_bone', dmg: 8, up: { dmg: 11 },
     text: c => `对<b>所有</b>敌人造成 <b>${c.dmg}</b> 点伤害。`,
     fx: [{ t: 'dmgAll', v: 'dmg' }],
   },
   frost_nova: {
-    name: '霜之新星', cls: 'mage', type: 'skill', rarity: 'common', cost: 1, target: 'all',
+    name: '热浪', cls: 'mage', type: 'skill', rarity: 'common', cost: 1, target: 'all',
     art: 'portal', weak: 2, up: { weak: 3 },
     text: c => `对<b>所有</b>敌人施加 <b>${c.weak}</b> 层虚弱。`,
     fx: [{ t: 'debuffAll', k: 'weak', v: 'weak' }],
   },
   arcane_shield: {
-    name: '奥术护盾', cls: 'mage', type: 'skill', rarity: 'common', cost: 1, target: 'self',
+    name: '火焰护盾', cls: 'mage', type: 'skill', rarity: 'common', cost: 1, target: 'self',
     art: 'portcullis', blk: 8, up: { blk: 11 },
     text: c => `获得 <b>${c.blk}</b> 点护甲。`,
     fx: [{ t: 'block', v: 'blk' }],
@@ -205,23 +205,23 @@ export const CARDS = {
   burning: {
     name: '燃烧', cls: 'mage', type: 'skill', rarity: 'common', cost: 1, target: 'enemy',
     art: 'torch', poi: 4, up: { poi: 6 },
-    text: c => `施加 <b>${c.poi}</b> 层中毒。`,
-    fx: [{ t: 'debuff', k: 'poison', v: 'poi' }],
+    text: c => `施加 <b>${c.poi}</b> 层灼烧。`,
+    fx: [{ t: 'debuff', k: 'burn', v: 'poi' }],
   },
   mana_surge: {
-    name: '法力涌动', cls: 'mage', type: 'skill', rarity: 'uncommon', cost: 0, target: 'self',
+    name: '燃能涌动', cls: 'mage', type: 'skill', rarity: 'uncommon', cost: 0, target: 'self',
     art: 'potion_blue', nrg: 2, exhaust: true, up: { nrg: 3 },
     text: c => `获得 <b>${c.nrg}</b> 点能量。<i>消耗</i>`,
     fx: [{ t: 'energy', v: 'nrg' }],
   },
   time_warp: {
-    name: '时间扭曲', cls: 'mage', type: 'skill', rarity: 'common', cost: 2, target: 'self',
+    name: '烈焰急涌', cls: 'mage', type: 'skill', rarity: 'common', cost: 2, target: 'self',
     art: 'coil', draw: 3, up: { draw: 4 },
     text: c => `抽 <b>${c.draw}</b> 张牌。`,
     fx: [{ t: 'draw', v: 'draw' }],
   },
   elemental_mastery: {
-    name: '元素精通', cls: 'mage', type: 'power', rarity: 'rare', cost: 2, target: 'self',
+    name: '火焰精通', cls: 'mage', type: 'power', rarity: 'rare', cost: 2, target: 'self',
     art: 'gargoyle', str: 1, up: { str: 2 },
     text: c => `每回合开始时获得 <b>${c.str}</b> 层力量。`,
     fx: [{ t: 'buff', k: 'ritual', v: 'str' }],
@@ -233,37 +233,37 @@ export const CARDS = {
     fx: [{ t: 'dmg', v: 'dmg' }, { t: 'debuff', k: 'vulnerable', v: 'vul' }],
   },
   ice_barrier: {
-    name: '寒冰屏障', cls: 'mage', type: 'skill', rarity: 'uncommon', cost: 3, target: 'self',
+    name: '熔岩壁垒', cls: 'mage', type: 'skill', rarity: 'uncommon', cost: 3, target: 'self',
     art: 'door', blk: 12, draw: 1, up: { blk: 16 },
     text: c => `获得 <b>${c.blk}</b> 点护甲，抽 <b>${c.draw}</b> 张牌。`,
     fx: [{ t: 'block', v: 'blk' }, { t: 'draw', v: 'draw' }],
   },
   hex: {
-    name: '痛苦诅咒', cls: 'mage', type: 'skill', rarity: 'uncommon', cost: 2, target: 'enemy',
+    name: '焦灼诅咒', cls: 'mage', type: 'skill', rarity: 'uncommon', cost: 2, target: 'enemy',
     art: 'grave_cross', vul: 3, weak: 3, up: { vul: 4, weak: 4 },
     text: c => `施加 <b>${c.vul}</b> 层易伤和 <b>${c.weak}</b> 层虚弱。`,
     fx: [{ t: 'debuff', k: 'vulnerable', v: 'vul' }, { t: 'debuff', k: 'weak', v: 'weak' }],
   },
   soul_drain: {
-    name: '灵魂汲取', cls: 'mage', type: 'attack', rarity: 'uncommon', cost: 2, target: 'enemy',
+    name: '焚魂汲取', cls: 'mage', type: 'attack', rarity: 'uncommon', cost: 2, target: 'enemy',
     art: 'potion_green', dmg: 10, heal: 5, up: { dmg: 14, heal: 8 },
     text: c => `造成 <b>${c.dmg}</b> 点伤害，回复 <b>${c.heal}</b> 点生命。`,
     fx: [{ t: 'dmg', v: 'dmg' }, { t: 'heal', v: 'heal' }],
   },
   mirror_image: {
-    name: '镜影', cls: 'mage', type: 'power', rarity: 'uncommon', cost: 1, target: 'self',
+    name: '余烬分身', cls: 'mage', type: 'power', rarity: 'uncommon', cost: 1, target: 'self',
     art: 'portal', blk: 4, up: { blk: 6 },
     text: c => `每回合开始时获得 <b>${c.blk}</b> 点护甲。`,
     fx: [{ t: 'buff', k: 'undying', v: 'blk' }],
   },
   arcane_intellect: {
-    name: '奥术智慧', cls: 'mage', type: 'power', rarity: 'rare', cost: 1, target: 'self',
+    name: '燃魂通晓', cls: 'mage', type: 'power', rarity: 'rare', cost: 1, target: 'self',
     art: 'coil', draw: 1, up: { cost: 0 },
     text: c => `每回合开始时额外抽 <b>${c.draw}</b> 张牌。`,
     fx: [{ t: 'buff', k: 'extra_draw', v: 'draw' }],
   },
   arcane_barrage: {
-    name: '奥术弹幕', cls: 'mage', type: 'attack', rarity: 'uncommon', cost: 2, target: 'enemy',
+    name: '万火齐发', cls: 'mage', type: 'attack', rarity: 'uncommon', cost: 2, target: 'enemy',
     art: 'key_purple', dmg: 4, per: 3, up: { dmg: 5 },
     text: c => `造成 <b>${c.dmg}</b> 点伤害，每有一张手牌就多攻击一次。`,
     fx: [{ t: 'dmgPerHand', v: 'dmg' }],
@@ -396,25 +396,25 @@ export const CARDS = {
 
   /* ============ 法师 · 补充 ============ */
   thunderstorm: {
-    name: '雷暴', cls: 'mage', type: 'attack', rarity: 'rare', cost: 3, target: 'all',
+    name: '烈焰风暴', cls: 'mage', type: 'attack', rarity: 'rare', cost: 3, target: 'all',
     art: 'key_bone', dmg: 14, up: { dmg: 18 },
     text: c => `对<b>所有</b>敌人造成 <b>${c.dmg}</b> 点伤害。`,
     fx: [{ t: 'dmgAll', v: 'dmg' }],
   },
   frost_armor: {
-    name: '霜甲', cls: 'mage', type: 'skill', rarity: 'uncommon', cost: 1, target: 'all',
+    name: '熔岩之肤', cls: 'mage', type: 'skill', rarity: 'uncommon', cost: 1, target: 'all',
     art: 'door', blk: 6, weak: 2, up: { blk: 9, weak: 3 },
     text: c => `获得 <b>${c.blk}</b> 点护甲，对<b>所有</b>敌人施加 <b>${c.weak}</b> 层虚弱。`,
     fx: [{ t: 'block', v: 'blk' }, { t: 'debuffAll', k: 'weak', v: 'weak' }],
   },
   void_bolt: {
-    name: '虚空箭', cls: 'mage', type: 'attack', rarity: 'uncommon', cost: 1, target: 'enemy',
+    name: '引火烧身', cls: 'mage', type: 'attack', rarity: 'uncommon', cost: 1, target: 'enemy',
     art: 'key_purple', dmg: 12, selfdmg: 3, up: { dmg: 16 },
     text: c => `造成 <b>${c.dmg}</b> 点伤害，你失去 <b>${c.selfdmg}</b> 点生命。`,
     fx: [{ t: 'dmg', v: 'dmg' }, { t: 'loseHp', v: 'selfdmg' }],
   },
   mind_spike: {
-    name: '心灵尖刺', cls: 'mage', type: 'attack', rarity: 'common', cost: 1, target: 'enemy',
+    name: '火星迸射', cls: 'mage', type: 'attack', rarity: 'common', cost: 1, target: 'enemy',
     art: 'key_blue', dmg: 6, draw: 1, up: { dmg: 9, draw: 2 },
     text: c => `造成 <b>${c.dmg}</b> 点伤害，抽 <b>${c.draw}</b> 张牌。`,
     fx: [{ t: 'dmg', v: 'dmg' }, { t: 'draw', v: 'draw' }],
@@ -554,7 +554,7 @@ export const CARDS = {
   },
   bloodlust: {
     name: '嗜血', cls: 'assassin', type: 'power', rarity: 'rare', cost: 2, target: 'self',
-    art: 'crabdemon', str: 1, up: { str: 2 },
+    art: 'crabdemon', str: 2, up: { str: 3 },
     text: c => `每回合开始时获得 <b>${c.str}</b> 层力量。`,
     fx: [{ t: 'buff', k: 'ritual', v: 'str' }],
   },
@@ -572,15 +572,268 @@ export const CARDS = {
   },
   mist_form: {
     name: '雾化', cls: 'assassin', type: 'skill', rarity: 'rare', cost: 1, target: 'self',
-    art: 'ghost', blk: 12, thn: 3, up: { blk: 16, thn: 4 },
-    text: c => `获得 <b>${c.blk}</b> 点护甲和 <b>${c.thn}</b> 层荆棘。`,
-    fx: [{ t: 'block', v: 'blk' }, { t: 'buff', k: 'thorns', v: 'thn' }],
+    art: 'ghost', blk: 12, draw: 1, up: { blk: 16, draw: 2 },
+    text: c => `获得 <b>${c.blk}</b> 点护甲，抽 <b>${c.draw}</b> 张牌。`,
+    fx: [{ t: 'block', v: 'blk' }, { t: 'draw', v: 'draw' }],
   },
   deathmark: {
     name: '死亡印记', cls: 'assassin', type: 'skill', rarity: 'rare', cost: 1, target: 'enemy',
     art: 'key_purple', vul: 4, weak: 4, up: { vul: 6, weak: 6 },
     text: c => `施加 <b>${c.vul}</b> 层易伤和 <b>${c.weak}</b> 层虚弱。`,
     fx: [{ t: 'debuff', k: 'vulnerable', v: 'vul' }, { t: 'debuff', k: 'weak', v: 'weak' }],
+  },
+
+
+  /* ============ 骑士 · 护盾流 ============
+     构筑方向：**护盾流高容错**。核心是"把护甲堆厚 → 用护甲换伤害 → 不让护甲消失"。
+     这个职业的每一张牌要么产生护甲，要么把护甲变成别的资源。 */
+  stone_wall: {
+    name: '石墙', cls: 'knight', type: 'skill', rarity: 'common', cost: 3, target: 'self',
+    art: 'stone_platform', blk: 20, up: { blk: 26 },
+    text: c => `获得 <b>${c.blk}</b> 点护甲。`,
+    fx: [{ t: 'block', v: 'blk' }],
+  },
+  vanguard: {
+    name: '先锋', cls: 'knight', type: 'attack', rarity: 'common', cost: 1, target: 'enemy',
+    art: 'sword_broad', dmg: 5, blk: 5, up: { dmg: 8, blk: 8 },
+    text: c => `造成 <b>${c.dmg}</b> 点伤害，获得 <b>${c.blk}</b> 点护甲。`,
+    fx: [{ t: 'dmg', v: 'dmg' }, { t: 'block', v: 'blk' }],
+  },
+  bulwark_slam: {
+    name: '壁垒冲撞', cls: 'knight', type: 'attack', rarity: 'uncommon', cost: 2, target: 'enemy',
+    art: 'hammer', dmg: 12, blk: 8, up: { dmg: 16, blk: 11 },
+    text: c => `造成 <b>${c.dmg}</b> 点伤害，获得 <b>${c.blk}</b> 点护甲。`,
+    fx: [{ t: 'dmg', v: 'dmg' }, { t: 'block', v: 'blk' }],
+  },
+  last_bastion: {
+    name: '最后堡垒', cls: 'knight', type: 'power', rarity: 'rare', cost: 3, target: 'self',
+    art: 'portcullis', blk: 6, up: { blk: 8 },
+    text: c => `每回合开始时获得 <b>${c.blk}</b> 点护甲。`,
+    fx: [{ t: 'buff', k: 'undying', v: 'blk' }],
+  },
+
+  /* ============ 法师 · 法力增幅 ============
+     构筑方向：**费用上限高、单发法术伤害高**。
+     「法力增幅」是本职业独有的持久状态 —— 它提高的是**每回合能量上限**，
+     所以法师的强度曲线是"先投资增幅，之后每回合都能多打一张大法术"。 */
+  arcane_engine: {
+    name: '烈焰引擎', cls: 'mage', type: 'power', rarity: 'uncommon', cost: 2, target: 'self',
+    art: 'arcane_orb', cap: 1, up: { cost: 1 },
+    text: c => `每回合能量上限 <b>+${c.cap}</b>。`,
+    fx: [{ t: 'buff', k: 'energy_cap', v: 'cap' }],
+  },
+  mana_font: {
+    name: '熔火之心', cls: 'mage', type: 'skill', rarity: 'common', cost: 1, target: 'self',
+    art: 'key_blue', nrg: 2, up: { nrg: 3 },
+    text: c => `本回合获得 <b>${c.nrg}</b> 点能量。`,
+    fx: [{ t: 'energy', v: 'nrg' }],
+  },
+  disintegrate: {
+    name: '焚世射线', cls: 'mage', type: 'attack', rarity: 'rare', cost: 3, target: 'enemy',
+    art: 'key_purple', dmg: 24, up: { dmg: 30 },
+    text: c => `造成 <b>${c.dmg}</b> 点伤害。`,
+    fx: [{ t: 'dmg', v: 'dmg' }],
+  },
+  mana_burst: {
+    name: '烈焰爆发', cls: 'mage', type: 'attack', rarity: 'uncommon', cost: 2, target: 'enemy',
+    art: 'arcane_orb', per: 5, up: { per: 7 },
+    text: c => `造成等同于<b>能量上限×${c.per}</b>的伤害。`,
+    fx: [{ t: 'dmgPerEnergyMax', v: 'per' }],
+  },
+
+  /* ============ 游侠 · 低费快过牌 ============
+     构筑方向：**0~1 费为主 + 大量抽牌**。一回合连打五六张，
+     靠"过牌速度"而不是单卡质量取胜；中毒是快速铺场之后的收尾手段。 */
+  quick_thinking: {
+    name: '急智', cls: 'rogue', type: 'skill', rarity: 'common', cost: 0, target: 'self',
+    art: 'key_green', draw: 2, up: { draw: 3 },
+    text: c => `抽 <b>${c.draw}</b> 张牌，然后弃 <b>1</b> 张牌。`,
+    fx: [{ t: 'draw', v: 'draw' }, { t: 'discard', v: 1 }],
+  },
+  feint: {
+    name: '佯攻', cls: 'rogue', type: 'attack', rarity: 'common', cost: 0, target: 'enemy',
+    art: 'sword_dagger', dmg: 4, draw: 1, up: { dmg: 7 },
+    text: c => `造成 <b>${c.dmg}</b> 点伤害，抽 <b>${c.draw}</b> 张牌。`,
+    fx: [{ t: 'dmg', v: 'dmg' }, { t: 'draw', v: 'draw' }],
+  },
+  flurry_strike: {
+    name: '乱影', cls: 'rogue', type: 'attack', rarity: 'common', cost: 1, target: 'enemy',
+    art: 'sword_dagger', dmg: 2, hits: 3, draw: 1, up: { dmg: 3 },
+    text: c => `造成 <b>${c.dmg}</b> 点伤害 <b>${c.hits}</b> 次，抽 <b>${c.draw}</b> 张牌。`,
+    fx: [{ t: 'dmg', v: 'dmg', hits: 'hits' }, { t: 'draw', v: 'draw' }],
+  },
+  hundred_cuts: {
+    name: '百裂斩', cls: 'rogue', type: 'attack', rarity: 'uncommon', cost: 1, target: 'enemy',
+    art: 'sword_broad', per: 3, up: { per: 5 },
+    text: c => `造成 <b>本回合已打出牌数×${c.per}</b> 的伤害。`,
+    fx: [{ t: 'dmgPerPlayed', v: 'per' }],
+  },
+  envenom_blade: {
+    name: '淬毒之刃', cls: 'rogue', type: 'attack', rarity: 'uncommon', cost: 0, target: 'enemy',
+    art: 'potion_green', dmg: 3, poi: 2, draw: 1, up: { dmg: 5, poi: 3 },
+    text: c => `造成 <b>${c.dmg}</b> 点伤害，施加 <b>${c.poi}</b> 层中毒，抽 <b>${c.draw}</b> 张牌。`,
+    fx: [{ t: 'dmg', v: 'dmg' }, { t: 'debuff', k: 'poison', v: 'poi' }, { t: 'draw', v: 'draw' }],
+  },
+
+  /* ============ 暗影刺客 · 叠易伤叠攻击 ============
+     构筑方向：**先把易伤叠厚、再把力量叠起来，最后用一发巨伤收命**。
+     前几回合看着很弱（都在铺垫），铺完之后的单次攻击能直接清掉 Boss 半管血。 */
+  annihilate: {
+    name: '湮灭', cls: 'assassin', type: 'attack', rarity: 'rare', cost: 3, target: 'enemy',
+    art: 'sword_broad', dmg: 30, exhaust: true, up: { dmg: 38 },
+    text: c => `造成 <b>${c.dmg}</b> 点伤害。<i>消耗</i>`,
+    fx: [{ t: 'dmg', v: 'dmg' }],
+  },
+  shadow_arsenal: {
+    name: '暗影武库', cls: 'assassin', type: 'skill', rarity: 'uncommon', cost: 2, target: 'self',
+    art: 'axe', str: 3, up: { str: 4 },
+    text: c => `获得 <b>${c.str}</b> 层力量。`,
+    fx: [{ t: 'buff', k: 'strength', v: 'str' }],
+  },
+  expose: {
+    name: '破绽', cls: 'assassin', type: 'skill', rarity: 'common', cost: 1, target: 'enemy',
+    art: 'key_red', vul: 4, draw: 1, up: { vul: 5 },
+    text: c => `施加 <b>${c.vul}</b> 层易伤，抽 <b>${c.draw}</b> 张牌。`,
+    fx: [{ t: 'debuff', k: 'vulnerable', v: 'vul' }, { t: 'draw', v: 'draw' }],
+  },
+  bleed_out: {
+    name: '放血', cls: 'assassin', type: 'attack', rarity: 'common', cost: 0, target: 'enemy',
+    art: 'sword_short', dmg: 4, vul: 2, up: { dmg: 6, vul: 3 },
+    text: c => `造成 <b>${c.dmg}</b> 点伤害，施加 <b>${c.vul}</b> 层易伤。`,
+    fx: [{ t: 'dmg', v: 'dmg' }, { t: 'debuff', k: 'vulnerable', v: 'vul' }],
+  },
+
+
+  /* ============ 火焰法师 · 基础牌 ============
+     普攻改成**技能牌**：这样它才能触发「技能牌挂灼烧」的职业特性。
+     类型是技能、效果是造成伤害 —— 引擎不限制"技能不能打伤害"。 */
+  fire_bolt: {
+    name: '火焰弹', cls: 'mage', type: 'skill', rarity: 'basic', cost: 1, target: 'enemy',
+    art: 'torch', dmg: 6, up: { dmg: 9 },
+    text: c => `造成 <b>${c.dmg}</b> 点伤害。`,
+    fx: [{ t: 'dmg', v: 'dmg' }],
+  },
+
+  /* ============ 寒冰法师 ============
+     构筑方向：**冰霜充能 → 冻住 → 跳过它的行动**。
+     冰霜不会自然衰减，集满（普通/精英 3 层、Boss 5 层）就变成 1 层冰冻。
+     所以这个职业的核心不是"打多少伤害"，而是"让对面少行动几次"。
+     一张牌能不能上冰霜，取决于它是不是**对敌人生效的技能牌**（职业特性决定的）。 */
+  snowball: {
+    name: '扔雪球', cls: 'icemage', type: 'skill', rarity: 'basic', cost: 1, target: 'enemy',
+    art: 'snowball', dmg: 6, up: { dmg: 9 },
+    text: c => `造成 <b>${c.dmg}</b> 点伤害。`,
+    fx: [{ t: 'dmg', v: 'dmg' }],
+  },
+  frost_bolt: {
+    name: '寒冰箭', cls: 'icemage', type: 'skill', rarity: 'common', cost: 1, target: 'enemy',
+    art: 'key_blue', dmg: 5, fro: 1, up: { dmg: 8 },
+    text: c => `造成 <b>${c.dmg}</b> 点伤害，施加 <b>${c.fro}</b> 层冰霜。`,
+    fx: [{ t: 'dmg', v: 'dmg' }, { t: 'debuff', k: 'frost', v: 'fro' }],
+  },
+  ice_wall: {
+    name: '冰墙', cls: 'icemage', type: 'skill', rarity: 'common', cost: 2, target: 'self',
+    art: 'stone_platform', blk: 13, up: { blk: 17 },
+    text: c => `获得 <b>${c.blk}</b> 点护甲。`,
+    fx: [{ t: 'block', v: 'blk' }],
+  },
+  chill: {
+    name: '刺骨', cls: 'icemage', type: 'skill', rarity: 'common', cost: 1, target: 'enemy',
+    art: 'ghost', fro: 1, draw: 1, up: { fro: 2 },
+    text: c => `施加 <b>${c.fro}</b> 层冰霜，抽 <b>${c.draw}</b> 张牌。`,
+    fx: [{ t: 'debuff', k: 'frost', v: 'fro' }, { t: 'draw', v: 'draw' }],
+  },
+  ice_lance: {
+    name: '冰枪', cls: 'icemage', type: 'skill', rarity: 'common', cost: 1, target: 'enemy',
+    art: 'sword_long', dmg: 8, up: { dmg: 11 },
+    text: c => `造成 <b>${c.dmg}</b> 点伤害。`,
+    fx: [{ t: 'dmg', v: 'dmg' }],
+  },
+  snow_veil: {
+    name: '雪幕', cls: 'icemage', type: 'skill', rarity: 'common', cost: 1, target: 'self',
+    art: 'door', blk: 5, draw: 1, up: { blk: 8 },
+    text: c => `获得 <b>${c.blk}</b> 点护甲，抽 <b>${c.draw}</b> 张牌。`,
+    fx: [{ t: 'block', v: 'blk' }, { t: 'draw', v: 'draw' }],
+  },
+  blizzard: {
+    name: '暴风雪', cls: 'icemage', type: 'skill', rarity: 'common', cost: 2, target: 'all',
+    art: 'coil', dmg: 7, up: { dmg: 10 },
+    text: c => `对<b>所有</b>敌人造成 <b>${c.dmg}</b> 点伤害。`,
+    fx: [{ t: 'dmgAll', v: 'dmg' }],
+  },
+  frostbite: {
+    name: '冻伤', cls: 'icemage', type: 'skill', rarity: 'common', cost: 1, target: 'enemy',
+    art: 'potion_blue', weak: 3, up: { weak: 4 },
+    text: c => `施加 <b>${c.weak}</b> 层虚弱。`,
+    fx: [{ t: 'debuff', k: 'weak', v: 'weak' }],
+  },
+
+  deep_freeze: {
+    name: '深度冻结', cls: 'icemage', type: 'skill', rarity: 'uncommon', cost: 1, target: 'enemy',
+    art: 'portal', fro: 2, up: { fro: 3 },
+    text: c => `施加 <b>${c.fro}</b> 层冰霜。`,
+    fx: [{ t: 'debuff', k: 'frost', v: 'fro' }],
+  },
+  hailstorm: {
+    name: '冰雹', cls: 'icemage', type: 'skill', rarity: 'uncommon', cost: 2, target: 'all',
+    art: 'coil', dmg: 5, weak: 2, up: { dmg: 8 },
+    text: c => `对<b>所有</b>敌人造成 <b>${c.dmg}</b> 点伤害，施加 <b>${c.weak}</b> 层虚弱。`,
+    fx: [{ t: 'dmgAll', v: 'dmg' }, { t: 'debuffAll', k: 'weak', v: 'weak' }],
+  },
+  cold_snap: {
+    name: '寒潮', cls: 'icemage', type: 'skill', rarity: 'uncommon', cost: 2, target: 'all',
+    art: 'gate', fro: 1, up: { fro: 2 },
+    text: c => `对<b>所有</b>敌人施加 <b>${c.fro}</b> 层冰霜。`,
+    fx: [{ t: 'debuffAll', k: 'frost', v: 'fro' }],
+  },
+  shatter: {
+    name: '碎冰', cls: 'icemage', type: 'attack', rarity: 'uncommon', cost: 2, target: 'enemy',
+    art: 'hammer', dmg: 10, bonus: 15, up: { dmg: 12, bonus: 18 },
+    text: c => `造成 <b>${c.dmg}</b> 点伤害。若目标已<b>冰冻</b>，额外 <b>${c.bonus}</b> 点。`,
+    fx: [{ t: 'dmg', v: 'dmg', ifFrozen: 'bonus' }],
+  },
+  frozen_grasp: {
+    name: '冰封之握', cls: 'icemage', type: 'skill', rarity: 'uncommon', cost: 2, target: 'enemy',
+    art: 'coil', dmg: 9, fro: 1, up: { dmg: 12 },
+    text: c => `造成 <b>${c.dmg}</b> 点伤害，施加 <b>${c.fro}</b> 层冰霜。`,
+    fx: [{ t: 'dmg', v: 'dmg' }, { t: 'debuff', k: 'frost', v: 'fro' }],
+  },
+  ice_shell: {
+    name: '冰壳', cls: 'icemage', type: 'skill', rarity: 'uncommon', cost: 1, target: 'self',
+    art: 'box', blk: 7, next: 3, up: { blk: 10, next: 5 },
+    text: c => `获得 <b>${c.blk}</b> 点护甲，下回合额外 <b>${c.next}</b> 点。`,
+    fx: [{ t: 'block', v: 'blk' }, { t: 'buff', k: 'block_next', v: 'next' }],
+  },
+  permafrost: {
+    name: '永冻', cls: 'icemage', type: 'skill', rarity: 'uncommon', cost: 2, target: 'enemy',
+    art: 'key_purple', fro: 2, weak: 2, up: { fro: 3 },
+    text: c => `施加 <b>${c.fro}</b> 层冰霜和 <b>${c.weak}</b> 层虚弱。`,
+    fx: [{ t: 'debuff', k: 'frost', v: 'fro' }, { t: 'debuff', k: 'weak', v: 'weak' }],
+  },
+
+  glacier: {
+    name: '冰川', cls: 'icemage', type: 'skill', rarity: 'rare', cost: 3, target: 'all',
+    art: 'stone_platform', dmg: 16, up: { dmg: 20 },
+    text: c => `对<b>所有</b>敌人造成 <b>${c.dmg}</b> 点伤害。`,
+    fx: [{ t: 'dmgAll', v: 'dmg' }],
+  },
+  absolute_zero: {
+    name: '绝对零度', cls: 'icemage', type: 'skill', rarity: 'rare', cost: 3, target: 'all',
+    art: 'portal', fro: 3, up: { fro: 4 },
+    text: c => `对<b>所有</b>敌人施加 <b>${c.fro}</b> 层冰霜。`,
+    fx: [{ t: 'debuffAll', k: 'frost', v: 'fro' }],
+  },
+  winter: {
+    name: '凛冬', cls: 'icemage', type: 'skill', rarity: 'rare', cost: 3, target: 'all',
+    art: 'grave_cross', fro: 2, weak: 3, up: { fro: 3 },
+    text: c => `对<b>所有</b>敌人施加 <b>${c.fro}</b> 层冰霜和 <b>${c.weak}</b> 层虚弱。`,
+    fx: [{ t: 'debuffAll', k: 'frost', v: 'fro' }, { t: 'debuffAll', k: 'weak', v: 'weak' }],
+  },
+  ice_nova: {
+    name: '冰霜新星', cls: 'icemage', type: 'skill', rarity: 'rare', cost: 3, target: 'all',
+    art: 'arcane_orb', dmg: 12, up: { dmg: 16 },
+    text: c => `对<b>所有</b>敌人造成 <b>${c.dmg}</b> 点伤害。`,
+    fx: [{ t: 'dmgAll', v: 'dmg' }],
   },
 
   /* ============ 中性 ============ */

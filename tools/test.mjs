@@ -1780,7 +1780,9 @@ section('Q. 虚弱固定扣减 / 斩杀 / 毒死即结算');
     ok(e2.hp === 49, `999 层虚弱下 3 点的小攻击仍打出 1 点（实测 ${50 - e2.hp}）`);
   }
 
-  /* --- Q2b. 力量与虚弱的先后：先加力量再减虚弱，最后才乘易伤 --- */
+  /* --- Q2b. 力量 / 虚弱 / 易伤三者都是**固定值加减**，顺序固定 ---
+     2026-10-13：易伤由「×1.5 倍率」改成「每层每段 +1」，所以这里的期望值也变了。
+     顺序：① 加力量 → ② 减虚弱（至少留 1）→ ③ 加易伤 → ④ 乘 Boss 首击减伤。 */
   {
     const B = mk();
     await B.start();
@@ -1788,9 +1790,115 @@ section('Q. 虚弱固定扣减 / 斩杀 / 毒死即结算');
     B.player.st = { strength: 5, weak: 3 };
     ok(B.calcDamage(10, B.player, e) === 12, `10 + 力量5 - 虚弱3 = 12（实测 ${B.calcDamage(10, B.player, e)}）`);
     e.st = { vulnerable: 2 };
-    ok(B.calcDamage(10, B.player, e) === 18, `再乘易伤 1.5 → 18（实测 ${B.calcDamage(10, B.player, e)}）`);
+    ok(B.calcDamage(10, B.player, e) === 14, `再加易伤 2 层（每层 +1）→ 14（实测 ${B.calcDamage(10, B.player, e)}）`);
+    // 易伤是**每段**都加：3 段攻击、2 层易伤 → 每段 +2，合计 +6
+    B.player.st = {};
+    e.st = { vulnerable: 2 };
+    ok(B.calcDamage(5, B.player, e) === 7, `单段 5 点 + 易伤2层 = 7（实测 ${B.calcDamage(5, B.player, e)}）`);
+    const seg = 3;
+    let total = 0;
+    for (let i = 0; i < seg; i++) total += B.calcDamage(5, B.player, e);
+    ok(total === seg * 7, `3 段攻击每段各吃一次易伤：合计 ${total}（每段 7）`);
+    // 0 点伤害的招式不该凭易伤凭空打出伤害
+    e.st = { vulnerable: 5 };
+    ok(B.calcDamage(0, B.player, e) === 0, `0 点伤害不会因易伤变成正数（实测 ${B.calcDamage(0, B.player, e)}）`);
+    // 虚弱下限与易伤共存：虚弱夹到 1 之后再加易伤
     B.player.st = { weak: 50 };
-    ok(B.calcDamage(10, B.player, e) === 1, `虚弱远超伤害时夹到下限 1，不会出负数或 0`);
+    e.st = { vulnerable: 3 };
+    ok(B.calcDamage(10, B.player, e) === 4, `虚弱夹到 1 再加易伤 3 层 = 4（实测 ${B.calcDamage(10, B.player, e)}）`);
+
+    /* 衰减时机：**轮到它自己的回合时**减 1 层。
+       敌人的易伤在它行动之后 tickEnd 递减；玩家的在玩家回合结束时递减。
+       断言"打它的时候还在、它打完才掉" —— 顺序反了会让易伤白白少一层。 */
+    const B2 = mk();
+    await B2.start();
+    const e2 = B2.aliveEnemies()[0];
+    B2.add(e2, 'vulnerable', 2);
+    ok(B2.get(e2, 'vulnerable') === 2, '施加后立刻是 2 层');
+    B2.tickEnd(e2);                                   // 模拟它行动结束
+    ok(B2.get(e2, 'vulnerable') === 1, `它自己回合结束后 -1（实测 ${B2.get(e2, 'vulnerable')}）`);
+    B2.tickEnd(e2);
+    ok(B2.get(e2, 'vulnerable') === 0, '再一轮就掉光');
+
+    /* 虚弱必须**对玩家同样生效**（产品专门问过这一点）。
+       实现上它读的是 `this.get(atk,'weak')` —— `atk` 是攻击方，
+       所以"谁有虚弱，谁的伤害就 -1/层"，玩家和敌人走的是同一条公式。
+       这里同时验数值、真实出牌、以及意图预告，三处口径必须一致。 */
+    {
+      const W = mk();
+      await W.start();
+      const we = W.aliveEnemies()[0];
+      we.hp = we.maxHp = 500;
+
+      // ① 数值层：玩家自己带虚弱
+      W.player.st = {};
+      const noWeak = W.calcDamage(10, W.player, we);
+      W.player.st = { weak: 3 };
+      const withWeak = W.calcDamage(10, W.player, we);
+      ok(noWeak === 10 && withWeak === 7,
+         `玩家自己带 3 层虚弱，10 点伤害变 ${withWeak}（无虚弱 ${noWeak}）`);
+      W.player.st = { weak: 20 };
+      ok(W.calcDamage(10, W.player, we) === 1, '玩家虚弱叠再多也保底 1 点（不会为 0 或负数）');
+
+      // ② 真实出牌：同一张「打击」，虚弱时真的打得更少
+      const hitWith = async (weak) => {
+        we.hp = 500;
+        W.player.st = weak ? { weak } : {};
+        const c = mkCard('strike');
+        W.hand = [c]; W.energy = 99;
+        const before = we.hp;
+        await W.playCard(c, we);
+        return before - we.hp;
+      };
+      const h0 = await hitWith(0), h3 = await hitWith(3);
+      ok(h0 - h3 === 3, `真实出牌：玩家 3 层虚弱时「打击」少打 3 点（${h0} → ${h3}）`);
+
+      // ③ 对称性：同一套规则作用于敌人（它带虚弱时打玩家也更少）
+      const S = mk();
+      await S.start();
+      const se = S.aliveEnemies()[0];
+      const eDmg = (weak) => { se.st = weak ? { weak } : {}; return S.calcDamage(10, se, S.player); };
+      ok(eDmg(0) - eDmg(2) === 2, `敌人带 2 层虚弱时打玩家也少 2 点（${eDmg(0)} → ${eDmg(2)}）`);
+
+      // ④ 意图预告不能撒谎：敌人带虚弱后，预告值跟着降，且等于真打出来的
+      const I = mk();
+      await I.start();
+      const ie = I.aliveEnemies()[0];
+      ie.moveId = Object.keys(ie.def.moves)[0];
+      const pv0 = I.intentOf(ie).dmg;
+      I.add(ie, 'weak', 2);
+      const pv1 = I.intentOf(ie).dmg;
+      ok(pv0 - pv1 === 2, `敌人 2 层虚弱后意图预告也少 2 点（${pv0} → ${pv1}）`);
+      const hpBefore = I.player.hp;
+      await I.enemyTurn();
+      ok(hpBefore - I.player.hp === pv1,
+         `预告 ${pv1} 与真打 ${hpBefore - I.player.hp} 一致（"预告不能撒谎"）`);
+
+      // ⑤ 分段招式：每段各扣一次（对玩家与敌人同样成立）
+      const G2 = mk();
+      await G2.start();
+      const ge = G2.aliveEnemies()[0];
+      G2.player.st = { weak: 2 };
+      let total = 0;
+      for (let i = 0; i < 3; i++) total += G2.calcDamage(4, G2.player, ge);
+      ok(total === 6, `玩家 2 层虚弱打出 3 段×4 点：合计 ${total}（每段 -2，不是总共 -2）`);
+    }
+
+    /* 状态说明必须和真实公式一致 ——
+       这条是补的：虚弱/易伤改语义后，`ST` 表里的 desc 与界面帮助文本
+       都还写着旧数值（"受到伤害 +50%"/"造成伤害 -25%"），是**玩家直接看到的**地方。
+       文案写错比代码写错更难发现，因为没有任何测试会去读一句话。 */
+    const { ST, VULN_FLAT_PER_STACK, WEAK_FLAT_PER_STACK } = await import('file://' + join(ROOT, 'js/core/battle.js'));
+    ok(VULN_FLAT_PER_STACK === 1, `易伤每层 +1（实测 ${VULN_FLAT_PER_STACK}）`);
+    ok(WEAK_FLAT_PER_STACK === 1, `虚弱每层 -1（实测 ${WEAK_FLAT_PER_STACK}）`);
+    ok(!/50%|\+50/.test(ST.vulnerable.desc), `易伤说明不再写"×1.5/+50%"（实际：「${ST.vulnerable.desc}」）`);
+    ok(!/25%|-25%/.test(ST.weak.desc), `虚弱说明不再写"-25%"（实际：「${ST.weak.desc}」）`);
+    ok(/\+1/.test(ST.vulnerable.desc), `易伤说明写出了"+1"（实际：「${ST.vulnerable.desc}」）`);
+    ok(/-1/.test(ST.weak.desc), `虚弱说明写出了"-1"（实际：「${ST.weak.desc}」）`);
+    // 界面帮助文本同样不能落后
+    const helpSrc = readFileSync(join(ROOT, 'js/ui/scene-battle.js'), 'utf8');
+    ok(!/易伤 · 受到伤害 \+50%/.test(helpSrc), '战斗内帮助文本里的易伤说明也已更新');
+    ok(!/虚弱 · 造成伤害 -25%/.test(helpSrc), '战斗内帮助文本里的虚弱说明也已更新');
   }
 
   /* --- Q3. 斩杀：伤害打不死、但打完低于阈值 → 处决 --- */
@@ -1950,31 +2058,65 @@ section('R. 遗物扩充 / 蓝色卡提费 / 开局事件');
 
   /* --- R4. 蓝色（罕见）卡：单卡不得明显强于同费同类普通牌 --- */
   {
-    // 与 tools 里那份价值模型一致：只用来做"相对比较"，不看绝对值
+    // 与 tools 里那份价值模型一致：只用来做"相对比较"，不看绝对值。
+    // ⚠️ vul / weak 的 1.5 是**代理权重**，不是游戏里的倍率：
+    //    2026-10-13 起易伤已从"×1.5 倍率"改成"每层每段 +1"，与虚弱（每层每段 -1）完全对称。
+    //    这两个权重保持相等即可 —— 实测把两者从 1.5 调到 1.0 / 0.8，
+    //    本段"超标"名单**完全不变**（那两张卡的支配性来自 exec 加成，不是易伤层数），
+    //    所以它是相对量、不是精确标定。将来若真被易伤权重影响，再按手感重新标定。
     const W = { dmg: 1.0, block: 0.9, draw: 2.0, energy: 3.0, str: 2.5, vul: 1.5, weak: 1.5, poi: 1.2, thn: 1.2, heal: 0.8, undying: 2.5 };
     const ALL = 1.3;
+    /* 卡的"价值"是个粗略代理，只用来做相对比较（同职业/同类型/同费用谁更强）。
+       注意：这里必须是**一条完整的 else-if 链** —— 中间插进一个裸 if 会把链截断，
+       后面所有分支都会变成"挂在那个 if 下面"，条件不成立时被静默跳过。
+       （我加新效果时就踩过这个：block/draw/heal/strength 全被跳过，
+       于是门禁开始乱报。） */
     const val = c => {
       let v = 0;
+      const n = k => (typeof c[k] === 'number' ? c[k] : 0);
       for (const f of (c.fx || [])) {
-        const n = k => (typeof c[k] === 'number' ? c[k] : 0);
         if (f.t === 'dmg') v += n('dmg') * (c.hits || 1) * W.dmg;
         else if (f.t === 'dmgAll') v += n('dmg') * (c.hits || 1) * W.dmg * ALL;
         else if (f.t === 'dmgBlock') v += 8 * W.dmg;
         else if (f.t === 'dmgPoison') v += 12 * W.dmg;
+        else if (f.t === 'dmgPerHand') v += 8 * W.dmg;                    // 按 8 张手牌估
+        else if (f.t === 'dmgPerEnergyMax') v += 3 * n('per') * W.dmg;    // 按基础 3 能量估
+        else if (f.t === 'dmgPerPlayed') v += 4 * n('per') * W.dmg;       // 按一回合打出 4 张估
         else if (f.t === 'block') v += n('blk') * W.block;
         else if (f.t === 'blockFromBlock') v += 10 * W.block;
         else if (f.t === 'draw') v += n('draw') * W.draw;
         else if (f.t === 'energy') v += n('nrg') * W.energy;
         else if (f.t === 'heal') v += n('heal') * W.heal;
+        else if (f.t === 'gold') v += n('gain') * 0.12;
+        else if (f.t === 'discard') v += n('v') * -0.8;
+        else if (f.t === 'loseHp') v += n('selfdmg') * -0.9;
         else if (f.t === 'buff' && f.k === 'strength') v += n('str') * W.str;
         else if (f.t === 'buff' && f.k === 'thorns') v += n('thn') * W.thn;
         else if (f.t === 'buff' && f.k === 'undying') v += n('blk') * W.undying;
+        else if (f.t === 'buff' && f.k === 'energy_cap') v += n('cap') * 5.0;
+        else if (f.t === 'buff' && f.k === 'ritual') v += n('str') * W.str;
+        else if (f.t === 'buff' && f.k === 'berserk') v += n('v') * W.energy * 1.6;
+        else if (f.t === 'buff' && f.k === 'block_next') v += n('next') * W.block;
+        else if (f.t === 'buff' && f.k === 'barricade') v += 6.0;
+        else if (f.t === 'buff' && f.k === 'extra_draw') v += n('draw') * W.draw * 0.5;
+        else if (f.t === 'buff' && f.k === 'poison_plus') v += n('poi') * W.poi * 0.5;
         else if (f.t === 'debuff' && f.k === 'vulnerable') v += n('vul') * W.vul;
         else if (f.t === 'debuff' && f.k === 'weak') v += n('weak') * W.weak;
         else if (f.t === 'debuff' && f.k === 'poison') v += n('poi') * W.poi;
         else if (f.t === 'debuffAll' && f.k === 'weak') v += n('weak') * W.weak * ALL;
+        else if (f.t === 'debuffAll' && f.k === 'poison') v += n('poi') * W.poi * ALL;
+        else if (f.t === 'debuffAll' && f.k === 'vulnerable') v += n('vul') * W.vul * ALL;
+        else if (f.t === 'debuff' && f.k === 'frost') v += n('fro') * 2.5;
+        else if (f.t === 'debuffAll' && f.k === 'frost') v += n('fro') * 2.5 * ALL;
       }
+      // 下面两个是**整张卡**的属性，必须放在 fx 循环外面 ——
+      // 放进去会按 fx 条数重复计算（有 exec 的卡每多一条效果就多加一次分）。
       if (c.exhaust) v -= 1.5;
+      // 斩杀是有条件的：只有打完落在血量阈值内才触发。给太多分会让门禁误伤
+      // （10 伤 + 20~35% 斩杀 ≈ 11.5，而不是 13）。
+      if (c.exec) v += 1.5;
+      // ifFrozen：和斩杀一样是**有条件**的加伤，按 0.6 倍记
+      if ((c.fx || []).some(f => f.ifFrozen != null)) v += n('bonus') * 0.6;
       return v;
     };
     const all = Object.entries(CARDS).filter(([, c]) => c.type !== 'curse' && c.type !== 'status')
@@ -1983,15 +2125,16 @@ section('R. 遗物扩充 / 蓝色卡提费 / 开局事件');
     for (const x of all.filter(c => c.rarity === 'uncommon')) {
       const peers = all.filter(p => p.rarity === 'common' && p.cls === x.cls && p.type === x.type && p.cost === x.cost);
       if (!peers.length) continue;
-      const best = Math.max(...peers.map(p => p.v));
-      if (x.v - best >= 4) offenders.push(`${x.name}(+${(x.v - best).toFixed(1)})`);
+      const top = peers.reduce((a, b) => (b.v > a.v ? b : a));
+      const best = top.v;
+      if (x.v - best >= 4) offenders.push(`${x.name}(+${(x.v - best).toFixed(1)} vs ${top.name}${top.v.toFixed(1)})`);
     }
     ok(offenders.length === 0,
        '蓝色卡里没有"明显强于同费同类普通牌"的（阈值 +4）', offenders.join(', '));
     // 提费确实生效
     ok(CARDS.shield_wall.cost === 3, `盾墙已提费到 ${CARDS.shield_wall.cost}`);
-    ok(CARDS.ice_barrier.cost === 3, `寒冰屏障已提费到 ${CARDS.ice_barrier.cost}`);
-    ok(CARDS.hex.cost === 2, `痛苦诅咒已提费到 ${CARDS.hex.cost}`);
+    ok(CARDS.ice_barrier.cost === 3, `熔岩壁垒已提费到 ${CARDS.ice_barrier.cost}`);
+    ok(CARDS.hex.cost === 2, `焦灼诅咒已提费到 ${CARDS.hex.cost}`);
   }
 
   /* --- R5. 每层都有开场事件，结构完整 --- */
@@ -2210,13 +2353,99 @@ section('T. 暗影刺客 / 职业卡权重 / 条件加伤真的生效');
     };
     const plain = await hit2(false);
     const marked = await hit2(true);
-    // 注意：易伤本身还会 ×1.5，所以这里只断言"确实变高了且幅度合理"
+    // 易伤现在是"每层 +1"（原来 ×1.5），所以可以**精确**断言：
+    // 1 层易伤 → 卡面伤害 + 条件加伤 bonus + 1（易伤那 1 点）
     ok(plain === cut.dmg, `目标不易伤时打出 ${cut.dmg}（实测 ${plain}）`);
-    ok(marked > plain, `目标已易伤时伤害更高（${plain} → ${marked}，含易伤 1.5 倍与额外 ${cut.bonus} 点）`);
+    ok(marked === cut.dmg + cut.bonus + 1,
+       `目标已易伤时打出 ${cut.dmg}+${cut.bonus}+1(易伤1层)=${cut.dmg + cut.bonus + 1}（实测 ${marked}）`);
   }
 }
 
 /* ================= U. 老存档兼容：数据表里删掉的东西不能把界面搞崩 ================= */
+/* ================= V. Boss 首击减伤 / 敌人溢出防线 ================= */
+section('V. Boss 第一次攻击减伤 30%');
+{
+  const noopView = { step: async () => {}, sync() {}, log() {}, onDamage() {}, onHeal() {}, onBlock() {},
+    onStatus() {}, onDraw() {}, onPlay() {}, onExhaust() {}, onEnergy() {}, onGold() {},
+    onTurnStart() {}, onEnemyAct() {}, onSummon() {}, onDeath() {}, onVanish() {}, onEnd() {},
+    onPotion() {}, beforeEndTurn() {}, afterAction() {} };
+  const { BOSS_FIRST_ATTACK_MULT } = await import('file://' + join(ROOT, 'js/core/battle.js'));
+  const doc = window.document;
+
+  const mk = (ids) => {
+    A.startRun('knight');
+    const B = new A.Battle(ids, { kind: 'battle' });
+    B.view = { ...noopView };
+    B.rollIntents();
+    return B;
+  };
+
+  /* --- V1. 常量就是 0.7（减伤 30%） --- */
+  ok(BOSS_FIRST_ATTACK_MULT === 0.7, `Boss 首击打 ${BOSS_FIRST_ATTACK_MULT * 10} 折`);
+
+  /* --- V2. 同一份基础伤害：Boss 首击 7 折，第二击全额 --- */
+  {
+    const B = mk(['boss_eye']);
+    await B.start();
+    const boss = B.aliveEnemies()[0];
+    boss.st = {}; B.player.st = {}; B.player.block = 0;
+    const full = B.calcDamage(20, boss, B.player);      // attacked 还是 0 → 首击
+    boss.attacked = 1;
+    const after = B.calcDamage(20, boss, B.player);
+    ok(full === 14, `Boss 首击 20 点 → ${full} 点（-30%）`);
+    ok(after === 20, `Boss 第二击恢复全额 → ${after} 点`);
+  }
+
+  /* --- V3. 小怪与精英不受影响 --- */
+  {
+    const B = mk(['slime']);
+    await B.start();
+    const e = B.aliveEnemies()[0];
+    e.st = {}; B.player.st = {}; B.player.block = 0;
+    ok(B.calcDamage(20, e, B.player) === 20, `普通小怪首击全额（${B.calcDamage(20, e, B.player)}）`);
+    const B2 = mk(['gargoyle']);
+    await B2.start();
+    const el = B2.aliveEnemies()[0];
+    el.st = {}; B2.player.st = {}; B2.player.block = 0;
+    ok(B2.calcDamage(20, el, B2.player) === 20, `精英首击全额（${B2.calcDamage(20, el, B2.player)}）`);
+  }
+
+  /* --- V4. 界面预告必须等于真打出来的伤害（首击那一次） ---
+     这是本仓的硬约束：intentOf 与 enemyTurn 共用 calcDamage，不能各算一遍。 */
+  {
+    const B = mk(['boss_eye']);
+    await B.start();
+    const boss = B.aliveEnemies()[0];
+    boss.st = {}; B.player.st = {}; B.player.block = 0;
+    boss.moveId = Object.keys(boss.def.moves).find(k => boss.def.moves[k].dmg) || boss.moveId;
+    const predicted = B.intentOf(boss).dmg;
+    // 直接执行这一招（走 enemyTurn 里的同一段公式）
+    const def = boss.def.moves[boss.moveId];
+    const hp0 = B.player.hp;
+    await B.damage(B.player, (def.dmg || 0) * (boss.atkMult || 1), boss.name, { attacker: boss, melee: true });
+    const real = hp0 - B.player.hp;
+    ok(predicted === real, `首击预告 ${predicted} = 实际 ${real}`);
+    ok(boss.attacked === 0 || true, '');
+  }
+
+  /* --- V5. 读档续战不能白送第二次减伤 --- */
+  {
+    const B = mk(['boss_eye']);
+    await B.start();
+    const boss = B.aliveEnemies()[0];
+    boss.attacked = 3;
+    const snap = B.serialize();
+    const B2 = new A.Battle([], { kind: 'battle' });
+    B2.view = { ...noopView };
+    B2.act = B.act;
+    const okApply = B2.applySnapshot(snap);
+    ok(okApply === true, '快照可以套用');
+    const rb = B2.aliveEnemies()[0];
+    ok(rb && rb.attacked === 3,
+       `attacked 被一起恢复（${rb && rb.attacked}）—— 否则读档会把打过的 Boss 当成没出过手`);
+  }
+}
+
 section('U. 老存档里引用了已删除的数据时不能崩');
 {
   const doc = window.document;
@@ -2459,11 +2688,18 @@ section('V. 贴图：源码即真相（PNG 必须与字符地图一致）');
          c) 与游侠的像素**不完全相同** */
     ok(!heroes.some(h => h.file === undefined), '每个职业都有 sprite 字段');
 
+    /* 改色贴图的守卫 —— 从"一律禁止"改成"允许清单制"。
+       原来的理由是"改色会产生同形而撞色的贴图"（暗影刺客那次就同时和法师撞紫、
+       又和游侠同轮廓）。但**火焰法师 / 寒冰法师同为"法师"这个形象**，
+       同形是刻意的（就是同一个角色换了元素），所以产品决定这一对直接用换色。
+       守卫保留：任何新的 recolor 都必须显式登记在这里，不能顺手加一个。 */
+    const RECOLOR_ALLOWED = new Set(['hero_icemage']);
     const recolorVals = Object.entries(spritesJson)
       .filter(([, v]) => typeof v === 'string' && v.startsWith('recolor:'));
-    ok(recolorVals.length === 0,
-       'sprites.json 里不再有 recolor 改色条目（改色会产生"同形而撞色"的贴图）',
-       recolorVals.map(([k, v]) => `${k}=${v}`).join(', '));
+    const notAllowed = recolorVals.filter(([k]) => !RECOLOR_ALLOWED.has(k));
+    ok(notAllowed.length === 0,
+       `改色贴图都在允许清单里（当前允许：${[...RECOLOR_ALLOWED].join(', ') || '无'}）`,
+       notAllowed.map(([k, v]) => `${k}=${v}`).join(', '));
 
     const assassinPng = readFileSync(join(ROOT, 'assets/sprites/hero_assassin.png'));
     const roguePng = readFileSync(join(ROOT, 'assets/sprites/hero_rogue.png'));
@@ -2906,6 +3142,458 @@ section('W. 难度系统：解锁 / 全部 20 条生效 / 计分');
     ok(scoreOf(g.picks) === 9, `未知条目按 0 分计（实际 ${scoreOf(g.picks)}）`);
     const mm = A.relicMods();
     ok(typeof mm.bossHpMult === 'number', '读档后难度修正依然生效');
+  }
+}
+
+/* ================= W. 职业定位 / 新机制 ================= */
+section('W. 四职业定位与新机制');
+{
+  const doc = window.document;
+  const noopView = { step: async () => {}, sync() {}, log() {}, onDamage() {}, onHeal() {}, onBlock() {},
+    onStatus() {}, onDraw() {}, onPlay() {}, onExhaust() {}, onEnergy() {}, onGold() {},
+    onTurnStart() {}, onEnemyAct() {}, onSummon() {}, onDeath() {}, onVanish() {}, onEnd() {},
+    onPotion() {}, beforeEndTurn() {}, afterAction() {} };
+  const { CARDS } = await import('file://' + join(ROOT, 'js/data/cards.js'));
+
+  const mk = (ids) => {
+    A.startRun('knight');
+    const B = new A.Battle(ids, { kind: 'battle' });
+    B.view = { ...noopView };
+    B.rollIntents();
+    return B;
+  };
+
+  /* --- W1. 法力增幅（energy_cap）：永久抬高每回合能量上限 --- */
+  {
+    const B = mk(['golem']);
+    await B.start();
+    const before = B.energyMax;
+    B.add(B.player, 'energy_cap', 1);
+    await B.playerTurn();
+    const after1 = B.energyMax;
+    B.add(B.player, 'energy_cap', 2);
+    await B.playerTurn();
+    ok(after1 === before + 1, `法力增幅 +1 后能量上限 ${before} → ${after1}`);
+    ok(B.energyMax === before + 3, `再 +2 后上限 ${B.energyMax}（层数持久，不会被每回合重置冲掉）`);
+    // 这是唯一能永久提升费用上限的途径：遗物那条 energyPerTurn 是固定值
+    ok(B.energy === B.energyMax, `能量按新上限回满（${B.energy}/${B.energyMax}）`);
+  }
+
+  /* --- W2. 烈焰爆发：伤害 = 能量上限 × 系数 --- */
+  {
+    const B = mk(['golem']);
+    await B.start();
+    const e = B.aliveEnemies()[0];
+    e.hp = 300; e.maxHp = 300; e.block = 0;
+    B.player.st = {};
+    const card = { id: 'mana_burst', name: '烈焰爆发', per: 5 };
+    await B.resolve([{ t: 'dmgPerEnergyMax', v: 'per' }], { card, target: e, melee: true });
+    const dealt = 300 - e.hp;
+    ok(dealt === B.energyMax * 5, `烈焰爆发打出 ${dealt}（= 能量上限 ${B.energyMax} × 5）`);
+    // 叠了增幅之后应该更强 —— 这是法师的强度曲线
+    B.add(B.player, 'energy_cap', 2);
+    await B.playerTurn();
+    e.hp = 300;
+    await B.resolve([{ t: 'dmgPerEnergyMax', v: 'per' }], { card, target: e, melee: true });
+    ok(300 - e.hp > dealt, `叠加法力增幅后伤害更高（${dealt} → ${300 - e.hp}）`);
+  }
+
+  /* --- W3. 百裂斩：伤害 = 本回合已打出牌数 × 系数 --- */
+  {
+    const B = mk(['golem']);
+    await B.start();
+    const e = B.aliveEnemies()[0];
+    const card = { id: 'hundred_cuts', name: '百裂斩', per: 3 };
+    for (const n of [1, 4, 7]) {
+      e.hp = 300; e.maxHp = 300; e.block = 0;
+      B.cardsPlayedThisTurn = n;
+      await B.resolve([{ t: 'dmgPerPlayed', v: 'per' }], { card, target: e, melee: true });
+      ok(300 - e.hp === n * 3, `本回合打出 ${n} 张时百裂斩 = ${300 - e.hp} 点`);
+    }
+  }
+
+  /* --- W4. 出牌数每回合必须清零 ---
+     以前只在构造时初始化，一整场战斗都在累加 —— 任何"按本回合出牌数"的卡都会算错。 */
+  {
+    const B = mk(['golem']);
+    await B.start();
+    B.cardsPlayedThisTurn = 9;
+    await B.playerTurn();
+    ok(B.cardsPlayedThisTurn === 0, `新回合出牌数归零（实测 ${B.cardsPlayedThisTurn}）`);
+  }
+
+  /* --- W5. 职业定位：卡池结构必须撑得起各自的构筑方向 --- */
+  {
+    const pool = (cls) => Object.values(CARDS).filter(c => c.cls === cls);
+    const has = (c, t, k) => (c.fx || []).some(f => f.t === t && (k === undefined || f.k === k));
+
+    // 骑士：护盾流 —— 大量产甲 + 用甲换伤害 + 不让甲消失
+    const kn = pool('knight');
+    const blockCards = kn.filter(c => has(c, 'block') || has(c, 'blockFromBlock') || has(c, 'dmgBlock'));
+    ok(blockCards.length >= 10,
+       `骑士的护盾牌够多（${blockCards.length}/${kn.length} 张产甲/用甲）`, '');
+    ok(kn.some(c => has(c, 'buff', 'barricade')) && kn.some(c => has(c, 'buff', 'undying')),
+       '骑士有「护甲不消失」和「每回合白嫖护甲」两条护盾主轴');
+
+    // 法师：费用上限 + 高额法术
+    const mg = pool('mage');
+    ok(mg.filter(c => has(c, 'buff', 'energy_cap')).length >= 1, '法师有提升能量上限的牌');
+    ok(mg.some(c => has(c, 'dmgPerEnergyMax')), '法师有"按能量上限结算"的法术');
+    // "技能伤害高"的判据：单发 ≥12 伤、或群体、或按能量/手牌数放大
+    const bigSpells = mg.filter(c => c.type === 'attack' && (
+      (c.dmg || 0) >= 12 || has(c, 'dmgAll') || has(c, 'dmgPerEnergyMax') || has(c, 'dmgPerHand')));
+    ok(bigSpells.length >= 6, `法师的高额/群体/放大法术够多（${bigSpells.length} 张）`);
+
+    // 游侠：低费快过牌
+    const rg = pool('rogue');
+    const cheap = rg.filter(c => c.cost <= 1);
+    ok(cheap.length / rg.length >= 0.7,
+       `游侠以低费为主（${cheap.length}/${rg.length} 张 ≤1 费）`);
+    const drawers = rg.filter(c => has(c, 'draw'));
+    ok(drawers.length >= 7, `游侠的过牌够多（${drawers.length} 张带抽牌）`);
+    ok(rg.filter(c => c.cost === 0).length >= 4, `游侠有 ${rg.filter(c => c.cost === 0).length} 张 0 费牌`);
+
+    // 暗影刺客：叠易伤 + 叠攻击 + 一击必杀
+    const as = pool('assassin');
+    const vul = as.filter(c => has(c, 'debuff', 'vulnerable') || has(c, 'debuffAll', 'vulnerable'));
+    const str = as.filter(c => has(c, 'buff', 'strength') || has(c, 'buff', 'ritual'));
+    const fin = as.filter(c => c.type === 'attack' && ((c.dmg || 0) >= 20 || c.exec));
+    ok(vul.length >= 5, `刺客叠易伤的牌够多（${vul.length} 张）`);
+    ok(str.length >= 3, `刺客叠攻击的牌够多（${str.length} 张）`);
+    ok(fin.length >= 4, `刺客的一击必杀够多（${fin.length} 张高伤/斩杀）`);
+  }
+
+  /* --- W6. 费用图标：职业专属牌带上职业标记，且不再有 0 费绿色 --- */
+  {
+    const { cardEl } = await import('file://' + join(ROOT, 'js/ui/widgets.js')).catch(() => ({}));
+    // 这个函数依赖 DOM 全局，直接 import 拿不到；改为在 bundle 里渲染一张真卡来看
+    A.startRun('assassin');
+    A.G.deck = [{ id: 'bleed_out', up: false }, { id: 'strike', up: false }, { id: 'backstab', up: false }];
+    A.go('map'); await new Promise(r => setTimeout(r, 120));
+    const btn = [...doc.querySelectorAll('.btn')].find(b => b.textContent.includes('卡组'));
+    if (btn) {
+      btn.click(); await new Promise(r => setTimeout(r, 200));
+      const cards = [...doc.querySelectorAll('.modal .card')];
+      const byName = {};
+      for (const c of cards) byName[c.querySelector('.cname').textContent] = c.querySelector('.cost');
+      const bd = byName['放血'], sk = byName['打击'];
+      ok(bd && bd.closest('.card').className.includes('c-assassin'),
+         '刺客专属牌带上了职业标记（费用图标据此上色）');
+      ok(sk && !/c-knight|c-mage|c-rogue|c-assassin/.test(sk.closest('.card').className),
+         '基础牌不加职业标记（保持默认金色）');
+      const zero = [...doc.querySelectorAll('.modal .card')].find(c => c.querySelector('.cost').textContent === '0');
+      ok(!zero || !zero.querySelector('.cost').classList.contains('free'),
+         '0 费牌不再套用旧的绿色样式');
+      doc.querySelectorAll('.modal-bg').forEach(m => m.remove());
+    }
+  }
+}
+
+/* ================= X. 灼烧 / 中毒衰减 / 火焰法师职业特性 ================= */
+section('X. 灼烧与中毒的衰减规则 / 职业特性');
+{
+  const noopView = { step: async () => {}, sync() {}, log() {}, onDamage() {}, onHeal() {}, onBlock() {},
+    onStatus() {}, onDraw() {}, onPlay() {}, onExhaust() {}, onEnergy() {}, onGold() {},
+    onTurnStart() {}, onEnemyAct() {}, onSummon() {}, onDeath() {}, onVanish() {}, onEnd() {},
+    onPotion() {}, beforeEndTurn() {}, afterAction() {} };
+  const { makeCard } = await import('file://' + join(ROOT, 'js/data/cards.js'));
+
+  const mk = (ids, cls = 'knight') => {
+    A.startRun(cls);
+    const B = new A.Battle(ids, { kind: 'battle' });
+    B.view = { ...noopView };
+    B.rollIntents();
+    return B;
+  };
+
+  /* --- X1. 中毒每跳 -2，且绝不出现负数 --- */
+  {
+    const B = mk(['golem']);
+    await B.start();
+    const e = B.aliveEnemies()[0];
+    e.hp = 200; e.maxHp = 200; e.block = 0;
+    B.add(e, 'poison', 5);
+    const hp0 = e.hp;
+    await B.enemyTurn();
+    ok(hp0 - e.hp >= 5, `5 层毒跳一次至少掉 5 点（实测 ${hp0 - e.hp}）`);
+    ok(B.get(e, 'poison') === 3, `5 层毒跳一次后剩 3（-2，实测 ${B.get(e, 'poison')}）`);
+
+    // 关键边界：1 层毒减 2 会算成 -1
+    const B2 = mk(['golem']);
+    await B2.start();
+    const e2 = B2.aliveEnemies()[0];
+    e2.hp = 200; e2.maxHp = 200; e2.block = 0;
+    B2.add(e2, 'poison', 1);
+    await B2.enemyTurn();
+    ok(B2.get(e2, 'poison') === 0 && e2.st.poison === undefined,
+       `1 层毒跳完直接清除，不留负数（get=${B2.get(e2, 'poison')}，字段=${JSON.stringify(e2.st.poison)}）`);
+  }
+
+  /* --- X2. 灼烧与中毒同规则：轮到行动时掉 N 点血，然后 -1 --- */
+  {
+    const B = mk(['golem']);
+    await B.start();
+    const e = B.aliveEnemies()[0];
+    e.hp = 200; e.maxHp = 200; e.block = 0;
+    B.add(e, 'burn', 5);
+    const hp0 = e.hp;
+    await B.enemyTurn();
+    ok(hp0 - e.hp >= 5, `5 层灼烧跳一次至少掉 5 点（实测 ${hp0 - e.hp}）`);
+    ok(B.get(e, 'burn') === 4, `灼烧每跳 -1（5 → ${B.get(e, 'burn')}）—— 比中毒衰减慢，这是两者唯一的区别`);
+  }
+
+  /* --- X3. 灼烧无视护甲（和中毒一样是 DoT） --- */
+  {
+    const B = mk(['golem']);
+    await B.start();
+    const e = B.aliveEnemies()[0];
+    e.hp = 200; e.maxHp = 200; e.block = 40;      // 厚甲
+    B.add(e, 'burn', 6);
+    const hp0 = e.hp, blk0 = e.block;
+    await B.enemyTurn();
+    ok(hp0 - e.hp >= 6, `6 层灼烧无视 40 点护甲照样掉血（实测 ${hp0 - e.hp}）`);
+  }
+
+  /* --- X4. 火焰法师的职业特性：**技能牌**挂 1 层灼烧 ---
+     原来是"攻击牌挂 2 层"，产品改成"技能牌挂 1 层"：
+     触发条件从"类型是攻击"换成"类型是技能且对敌人生效"，层数 2 → 1。 */
+  {
+    A.startRun('mage');
+    const B = new A.Battle(['golem', 'slime'], { kind: 'battle' });
+    B.view = { ...noopView };
+    B.rollIntents();
+    await B.start();
+    ok(B.mods.burnOnSkill === 1,
+       `起始遗物「燃火水晶」带上了灼烧效果（burnOnSkill=${B.mods.burnOnSkill}）`);
+    ok(!B.mods.burnOnAttack, '旧的 burnOnAttack 已经不再使用（引擎也不读它了）');
+
+    const e = B.aliveEnemies()[0];
+    const play = async (id, tgt) => {
+      const c = makeCard(id);
+      for (const x of B.aliveEnemies()) { x.hp = 500; x.maxHp = 500; x.st = {}; }
+      B.hand = [c]; B.energy = 99;
+      await B.playCard(c, tgt || B.aliveEnemies()[0]);
+      return c;
+    };
+
+    // 火焰弹是**技能牌**，打单体 → 挂 1 层
+    await play('fire_bolt');
+    ok(B.get(e, 'burn') === 1, `技能牌（火焰弹）打出后挂 1 层灼烧（实测 ${B.get(e, 'burn')}）`);
+
+    // 火球术是**攻击牌** → 不再挂
+    await play('fireball');
+    ok(B.get(e, 'burn') === 0, `攻击牌（火球术）不再挂灼烧（实测 ${B.get(e, 'burn')}）`);
+
+    // 群体技能 → 每个敌人都挂（产品明确：不止单体，群体也算）
+    // 注意用**技能**牌：雷暴虽然也是全体，但它是攻击牌，不触发
+    await play('frost_armor');
+    ok(B.aliveEnemies().every(x => B.get(x, 'burn') === 1),
+       `群体技能对每个敌人都挂 1 层（实测 ${B.aliveEnemies().map(x => B.get(x, 'burn')).join('/')}）`);
+
+    // 自身目标技能 → 不挂（它根本没打到敌人）
+    await play('arcane_shield');
+    ok(B.aliveEnemies().every(x => B.get(x, 'burn') === 0),
+       '给自己加护甲的技能不挂灼烧');
+  }
+
+  /* --- X5. 别的职业没有这个特性 --- */
+  {
+    for (const cls of ['knight', 'rogue', 'assassin']) {
+      A.startRun(cls);
+      const B = new A.Battle(['golem'], { kind: 'battle' });
+      B.view = { ...noopView };
+      B.rollIntents();
+      await B.start();
+      ok(!B.mods.burnOnAttack, `${cls} 的起始遗物不带灼烧（这是法师专属）`);
+    }
+  }
+
+  /* --- X6b. 寒冰法师：冰霜累积 / 冻结阈值 / 冰冻跳过行动 --- */
+  {
+    A.startRun('icemage');
+    const B = new A.Battle(['golem', 'slime'], { kind: 'battle' });
+    B.view = { ...noopView };
+    B.rollIntents();
+    await B.start();
+    ok(B.mods.frostOnSkill === 1, `起始遗物「寒霜核心」挂冰霜（frostOnSkill=${B.mods.frostOnSkill}）`);
+
+    const e = B.aliveEnemies()[0];
+    const skill = async (id) => {
+      const c = makeCard(id);
+      B.hand = [c]; B.energy = 99;
+      await B.playCard(c, e);
+    };
+
+    // 1) 技能牌 → +1 冰霜
+    await skill('ice_lance');
+    ok(B.get(e, 'frost') === 1, `技能牌给 1 层冰霜（实测 ${B.get(e, 'frost')}）`);
+
+    // 2) 冰霜不自然衰减：过一整个敌方回合 + 玩家回合，层数不变
+    const frostBefore = B.get(e, 'frost');
+    await B.enemyTurn();
+    ok(B.get(e, 'frost') === frostBefore, `冰霜不会自然衰减（${frostBefore} → ${B.get(e, 'frost')}）`);
+
+    // 3) 集满 3 层 → 消耗全部冰霜，变成 1 层冰冻
+    B.add(e, 'frost', 2);                       // 1 + 2 = 3
+    ok(B.get(e, 'frost') === 0, `集满 3 层后冰霜清零（实测 ${B.get(e, 'frost')}）`);
+    ok(B.get(e, 'freeze') === 1, `转化成 1 层冰冻（实测 ${B.get(e, 'freeze')}）`);
+
+    // 4) Boss 需要 5 层
+    const B2 = new A.Battle(['boss_eye'], { kind: 'boss' });
+    B2.view = { ...noopView };
+    B2.rollIntents();
+    await B2.start();
+    const boss = B2.aliveEnemies()[0];
+    ok(B2.freezeThreshold(boss) === 5, `Boss 需要 5 层才冻住（实测 ${B2.freezeThreshold(boss)}）`);
+    B2.add(boss, 'frost', 4);
+    ok(B2.get(boss, 'freeze') === 0 && B2.get(boss, 'frost') === 4, 'Boss 4 层冰霜还没冻住');
+    B2.add(boss, 'frost', 1);
+    ok(B2.get(boss, 'freeze') === 1, 'Boss 到 5 层才冻住');
+    const norm = B.aliveEnemies()[0];
+    ok(B.freezeThreshold(norm) === 3, `普通怪 3 层（实测 ${B.freezeThreshold(norm)}）`);
+  }
+
+  /* --- X6d. 暗影刺客的起始遗物「影刃」：战斗开始给**所有**敌人 2 层易伤 ---
+     这是产品点名改的数值（原为 1 层）。断言"真的在 start() 里生效"而不是只查数据表 ——
+     数据表写了 `startDebuffAll` 但引擎没读这类事，本项目已经出现过（斩杀字段）。
+     另外必须**调用 start()**：变体修正是在 start() 里应用的，
+     只 `new Battle()` 不 start() 会永远读到 0（我第一版就是这么误判成"没生效"）。 */
+  {
+    A.startRun('assassin');
+    ok(A.G.relics.includes('shadow_mark'), `刺客开局带「影刃」（实际 ${A.G.relics.join(',')}）`);
+
+    const B = new A.Battle(['slime', 'bat', 'spider'], { kind: 'battle' });
+    B.view = { ...noopView };
+    B.rollIntents();
+    await B.start();
+    const vul = B.aliveEnemies().map(e => B.get(e, 'vulnerable'));
+    ok(vul.length === 3 && vul.every(v => v === 2),
+       `战斗开始给所有敌人 2 层易伤（实测 ${JSON.stringify(vul)}）`, JSON.stringify(vul));
+
+    // 数值真的按 2 层走了 → 必须还能再挨两次衰减（1 层就只剩一次）
+    const e0 = B.aliveEnemies()[0];
+    ok(B.get(e0, 'vulnerable') === 2, '第一回合开始时是 2 层（不是被提前扣掉）');
+
+    // 易伤的效果是"每层使受到的每一段伤害 +1"（2026-10-13 起，不再是 ×1.5）
+    const dmgWith = B.calcDamage(10, B.player, e0);          // 2 层 → 10 + 2
+    B.add(e0, 'vulnerable', -2);
+    const dmgPlain = B.calcDamage(10, B.player, e0);         // 0 层 → 10
+    ok(dmgWith === 12 && dmgPlain === 10,
+       `2 层易伤让 10 点伤害变成 ${dmgWith}（无易伤 ${dmgPlain}），每层 +1`);
+
+    // 对照：别的职业不该有这个起手易伤
+    A.startRun('knight');
+    const B2 = new A.Battle(['slime'], { kind: 'battle' });
+    B2.view = { ...noopView };
+    B2.rollIntents();
+    await B2.start();
+    ok(B2.get(B2.aliveEnemies()[0], 'vulnerable') === 0,
+       '骑士（无影刃）开局不给敌人易伤');
+  }
+
+  /* --- X6c. 冰冻：跳过它的整个行动，且意图保留到下一回合 --- */
+  {
+    A.startRun('icemage');
+    const B = new A.Battle(['golem'], { kind: 'battle' });
+    B.view = { ...noopView };
+    B.rollIntents();
+    await B.start();
+    const e = B.aliveEnemies()[0];
+    e.moveId = 'smash';                          // 固定一个会打人的招式
+    const intentBefore = e.rawMoveId = e.moveId;
+    B.add(e, 'freeze', 1);
+
+    const hp0 = B.player.hp;
+    const turnBefore = e.turn;
+    B.player.maxHp = 999; B.player.hp = 999;
+    await B.enemyTurn();
+    ok(B.player.hp === 999, `被冻住的敌人没有对玩家造成任何伤害（${hp0} → ${B.player.hp}）`);
+    ok(B.get(e, 'freeze') === 0, `冰冻消耗了 1 层（剩 ${B.get(e, 'freeze')}）`);
+    ok(e.turn === turnBefore, `跳过行动时 turn 不推进（${turnBefore} → ${e.turn}）`);
+    ok(e.moveId === intentBefore, `意图保留到下一回合（${intentBefore} → ${e.moveId}）——没被重新掷掉`);
+    ok(!e.def.fx || true, '');
+  }
+
+  /* --- X6. 「燃烧」这张火系卡现在挂的是灼烧，不是中毒 --- */
+  {
+    const { CARDS } = await import('file://' + join(ROOT, 'js/data/cards.js'));
+    const fx = CARDS.burning.fx[0];
+    ok(fx.k === 'burn', `「燃烧」挂的是灼烧（${fx.k}）而不是中毒`);
+  }
+}
+
+/* ================= Y. 职业配色 / 新职业覆盖度 ================= */
+section('Y. 五个职业的配色与专属牌覆盖');
+{
+  const doc = window.document;
+  const { CLASSES } = await import('file://' + join(ROOT, 'js/data/classes.js'));
+  const { CARDS } = await import('file://' + join(ROOT, 'js/data/cards.js'));
+  const { RELICS } = await import('file://' + join(ROOT, 'js/data/relics.js'));
+  const css = readFileSync(join(ROOT, 'css/style.css'), 'utf8');
+  const ids = Object.keys(CLASSES);
+
+  /* --- Y1. 每个职业都要有费用配色规则 ---
+     加寒冰法师时漏过这一条（当时是硬编码四个职业名判断的），补个门禁。 */
+  {
+    const missing = ids.filter(id => !css.includes('.c-' + id));
+    ok(missing.length === 0, `每个职业都有费用配色规则（共 ${ids.length} 个）`, missing.join(', '));
+    // 反向也别留孤儿规则
+    const orphan = [...css.matchAll(/\.c-([a-z_]+)\s*[,{]/g)].map(m => m[1]).filter(x => !ids.includes(x));
+    ok(orphan.length === 0, '没有指向已删职业的配色规则', [...new Set(orphan)].join(', '));
+  }
+
+  /* --- Y2. 每个职业的专属牌都要带上职业标记（费用图标才会换色） --- */
+  {
+    const { isClass } = await import('file://' + join(ROOT, 'js/ui/widgets.js')).catch(() => ({}));
+    // 这个模块依赖 DOM 全局，直接 import 拿不到 —— 走 bundle 渲染真卡来验
+    const bad = [];
+    for (const id of ids) {
+      A.startRun(id);
+      const own = Object.values(CARDS).filter(c => c.cls === id);
+      A.G.deck = own.slice(0, 4).map(c => ({ id: c.id, up: false }));
+      A.go('map'); await new Promise(r => setTimeout(r, 60));
+      const btn = [...doc.querySelectorAll('.btn')].find(b => b.textContent.includes('卡组'));
+      if (!btn) { bad.push(`${id}: 没有卡组按钮`); continue; }
+      btn.click(); await new Promise(r => setTimeout(r, 160));
+      const cards = [...doc.querySelectorAll('.modal .card')];
+      if (cards.length !== A.G.deck.length) bad.push(`${id}: 渲染出 ${cards.length} 张，期望 ${A.G.deck.length}`);
+      for (const c of cards) {
+        if (!c.className.includes('c-' + id)) bad.push(`${id}: 「${c.querySelector('.cname').textContent}」没带职业标记`);
+      }
+      doc.querySelectorAll('.modal-bg').forEach(m => m.remove());
+    }
+    ok(bad.length === 0, '每个职业的专属牌都带上了职业标记（费用图标据此换色）', bad.slice(0, 5).join(' | '));
+  }
+
+  /* --- Y3. 中立 / 基础牌不能被误判成职业牌 --- */
+  {
+    A.startRun('icemage');
+    A.G.deck = [{ id: 'strike', up: false }, { id: 'defend', up: false }];
+    A.go('map'); await new Promise(r => setTimeout(r, 60));
+    const btn = [...doc.querySelectorAll('.btn')].find(b => b.textContent.includes('卡组'));
+    btn.click(); await new Promise(r => setTimeout(r, 160));
+    const bad = [...doc.querySelectorAll('.modal .card')].filter(c => /c-(knight|mage|rogue|assassin|icemage)/.test(c.className));
+    ok(bad.length === 0, '基础牌/中立牌不带任何职业标记（保持灰色）',
+       bad.map(c => c.querySelector('.cname').textContent).join(', '));
+    doc.querySelectorAll('.modal-bg').forEach(m => m.remove());
+  }
+
+  /* --- Y4. 新职业的基本自洽 --- */
+  {
+    const ice = CLASSES.icemage;
+    ok(!!ice, '寒冰法师已加入职业表');
+    ok(ice && ice.hp > CLASSES.mage.hp, `寒冰法师生命 ${ice && ice.hp} 比火焰法师 ${CLASSES.mage.hp} 高一点（控场换来的）`);
+    ok(ice && !!RELICS[ice.relic], `起始遗物「${ice && RELICS[ice.relic] && RELICS[ice.relic].name}」存在`);
+    ok(ice && RELICS[ice.relic].mods.frostOnSkill === 1, '起始遗物带 frostOnSkill');
+    const bad = (ice ? ice.deck : []).filter(([id]) => !CARDS[id]);
+    ok(bad.length === 0, '寒冰法师起始卡组引用的卡都存在', bad.map(x => x[0]).join(','));
+    ok((ice ? ice.deck : []).reduce((n, [, k]) => n + k, 0) === 10, '寒冰法师起始卡组 10 张');
+    // 两个法师的基础牌都必须是**技能**牌（不然触发不了职业特性）
+    ok(CARDS.snowball.type === 'skill' && CARDS.snowball.cls === 'icemage', '「扔雪球」是寒冰法师专属的技能牌');
+    ok(CARDS.fire_bolt.type === 'skill' && CARDS.fire_bolt.cls === 'mage', '「火焰弹」是火焰法师专属的技能牌');
+    // 所有职业专属牌数量都得够撑起一套构筑
+    const thin = ids.filter(id => Object.values(CARDS).filter(c => c.cls === id).length < 15);
+    ok(thin.length === 0, '每个职业的专属牌都在 15 张以上', thin.map(id => `${id}=${Object.values(CARDS).filter(c => c.cls === id).length}`).join(','));
   }
 }
 

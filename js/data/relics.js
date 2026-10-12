@@ -24,12 +24,20 @@ export const RELICS = {
     desc: '战斗结束后回复 <b>6</b> 点生命。', mods: { healAfterBattle: 6 },
   },
   mana_crystal: {
-    name: '法力水晶', sprite: 'potion_blue', rarity: 'starter',
-    desc: '战斗第一回合额外获得 <b>1</b> 点能量。', mods: { firstTurnEnergy: 1 },
+    name: '燃火水晶', sprite: 'potion_blue', rarity: 'starter',
+    // 火焰法师唯一的起始遗物（起始遗物 + 职业特性合并成一件）。
+    // 触发条件是**技能牌**且对敌人生效（单体 target:'enemy' 或群体 target:'all'）。
+    desc: '战斗第一回合额外获得 <b>1</b> 点能量；你打出的技能牌会给受影响的敌人施加 <b>1</b> 层灼烧。',
+    mods: { firstTurnEnergy: 1, burnOnSkill: 1 },
+  },
+  frost_core: {
+    name: '寒霜核心', sprite: 'key_blue', rarity: 'starter',
+    desc: '你打出的技能牌会给受影响的敌人施加 <b>1</b> 层冰霜。',
+    mods: { frostOnSkill: 1 },
   },
   shadow_mark: {
     name: '影刃', sprite: 'key_purple', rarity: 'starter',
-    desc: '战斗开始时对所有敌人施加 <b>1</b> 层易伤。', mods: { startDebuffAll: { vulnerable: 1 } },
+    desc: '战斗开始时对所有敌人施加 <b>2</b> 层易伤。', mods: { startDebuffAll: { vulnerable: 2 } },
   },
   venom_fang: {
     name: '毒牙', sprite: 'key_green', rarity: 'starter',

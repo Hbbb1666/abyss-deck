@@ -5,7 +5,7 @@ import { RELICS } from '../data/relics.js';
 import { POTIONS } from '../data/potions.js';
 import { EVENTS } from '../data/events.js';
 import { sfx } from '../core/audio.js';
-import { cardEl, modal, pickCards, SPR, relicEl, bindTip, hpBar, updateHpBar, fitAllCards } from './widgets.js';
+import { cardEl, modal, pickCards, pickPotionToReplace, SPR, relicEl, bindTip, hpBar, updateHpBar, fitAllCards, GOLD_ICON, goldIcon } from './widgets.js';
 import { showHelp, deckBody } from './scene-battle.js';
 
 function topbar(title, { onBack } = {}) {
@@ -26,7 +26,7 @@ function statusStrip() {
   const goldNum = el('span', { class: 'goldAmt', text: String(G.gold) });
   const node = el('div', { class: 'row gap8', style: { padding: '6px 10px' } },
     bar,
-    el('div', { class: 'stat' }, el('span', { class: 'ico', style: { backgroundImage: `url(${SPR('key_gold')})` } }), goldNum));
+    el('div', { class: 'stat' }, goldIcon(), goldNum));
   node.refresh = () => {
     updateHpBar(bar, Math.max(0, G.hp), G.maxHp, 0);
     goldNum.textContent = String(G.gold);
@@ -56,7 +56,7 @@ export function rewardScene(kind, { onDone }) {
   const potion = G.rng.chance(kind === 'battle' ? 0.42 : 0.6) ? rollPotion() : null;
 
   const got = el('div', { class: 'col gap6', style: { padding: '10px 12px 2px' } });
-  got.append(el('div', { class: 'row gap6 small', html: `<span style="color:#ffcc52">◉</span> 获得 <b>${total}</b> 金币${bonus ? ` <span class="dim">(含遗物 +${bonus})</span>` : ''}` }));
+  got.append(el('div', { class: 'row gap6 small', html: `${GOLD_ICON} 获得 <b>${total}</b> 金币${bonus ? ` <span class="dim">(含遗物 +${bonus})</span>` : ''}` }));
   body.append(got);
 
   /* --- 遗物 --- */
@@ -193,7 +193,7 @@ export function shopScene({ onDone }) {
     for (const c of cardStock) {
       if (c.bought) { cg.append(el('div', { class: 'reward-card gone' }, cardEl(makeCard(c.id)))); continue; }
       const node = cardEl(makeCard(c.id));
-      const price_ = el('div', { class: 'price' + (G.gold < c.price ? ' cant' : ''), html: `${c.half ? '<span style="color:#7ee787">5折</span> ' : ''}<span style="color:#ffcc52">◉</span>${c.price}` });
+      const price_ = el('div', { class: 'price' + (G.gold < c.price ? ' cant' : ''), html: `${c.half ? '<span style="color:#7ee787">5折</span> ' : ''}${GOLD_ICON}${c.price}` });
       const wrap = el('div', { class: 'reward-card' }, node, price_);
       node.addEventListener('click', () => buy(c.price, () => { c.bought = true; addCardToDeck(c.id); toast(`买下了「${CARDS[c.id].name}」`); }, rerender));
       cg.append(wrap);
@@ -210,7 +210,7 @@ export function shopScene({ onDone }) {
         const row = el('div', { class: 'row gap8', style: { border: '2px solid #ffcc5230', borderRadius: '6px', padding: '8px', background: '#ffcc5208' } },
           el('div', { class: 'relic', style: { width: '36px', height: '36px', backgroundImage: `url(${SPR(info.sprite)})`, flex: 'none' } }),
           el('div', { class: 'grow col' }, el('div', { class: 'gold small', text: info.name }), el('div', { class: 'tiny dim', html: info.desc })),
-          el('div', { class: 'price' + (G.gold < r.price ? ' cant' : ''), html: `<span style="color:#ffcc52">◉</span>${r.price}` }));
+          el('div', { class: 'price' + (G.gold < r.price ? ' cant' : ''), html: `${GOLD_ICON}${r.price}` }));
         row.addEventListener('click', () => buy(r.price, () => { r.bought = true; addRelic(r.id); toast(`获得遗物「${info.name}」`); sfx.bell(); }, rerender));
         rg.append(row);
       }
@@ -226,11 +226,22 @@ export function shopScene({ onDone }) {
         const row = el('div', { class: 'row gap8', style: { border: '2px solid #7ee78730', borderRadius: '6px', padding: '8px', background: '#7ee78708' } },
           el('div', { class: 'relic', style: { width: '36px', height: '36px', backgroundImage: `url(${SPR(p.sprite)})`, flex: 'none' } }),
           el('div', { class: 'grow col' }, el('div', { class: 'small', style: { color: '#7ee787' }, text: p.name }), el('div', { class: 'tiny dim', html: p.text })),
-          el('div', { class: 'price' + (G.gold < p.price ? ' cant' : ''), html: `<span style="color:#ffcc52">◉</span>${p.price}` }));
-        row.addEventListener('click', () => buy(p.price, () => {
-          if (G.potions.length >= G.potionSlots) { toast('药水槽满了'); sfx.error(); return false; }
-          p.bought = true; addPotion({ ...p }); toast(`买下了「${p.name}」`);
-        }, rerender));
+          el('div', { class: 'price' + (G.gold < p.price ? ' cant' : ''), html: `${GOLD_ICON}${p.price}` }));
+        row.addEventListener('click', () => {
+          const applyNew = () => { p.bought = true; addPotion({ ...p }); toast(`买下了「${p.name}」`); };
+          if (G.potions.length < G.potionSlots) { buy(p.price, applyNew, rerender); return; }
+          // 槽满了：先让玩家挑一瓶替换（能看到效果），选完再走 buy 扣钱。
+          // buy() 的 apply 是同步的，塞不进等待玩家的弹窗，所以判断必须提到前面。
+          if (G.gold < p.price) { sfx.error(); toast('金币不够'); return; }
+          pickPotionToReplace(G.potions, { ...p }, (idx) => {
+            buy(p.price, () => {
+              const old = G.potions[idx];
+              G.potions[idx] = { ...p };
+              p.bought = true;
+              toast(`用「${p.name}」替换了「${old.name}」`, 1600);
+            }, rerender);
+          });
+        });
         pg.append(row);
       }
       body.append(pg);
@@ -250,7 +261,7 @@ export function shopScene({ onDone }) {
       el('div', { class: 'grow col' },
         el('div', { class: 'small', text: '移除一张卡牌' }),
         el('div', { class: 'tiny dim', text: rmHint })),
-      el('div', { class: 'price' + (G.gold < rmPrice || outOfRemovals ? ' cant' : ''), html: `<span style="color:#ffcc52">◉</span>${rmPrice}` }));
+      el('div', { class: 'price' + (G.gold < rmPrice || outOfRemovals ? ' cant' : ''), html: `${GOLD_ICON}${rmPrice}` }));
     rm.addEventListener('click', () => {
       if (outOfRemovals) { sfx.error(); toast(`难度「奸商」：本次进店最多只能移除 ${removeLimit} 张`, 1800); return; }
       if (G.gold < rmPrice) { sfx.error(); toast('金币不够'); return; }

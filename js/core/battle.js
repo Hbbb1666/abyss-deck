@@ -43,24 +43,46 @@ export function stText(k, n) {
     只有本来就很小段的攻击才可能被削到 0 —— 这正是这套曲线想要的手感。 */
 export const WEAK_FLAT_PER_STACK = 1;
 
+/** 易伤：每层让**每一段**受到的伤害 **+1**（固定值，不是百分比）。
+ *
+ * 2026-10-13 从"受到的伤害 ×1.5"改成固定值加法。为什么改：
+ *   · 百分比模型下，易伤对小段攻击几乎没用（3 点伤害 ×1.5 = 4，只多 1 点），
+ *     对单发大招却极强（30 点 → 45）—— 强弱差被放大成 15 倍。
+ *   · 固定值模型下，每一层对**每一段**都 +1，所以"多段攻击"和"多叠易伤"
+ *     两种构筑都能吃满收益，和虚弱的 -1 也刚好对称（一个加、一个减）。
+ *   · 与虚弱一样，**分段招式每段各算一次**：3 段攻击、目标 2 层易伤 → 每段 +2，合计 +6。
+ *
+ * 衰减仍然是"轮到它自己的回合结束时 -1"（见 tickEnd），层数 == 还能生效几轮。 */
+export const VULN_FLAT_PER_STACK = 1;
+
+/** Boss 的**第一次攻击**打几折。0.7 = 减伤 30%。
+    目的：玩家刚进 Boss 房往往还没铺好护甲/缓冲，Boss 一记大招就能直接带走 ——
+    这种"初见杀"不是技术差距，是信息差。给第一击打个折，让玩家至少有一次反应机会。
+    注意是"第一次**攻击**"而不是"第一回合"：Boss 若先加 buff，那一击仍然享受减伤。 */
+export const BOSS_FIRST_ATTACK_MULT = 0.7;
+
 export const ST = {
-  strength: { name: '力量', icon: '⬆', desc: '攻击伤害 +N', buff: true, color: '#ff8a5c' },
-  dexterity: { name: '敏捷', icon: '✦', desc: '获得的护甲 +N', buff: true, color: '#6ee7a8' },
-  vulnerable: { name: '易伤', icon: '✸', desc: '受到的伤害 +50%，回合结束 -1', color: '#ff5c8a' },
-  weak: { name: '虚弱', icon: '↓', desc: '每层使**每一次**造成的伤害 -1（分段招式每段都扣，每段至少留 1），回合结束 -1', color: '#c07bff' },
-  poison: { name: '中毒', icon: '☠', desc: '回合开始失去 N 点生命，然后 -1', color: '#7ee787' },
-  regen: { name: '再生', icon: '✚', desc: '回合结束回复 N 点生命，然后 -1', buff: true, color: '#7ee787' },
-  thorns: { name: '荆棘', icon: '✹', desc: '被攻击时反弹 N 点伤害', buff: true, color: '#ffb04a' },
-  ritual: { name: '仪式', icon: '☯', desc: '每回合开始获得 N 层力量', buff: true, color: '#ff8a5c' },
-  undying: { name: '不屈', icon: '⛨', desc: '每回合开始获得 N 点护甲', buff: true, color: '#8fa8c0' },
-  barricade: { name: '壁垒', icon: '▣', desc: '护甲不再于回合结束时消失', buff: true, color: '#ffcc52' },
-  berserk: { name: '狂战', icon: '⚡', desc: '每回合开始获得 N 点能量', buff: true, color: '#ff5c5c' },
-  berserk_dmg: { name: '狂战代价', icon: '✚', desc: '每回合开始失去 N 点生命', color: '#ff5c5c' },
-  extra_draw: { name: '洞察', icon: '❖', desc: '每回合额外抽 N 张牌', buff: true, color: '#8fd4ff' },
-  poison_plus: { name: '淬毒', icon: '☠', desc: '施加中毒时额外 +N 层', buff: true, color: '#7ee787' },
-  block_next: { name: '备战', icon: '⛨', desc: '下回合获得 N 点护甲', buff: true, color: '#8fa8c0' },
-  frail: { name: '脆弱', icon: '▽', desc: '获得的护甲 -25%', color: '#c07bff' },
-  artifact: { name: '神器', icon: '◈', desc: '免疫下 N 次减益', buff: true, color: '#ffcc52' },
+  strength: { pri: 90, name: '力量', icon: '⬆', desc: '攻击伤害 +N', buff: true, color: '#ff8a5c' },
+  dexterity: { pri: 85, name: '敏捷', icon: '✦', desc: '获得的护甲 +N', buff: true, color: '#6ee7a8' },
+  vulnerable: { pri: 88, name: '易伤', icon: '✸', desc: '每层使受到的**每一段**伤害 +1，自身回合结束时 -1', color: '#ff5c8a' },
+  weak: { pri: 86, name: '虚弱', icon: '↓', desc: '每层使**每一次**造成的伤害 -1（分段招式每段都扣，每段至少留 1），回合结束 -1', color: '#c07bff' },
+  energy_cap: { pri: 92, name: '法力增幅', icon: '◉', desc: '每回合能量上限 +N', buff: true, color: '#8fd4ff' },
+  freeze: { pri: 97, name: '冰冻', icon: '❄', sprite: 'icon_freeze', color: '#b8f0ff', desc: '轮到它行动时消耗 <b>1</b> 层并跳过这次行动，意图保留到下一回合' },
+  frost: { pri: 91, name: '冰霜', icon: '❄', sprite: 'icon_frost', color: '#8ee6ff', desc: '集满后转化为 <b>1</b> 层冰冻（普通/精英 <b>3</b> 层，Boss <b>5</b> 层）。不会自然衰减' },
+  burn: { pri: 93, name: '灼烧', icon: '火', sprite: 'icon_burn', color: '#ff7a3c', desc: '轮到它行动时失去 N 点生命，然后 -1' },
+  poison: { pri: 95, name: '中毒', icon: '☠', desc: '轮到它行动时失去 N 点生命，然后 -2', color: '#7ee787' },
+  regen: { pri: 40, name: '再生', icon: '✚', desc: '回合结束回复 N 点生命，然后 -1', buff: true, color: '#7ee787' },
+  thorns: { pri: 80, name: '荆棘', icon: '✹', desc: '被攻击时反弹 N 点伤害', buff: true, color: '#ffb04a' },
+  ritual: { pri: 78, name: '仪式', icon: '☯', desc: '每回合开始获得 N 层力量', buff: true, color: '#ff8a5c' },
+  undying: { pri: 74, name: '不屈', icon: '⛨', desc: '每回合开始获得 N 点护甲', buff: true, color: '#8fa8c0' },
+  barricade: { pri: 72, name: '壁垒', icon: '▣', desc: '护甲不再于回合结束时消失', buff: true, color: '#ffcc52' },
+  berserk: { pri: 70, name: '狂战', icon: '⚡', desc: '每回合开始获得 N 点能量', buff: true, color: '#ff5c5c' },
+  berserk_dmg: { pri: 68, name: '狂战代价', icon: '✚', desc: '每回合开始失去 N 点生命', color: '#ff5c5c' },
+  extra_draw: { pri: 66, name: '洞察', icon: '❖', desc: '每回合额外抽 N 张牌', buff: true, color: '#8fd4ff' },
+  poison_plus: { pri: 60, name: '淬毒', icon: '☠', desc: '施加中毒时额外 +N 层', buff: true, color: '#7ee787' },
+  block_next: { pri: 50, name: '备战', icon: '⛨', desc: '下回合获得 N 点护甲', buff: true, color: '#8fa8c0' },
+  frail: { pri: 76, name: '脆弱', icon: '▽', desc: '获得的护甲 -25%', color: '#c07bff' },
+  artifact: { pri: 55, name: '神器', icon: '◈', desc: '免疫下 N 次减益', buff: true, color: '#ffcc52' },
 };
 
 export class Battle {
@@ -111,7 +133,7 @@ export class Battle {
       player: { hp: this.player.hp, maxHp: this.player.maxHp, block: this.player.block, st: { ...this.player.st } },
       enemies: this.enemies.map(e => ({
         defId: e.defId, hp: e.hp, maxHp: e.maxHp, block: e.block, st: { ...e.st },
-        turn: e.turn, moveId: e.moveId, dead: !!e.dead,
+        turn: e.turn, moveId: e.moveId, dead: !!e.dead, attacked: e.attacked || 0,
         // 存下标而不是 uid：uid 每次读档都会重新分配，存 uid 对不上
         summonedBy: e.summonedBy ? this.enemies.findIndex(x => x.uid === e.summonedBy) : -1,
       })),
@@ -150,6 +172,9 @@ export class Battle {
           // 而且界面预告会跟着一起变小（看起来"正常"，实则玩家白捡便宜）。
           atkMult: sc.atk,
           elite: !!d.elite, boss: !!d.boss, dead: !!e.dead,
+          // 一起恢复：漏了它，读档续战会把已经打过的 Boss 当成"还没出过手"，
+          // 白送一次减伤。
+          attacked: e.attacked || 0,
           summonedBy: null,
         };
       }).filter(Boolean);
@@ -206,6 +231,7 @@ export class Battle {
       hp, maxHp: hp, block: 0, st: {}, turn: 0, moveId: null, body: d.body || 1,
       atkMult: sc.atk,                               // 这一场的攻击倍率（该敌人的所有招式共用）
       elite: !!d.elite, boss: !!d.boss, dead: false,
+      attacked: 0,                                   // 已经挥出过几次攻击（Boss 首击减伤靠它判定）
       summonedBy: summoner ? summoner.uid : null,   // 谁召出来的
     };
     this.enemies.push(e);
@@ -226,7 +252,19 @@ export class Battle {
     }
     e.st[k] = (e.st[k] || 0) + n;
     if (e.st[k] <= 0) delete e.st[k];
+    // 冰霜集满 → 消耗**全部**层数，转化成 1 层冰冻。
+    // Boss 需要 5 层，普通/精英 3 层。多出来的层数直接丢弃（"消耗所有层数"）。
+    if (k === 'frost' && e.st.frost >= this.freezeThreshold(e)) {
+      delete e.st.frost;
+      this.add(e, 'freeze', 1);
+      this.pushLog(`${e.name} 被冻住了！`);
+    }
     return n;
+  }
+
+  /** 冻住一个敌人需要几层冰霜。Boss 更抗冻。 */
+  freezeThreshold(e) {
+    return e && e.boss ? 5 : 3;
   }
   applyDebuff(e, k, n) {
     if (n > 0 && this.get(e, 'artifact') > 0) {
@@ -240,7 +278,10 @@ export class Battle {
 
   /* ---------------- 数值计算 ---------------- */
   calcDamage(base, atk, def) {
-    // 顺序是语义的一部分：先加力量、再减虚弱（都是固定值加减），最后才乘易伤。
+    // 顺序是语义的一部分，而且现在**三项都是固定值加减**：
+    //   ① 加力量  ② 减虚弱（扣完至少留 1）  ③ 加易伤（每层 +1）
+    // 最后才乘"倍率"类的修正（Boss 首击减伤）。
+    // 虚弱与易伤刻意对称：一个每层 -1、一个每层 +1，都是**每段各算一次**。
     let d = base + this.get(atk, 'strength');
     if (d > 0) {
       // 本来有伤害才扣虚弱；扣完至少留 1 点 ——
@@ -248,7 +289,20 @@ export class Battle {
       d -= WEAK_FLAT_PER_STACK * this.get(atk, 'weak');
       if (d < 1) d = 1;
     }
-    if (this.get(def, 'vulnerable') > 0) d = Math.floor(d * 1.5);
+    // 易伤：每层 +1（2026-10-13 由"×1.5 倍率"改成固定值）。
+    // 同样用 `d > 0` 守卫 —— **0 点伤害的招式不该凭易伤凭空打出伤害**，
+    // 这与虚弱的守卫对称（那边是"0 伤害不会被扣成负数"）。
+    if (d > 0) {
+      const vul = this.get(def, 'vulnerable');
+      if (vul > 0) d += VULN_FLAT_PER_STACK * vul;
+    }
+    // Boss 的第一次攻击减伤。放在**最后**乘，语义就是"这一击最终打七折"。
+    // intentOf() 与 enemyTurn() 共用这个函数，所以预告和实际永远一致。
+    if (d > 0 && atk && atk.boss && !atk.attacked) {
+      const mult = (this.mods && this.mods.bossFirstAttackMult != null)
+        ? this.mods.bossFirstAttackMult : BOSS_FIRST_ATTACK_MULT;
+      d = Math.max(1, Math.round(d * mult));
+    }
     return Math.max(0, d);
   }
   calcBlock(base, e) {
@@ -386,7 +440,7 @@ export class Battle {
     const { card } = ctx;
     // 目标可能已死光/未指定 —— 立刻取一个活着的，仍未定义就跳过需要目标的条目
     const pick = () => (ctx.target && !ctx.target.dead ? ctx.target : this.aliveEnemies()[0]);
-    const NEEDS_TARGET = new Set(['dmg', 'dmgBlock', 'dmgPoison', 'debuff']);
+    const NEEDS_TARGET = new Set(['dmg', 'dmgBlock', 'dmgPoison', 'dmgPerEnergyMax', 'dmgPerPlayed', 'debuff']);
     for (const f of fxList) {
       if (this.over) return;
       if (NEEDS_TARGET.has(f.t) && !pick()) continue;
@@ -402,6 +456,9 @@ export class Battle {
           if (f.ifBlock != null && this.player.block > 0) hit += this.num(f.ifBlock, card);
           if (f.ifVulnerable != null && target && this.get(target, 'vulnerable') > 0) {
             hit += this.num(f.ifVulnerable, card);
+          }
+          if (f.ifFrozen != null && target && this.get(target, 'freeze') > 0) {
+            hit += this.num(f.ifFrozen, card);
           }
           for (let i = 0; i < hits; i++) {
             const t = target && !target.dead ? target : this.aliveEnemies()[0];
@@ -431,6 +488,25 @@ export class Battle {
         case 'dmgPoison':
           await this.damage(target, this.get(target, 'poison') * (this.num(f.mult, card) || 1), card?.name, { attacker: this.player });
           break;
+        case 'dmgPerPlayed': {
+          // 伤害 = v × 本回合已打出的牌数。这是"低费快过牌"的收尾手段。
+          // 计数在 playCard() 里先加、再进 resolve，所以读到的**包含这一张自己** ——
+          // 第一张打出来也有基础伤害，不会出现"铺垫半天结果是 0"。
+          const per = this.num(f.v, card) || 0;
+          const n = Math.max(0, this.cardsPlayedThisTurn || 0);
+          const t = target && !target.dead ? target : this.aliveEnemies()[0];
+          if (t) await this.damage(t, n * per, card?.name || '效果', { attacker: this.player, melee: !!ctx.melee });
+          await this.tryExecute(f, ctx, card, target);
+          break;
+        }
+        case 'dmgPerEnergyMax': {
+          // 伤害 = 能量上限 × v。法师的招牌：法力增幅叠得越高，这一发越狠。
+          const per = this.num(f.v, card) || 0;
+          const t = target && !target.dead ? target : this.aliveEnemies()[0];
+          if (t) await this.damage(t, Math.max(0, this.energyMax * per), card?.name || '效果', { attacker: this.player, melee: !!ctx.melee });
+          await this.tryExecute(f, ctx, card, target);
+          break;
+        }
         case 'dmgPerHand': {
           const n = this.hand.length;
           for (let i = 0; i < n; i++) {
@@ -577,6 +653,31 @@ export class Battle {
     await this.view.step?.(120);
 
     await this.resolve(card.fx || [], { card, target: target || this.aliveEnemies()[0], melee: card.type === 'attack' });
+
+    // 职业特性（做在起始遗物里，和遗物/难度走同一条 mod 通路）：
+    //   burnOnSkill  火焰法师 —— 打出的技能牌给受影响的敌人挂 N 层灼烧
+    //   frostOnSkill 寒冰法师 —— 同上，挂 N 层冰霜
+    // 触发条件是**技能牌**，且这张牌要对敌人生效：
+    //   target 'enemy' 打击指定目标；target 'all' 命中全体（含群体 debuff 牌）。
+    //   给自己加护甲/抽牌那种 target 'self' 的牌不触发。
+    // 一次出牌每敌只挂一次（按牌算，不按段数算）—— 否则多段牌一发就能叠十几层。
+    if (!this.over && card.type === 'skill'
+        && (card.target === 'enemy' || card.target === 'all')) {
+      const onSkill = [['burn', this.mods.burnOnSkill], ['frost', this.mods.frostOnSkill]];
+      if (onSkill.some(([, n]) => n)) {
+        const isAoe = card.target === 'all';
+        const foes = (isAoe ? this.aliveEnemies() : [target || this.aliveEnemies()[0]])
+          .filter(t => t && !t.dead);
+        for (const [k, n] of onSkill) {
+          if (!n) continue;
+          for (const t of foes) {
+            this.applyDebuff(t, k, n);
+            this.pushLog(`${t.name} 沾染了${ST[k]?.name || k} +${n}`);
+          }
+        }
+      }
+    }
+
     for (const [id, hook, def] of relicHooks('cardPlayed')) hook(this, card, def);
     // 增益「战意沸腾」：打出**能力卡**后获得 1 层力量（走 powerPlayed 钩子）。
     // 用 card.type === 'power' 判断，因为"能力"是卡牌类型，与效果怎么实现无关。
@@ -628,11 +729,16 @@ export class Battle {
     if (!this.get(this.player, 'barricade')) this.player.block = 0;
     this.pushLog(`—— 第 ${this.turn} 回合 ——`);
 
-    // 中毒
-    const poi = this.get(this.player, 'poison');
-    if (poi > 0) {
-      await this.loseHp(this.player, poi, { isDot: true });
-      this.add(this.player, 'poison', -1);
+    // 中毒 / 灼烧：轮到行动时掉 N 点血（无视护甲），然后 -1。
+    // 两者规则完全一致，只是来源和颜色不同（灼烧由火焰法师的攻击牌挂上）。
+    // 中毒每跳 -2（衰减比灼烧快一倍），灼烧每跳 -1。
+    // 用 Math.min(n, decay) 而不是直接减：1 层毒减 2 会变成 -1，
+    // 虽然 add() 里 `<=0 就删除` 兜住了，但显式夹紧更不容易被后来的改动破坏。
+    for (const [dot, decay] of [['poison', 2], ['burn', 1]]) {
+      const n = this.get(this.player, dot);
+      if (n <= 0) continue;
+      await this.loseHp(this.player, n, { isDot: true });
+      this.add(this.player, dot, -Math.min(n, decay));
       await this.view.step?.(180);
       if (this.over || this.player.hp <= 0) return;
     }
@@ -645,9 +751,17 @@ export class Battle {
     if (this.get(this.player, 'ritual') > 0) this.add(this.player, 'strength', this.get(this.player, 'ritual'));
 
     // 能量
-    this.energyMax = 3 + (m.energyPerTurn || 0);
+    // 能量上限 = 基础 3 + 遗物/难度修正 + **法力增幅**层数。
+    // 法师的核心机制：这是唯一能让"费用上限"永久变高的途径 ——
+    // 遗物那套 energyPerTurn 是固定值，卡牌只能用这个持久状态来加。
+    this.energyMax = 3 + (m.energyPerTurn || 0) + this.get(this.player, 'energy_cap');
     if (this.turn === 1) this.energyMax += (m.firstTurnEnergy || 0);
     this.energy = this.energyMax + this.get(this.player, 'berserk');
+
+    // 「本回合打出过几张牌」必须每回合清零 ——
+    // 之前只在构造时初始化，一整场战斗都在累加（虽然暂时没有卡读它，
+    // 但任何"本回合每打出一张牌就…"的牌都会因此算错）。
+    this.cardsPlayedThisTurn = 0;
 
     // 抽牌
     let n = 5 + (m.drawPerTurn || 0) + this.get(this.player, 'extra_draw');
@@ -703,21 +817,39 @@ export class Battle {
   }
 
   async enemyTurn() {
+    // 被冰冻跳过的敌人：它的意图要留到下一回合，所以 rollIntents 得跳过它
+    const hold = new Set();
     for (const e of this.aliveEnemies()) {
       if (this.over) return;
-      e.turn++;
+      // 冰冻检查必须在 `e.turn++` **之前**：turn 不推进，pickMove(turn+1)
+      // 才会算出和这回合一样的意图，玩家看到的预告才不会是错的。
+      const frozen = this.get(e, 'freeze') > 0;
+      if (!frozen) e.turn++;
       if (!this.get(e, 'barricade')) e.block = 0;
       else e.block = e.block;
 
       // 敌人中毒
-      const poi = this.get(e, 'poison');
-      if (poi > 0) {
-        await this.loseHp(e, poi, { isDot: true });
-        this.add(e, 'poison', -1);
+      for (const [dot, decay] of [['poison', 2], ['burn', 1]]) {
+        const n = this.get(e, dot);
+        if (n <= 0) continue;
+        await this.loseHp(e, n, { isDot: true });
+        this.add(e, dot, -Math.min(n, decay));
         await this.view.step?.(200);
-        if (e.dead || e.hp <= 0) continue;
+        if (e.dead || e.hp <= 0) break;
       }
+      if (e.dead || e.hp <= 0) continue;
       if (this.over) return;
+
+      // 冰冻：消耗 1 层，**整个行动跳过**（不移动位、不清意图）。
+      // 注意放在 DoT 结算之后 —— 冰冻剥夺的是它的"行动"，不是保护它免受毒/灼烧。
+      if (frozen) {
+        this.add(e, 'freeze', -1);
+        hold.add(e.uid);
+        this.pushLog(`${e.name} 被冻住了，跳过这次行动`);
+        this.view.sync?.();
+        await this.view.step?.(280);
+        continue;
+      }
 
       const mv = e.moveId && e.def.moves[e.moveId] ? e.moveId : this.pickMove(e);
       const def = e.def.moves[mv];
@@ -736,6 +868,9 @@ export class Battle {
           if (this.player.hp <= 0) break;
           await this.damage(this.player, base, e.name, { attacker: e, melee: true });
         }
+        // 记下"这个敌人已经打过人了"。必须放在挥出**之后**：
+        // intentOf() 是在出招前调的，那时 attacked 还是 0，看到的仍是减伤后的数值。
+        e.attacked = (e.attacked || 0) + 1;
       }
       if (def.selfDamage) await this.loseHp(e, def.selfDamage, { credit: 'none' });
       if (def.fx) await this.resolveEnemyFx(def.fx, e);
@@ -753,7 +888,7 @@ export class Battle {
     // 敌人行动完毕：重算「下一轮」的意图，再交回玩家
     if (!this.over) {
       this.intentRolled = false;   // 本轮意图已经用掉，下一轮必须重新掷
-      this.rollIntents();
+      this.rollIntents(false, hold);   // 被冻住的那个保留原意图
       this.view.sync?.();
       await this.playerTurn();
     }
@@ -790,9 +925,14 @@ export class Battle {
       （enemyTurn 末尾一次、紧接着 playerTurn 开头又一次、读档时再一次），
       于是"关掉页面再进来"会走出一条和"没关过"完全不同的未来。
       意图本该是一轮掷一次骰子，掷完就固定下来给玩家看。 */
-  rollIntents(force = false) {
+  rollIntents(force = false, hold = null) {
     if (!force && this.intentRolled) return;
-    for (const e of this.aliveEnemies()) e.moveId = this.pickMove(e);
+    for (const e of this.aliveEnemies()) {
+      // hold 里的敌人这回合被冰冻跳过了：**保留它的 moveId**，
+      // 下一回合还是同一个意图（"该意图会保留到下个回合"）。
+      if (hold && hold.has(e.uid)) continue;
+      e.moveId = this.pickMove(e);
+    }
     this.intentRolled = true;
   }
 

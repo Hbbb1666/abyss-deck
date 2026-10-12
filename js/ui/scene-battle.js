@@ -5,14 +5,16 @@ import { CARDS, makeCard, RARITY, TYPE_LABEL } from '../data/cards.js';
 import { ST, stText } from '../core/battle.js';
 import { sfx } from '../core/audio.js';
 import { classSprite, className } from '../data/classes.js';
-import { cardEl, hpBar, updateHpBar, statusRow, SPR, relicEl, bindTip, bindTipAction, disarmTipAction, onLongPress, modal, screenFlash, pickCards, fitAllCards } from './widgets.js';
+import { cardEl, hpBar, updateHpBar, statusRow, SPR, relicEl, bindTip, bindTipAction, disarmTipAction, onLongPress, modal, screenFlash, pickCards, fitAllCards, goldIcon } from './widgets.js';
 
 /**
  * 构建战斗界面，并把 view 回调挂到 B 上
  * onFinish(result) 在战斗结束时调用
  */
 export function battleScene(B, { onFinish, onQuit, resumed }) {
-  const root = el('div', { class: 'screen battle' });
+  // 根节点带上职业标记：能量球（.orb）据此换色。
+  // 带职业标记的容器会给整棵子树设 --cc-* 变量，但卡牌自己会覆盖（见 css 的 .card）。
+  const root = el('div', { class: 'screen battle c-' + G.cls });
 
   /* ---------- 顶栏 ---------- */
   const topbar = el('div', { class: 'topbar' });
@@ -20,7 +22,7 @@ export function battleScene(B, { onFinish, onQuit, resumed }) {
   const hpWrap = el('div', { class: 'grow' });
   const playerBar = hpBar(B.player.hp, B.player.maxHp, B.player.block);
   hpWrap.append(playerBar);
-  const goldStat = el('div', { class: 'stat' }, el('span', { class: 'ico', style: { backgroundImage: `url(${SPR('key_gold')})` } }), el('span', { class: 'gold', text: G.gold }));
+  const goldStat = el('div', { class: 'stat' }, goldIcon(), el('span', { class: 'gold', text: G.gold }));
   const floorStat = el('div', { class: 'stat', html: `<span class="dim">第</span>${G.act}<span class="dim">层</span>` });
   const btnDeck = el('button', { class: 'btn sm ghost', text: '卡组', onClick: () => showDeck() });
   const btnMenu = el('button', { class: 'btn sm ghost', text: '≡', onClick: () => pauseMenu() });
@@ -130,11 +132,30 @@ export function battleScene(B, { onFinish, onQuit, resumed }) {
      敌人很容易顶穿战场边框，盖到上面的药水条或下面的玩家区。
      这里按「可用宽高 + 预估行数」算出每个精灵的上限，写进 --spr-cap。 */
   let lastFitKey = '';
-  function updateEnemySizing() {
+  /** 敌人整体实际占用的高度（布局px）。offsetTop/offsetHeight 才是布局单位，
+      别用 getBoundingClientRect —— 那是被 #stage 的 zoom 放大过的视觉像素。 */
+  function enemyBlockHeight() {
+    const nodes = [...field.querySelectorAll('.enemy')];
+    if (!nodes.length) return 0;
+    const tops = nodes.map(n => n.offsetTop);
+    const bots = nodes.map(n => n.offsetTop + n.offsetHeight);
+    return Math.max(...bots) - Math.min(...tops);
+  }
+
+  function updateEnemySizing(force) {
     const alive = B.aliveEnemies();
-    if (!alive.length) { field.style.removeProperty('--spr-cap'); return; }
-    const key = alive.map(e => e.body || 1).join(',') + '|' + field.clientWidth + 'x' + field.clientHeight;
-    if (key === lastFitKey) return;          // 尺寸没变就不重算
+    if (!alive.length) {
+      field.style.removeProperty('--spr-cap');
+      field.style.removeProperty('--enemy-max-w');
+      lastFitKey = '';
+      return;
+    }
+    // 这函数里有强制回流，不能每次 sync 都跑满迭代 —— 输入没变就直接跳过。
+    // 状态数量也要进 key：多一个状态标签就可能多折一行。
+    const key = alive.map(e => e.body || 1).join(',')
+      + '|' + alive.map(e => Object.keys(e.st || {}).length).join(',')
+      + '|' + field.clientWidth + 'x' + field.clientHeight;
+    if (!force && key === lastFitKey) return;
     lastFitKey = key;
 
     const cs = getComputedStyle(field);
@@ -143,31 +164,42 @@ export function battleScene(B, { onFinish, onQuit, resumed }) {
     if (availW <= 0 || availH <= 0) return;
 
     const GAP = 8;            // 与 CSS 里 .field 的横向 gap 一致
-    const RESERVE = 74;       // 意图 + 名牌 + 间距 占掉的垂直空间（布局px）
-    const PAD = 12;           // .enemy 容器的左右内边距
-    const MIN_W = 88;         // .enemy 的 min-width（容器不会比这更窄）
-
+    const PAD = 12;           // .enemy 容器左右内边距
+    const MIN_W = 88;         // .enemy 的 min-width
     const n = alive.length;
-    // 第一步：能不能挤成一行？一行的精灵上限由「每格可用宽度」决定。
-    const cellW = (availW - (n - 1) * GAP) / n;
-    let cap;
-    if (cellW >= MIN_W) {
-      cap = Math.round(cellW - PAD);
-    } else {
-      // 一行实在放不下（格子比 min-width 还窄）→ 算会折几行，按每行高度限制。
-      // 估行数要用**容器宽度**：容器有 padding 和 min-width，
-      // 按精灵宽度算会低估、以为塞得下一行，实际折成两行就顶穿了。
-      const bases = alive.map(e => Math.max(MIN_W, Math.round(76 * (e.body || 1)) + PAD));
-      let rows = 1, acc = 0;
-      for (const w of bases) {
-        if (acc > 0 && acc + GAP + w > availW) { rows++; acc = w; }
-        else acc += (acc > 0 ? GAP : 0) + w;
-      }
-      cap = Math.round(availH / rows - RESERVE);
+
+    // 预估一行能放几个（按基准宽度），再据此给每个敌人一个宽度上限。
+    // 这个上限是**必需**的：状态标签是 nowrap 的，不封顶就会被撑爆、
+    // 一行变两行，高度直接翻倍顶穿战场。
+    const bases = alive.map(e => Math.max(MIN_W, Math.round(76 * (e.body || 1)) + PAD));
+    let perRow = 0, acc = 0, rows = 1;
+    for (const w of bases) {
+      if (acc > 0 && acc + GAP + w > availW) { rows++; perRow = Math.max(perRow, acc); acc = w; }
+      else acc += (acc > 0 ? GAP : 0) + w;
     }
-    // 纵向上永远不能让一列敌人高过战场
-    cap = Math.min(cap, Math.round(availH - RESERVE));
-    cap = Math.max(34, cap);
+    perRow = Math.max(perRow, acc);
+    const cols = Math.max(1, Math.min(n, Math.round((perRow + GAP) / (MIN_W + GAP))));
+    const rowW = Math.floor((availW - (Math.max(1, cols) - 1) * GAP) / Math.max(1, cols));
+    field.style.setProperty('--enemy-max-w', Math.max(MIN_W, rowW) + 'px');
+
+    // 初值：按行数分高度
+    const RESERVE = 74;       // 意图 + 名牌 + 间距（状态标签另行实测修正）
+    let cap = Math.round(availH / Math.max(1, rows) - RESERVE);
+    cap = Math.min(cap, rowW - PAD);
+    cap = Math.max(32, cap);
+
+    // 迭代修正：直接量**实际**占用高度，超标就按比例缩。
+    // 为什么不能只靠估算 —— 状态标签的数量/文字长度会把敌人撑宽撑高，
+    // 折不折行取决于内容，估不准；量结果最可靠，而且对长名字等一切情况都成立。
+    for (let i = 0; i < 6; i++) {
+      field.style.setProperty('--spr-cap', cap + 'px');
+      void field.offsetHeight;                     // 强制回流，让新尺寸生效
+      const need = enemyBlockHeight();
+      if (need <= availH || cap <= 30) break;
+      const next = Math.max(30, Math.floor(cap * availH / need));
+      if (next >= cap) break;
+      cap = next;
+    }
     field.style.setProperty('--spr-cap', cap + 'px');
   }
 
@@ -253,6 +285,8 @@ export function battleScene(B, { onFinish, onQuit, resumed }) {
     refs.sts.replaceWith(s);
     refs.sts = s;
     if (e.dead) refs.node.classList.add('dead');
+    // 被冰冻：整体盖一层浅蓝滤镜，一眼看出"这个怪这回合动不了"
+    refs.node.classList.toggle('frozen', B.get(e, 'freeze') > 0);
     refs.node.classList.toggle('selectable', pendingTarget && !e.dead);
     refs.node.classList.toggle('selected', pendingTarget && e === selectedTarget);
   }
@@ -655,9 +689,12 @@ export function showHelp() {
       回合结束时手牌会全部弃掉，<b>护甲也会清空</b>（除非有「壁垒」）。<br><br>
       <b>意图</b>：敌人头顶的图标是它下回合要干的事——⚔ 伤害、⛨ 加甲、⬆ 强化、↓ 弱化。先看意图再决定攻防。<br><br>
       <b>状态</b>：<br>
-      ☠ 中毒 · 回合开始掉血，无视护甲<br>
-      ✸ 易伤 · 受到伤害 +50%<br>
-      ↓ 虚弱 · 造成伤害 -25%<br>
+      ☠ 中毒 · 轮到它行动时掉血，无视护甲，每回合 **-2**<br>
+      🔥 灼烧 · 同上，但每回合 **-1**（火焰法师的招牌）<br>
+      ✸ 易伤 · 每层使受到的**每一段**伤害 **+1**<br>
+      ↓ 虚弱 · 每层使造成的**每一段**伤害 **-1**（每段至少留 1）<br>
+      ❄ 冰霜 · 集满（普通/精英 3 层、Boss 5 层）转化为 1 层冰冻<br>
+      ❄ 冰冻 · 跳过它的一次行动，意图保留到下一回合<br>
       ⬆ 力量 · 每次攻击 +N 伤害<br>
       ✦ 敏捷 · 获得的护甲 +N<br>
       ✹ 荆棘 · 被近战攻击时反弹伤害<br><br>

@@ -1,13 +1,24 @@
 import { el, clear, $, $$, toast, asset, onSceneCleanup } from '../core/util.js';
 import { RARITY, TYPE_LABEL, CARDS } from '../data/cards.js';
+import { CLASSES } from '../data/classes.js';
 import { RELICS } from '../data/relics.js';
 import { ST, stText } from '../core/battle.js';
 import { sfx } from '../core/audio.js';
 
 export const SPR = n => asset(`assets/sprites/${n}.png`);
+/** 这张牌是不是某个职业的专属牌。查职业表而不是写死名单 ——
+    写死过一次，新增寒冰法师时忘了加，它的费用图标就没有按职业上色。 */
+export const isClass = c => Object.prototype.hasOwnProperty.call(CLASSES, c);
 /** 弹层要挂在 #stage 里，这样能跟着舞台一起缩放；拿不到就退回 body */
 export const overlayRoot = () => document.getElementById('stage') || document.body;
 export const UI = n => asset(`assets/ui/${n}.png`);
+
+/* ---------------- 金币图标 ----------------
+   全项目只有这一个写法。以前顶栏用的是 key_gold 精灵图（一把钥匙），
+   而商店价格用的是字符 ◉ —— 同一个"金币"两套贴图，看着像两种货币。
+   统一成金色圆圈，和商店一致。 */
+export const GOLD_ICON = '<span class="gcoin">◉</span>';
+export const goldIcon = () => el('span', { class: 'gcoin', text: '◉' });
 
 /* ---------------- 卡牌 ---------------- */
 /** 卡牌大图弹窗（长按任意地方的卡都能看全效果） */
@@ -52,13 +63,17 @@ export function cardEl(card, opts = {}) {
     'card',
     'r-' + (card.rarity || 'common'),
     't-' + card.type,
+    // 职业专属牌带上职业标记 —— 费用图标按职业上色（见 css 的 .c-knight 等）。
+    // 判定必须从职业表推导：之前硬编码了四个职业名，加寒冰法师时就漏了。
+    isClass(card.cls) ? 'c-' + card.cls : '',
     card.upgraded ? 'up' : '',
     card.unplayable ? 'unplayable' : '',
     opts.extraClass || '',
   ].filter(Boolean).join(' ');
 
   const costTxt = card.unplayable ? '—' : (card.cost === 0 ? '0' : card.cost);
-  const costCls = card.unplayable ? '' : (card.cost === 0 ? 'free' : '');
+  // 0 费不再单独用绿色：费用图标一律按职业上色（中立牌保持金色）
+  const costCls = '';
 
   const node = el('div', {
     class: cls, data: { cid: card.uid || card.id },
@@ -120,23 +135,123 @@ export function updateHpBar(bar, hp, maxHp, block = 0) {
  * 状态标签。直接把「名称 + 层数」写在标签上，不用记图标是啥；
  * 长按还能看到这个状态具体在干什么（文案来自 ST 表，加状态时只改一处）。
  */
+/** 怪物/玩家头顶最多内联几个状态标签，超出的折叠进「…」 */
+export const ST_INLINE_MAX = 6;
+
+/** 按重要程度排好序的状态列表（pri 在 battle.js 的 ST 表里定义）。
+    为什么要排序：折叠只留前几个，那"前几个"必须是最该被看见的 ——
+    中毒/易伤/虚弱这种会直接决定生死的，永远排在小数值 buff 前面。 */
+export function sortedStatus(e) {
+  return Object.entries(e.st || {})
+    .filter(([k, v]) => v && ST[k])
+    .sort((a, b) => (ST[b[0]].pri || 0) - (ST[a[0]].pri || 0));
+}
+
+/** 状态图标：定义了 sprite 的用图形（画出来的），否则用字符。
+    字符图标靠系统字体回退，风格不统一；新加的「灼烧」按项目调色板手绘成了贴图。 */
+function statusIcon(d) {
+  if (d.sprite) {
+    return el('i', { class: 'stimg', style: { backgroundImage: `url(${SPR(d.sprite)})` } });
+  }
+  return el('span', { class: 'sti', text: d.icon });
+}
+
+function statusChip(k, v) {
+  const d = ST[k];
+  const chip = el('span', {
+    class: 'st ' + (d.buff ? 'buff' : 'debuff'),
+    style: { color: d.color },
+    data: { stk: k },
+  },
+    statusIcon(d),
+    el('span', { class: 'stn', text: d.name }),
+    el('b', { class: 'stv', text: String(v) }),
+  );
+  bindTip(chip, () => `<div class="tname" style="color:${d.color}">${d.sprite
+    ? `<i class="stimg tipimg" style="background-image:url(${SPR(d.sprite)})"></i>` : d.icon} ${d.name} ×${v}</div>${stText(k, v)}`);
+  return chip;
+}
+
+/** 完整状态表：点「…」或长按状态标签时弹出。
+    内联最多 6 个，剩下的在这里能看全（带逐条说明）。 */
+export function openStatusTable(e, titleText) {
+  const live = sortedStatus(e);
+  const body = el('div', { class: 'sttable' });
+  if (!live.length) {
+    body.append(el('div', { class: 'dim small', text: '（当前没有任何状态）' }));
+  }
+  for (const [k, v] of live) {
+    const d = ST[k];
+    body.append(el('div', { class: 'strow' + (d.buff ? ' buff' : '') },
+      el('span', { class: 'st ' + (d.buff ? 'buff' : 'debuff'), style: { color: d.color } },
+        statusIcon(d),
+        el('span', { class: 'stn', text: d.name }),
+        el('b', { class: 'stv', text: String(v) })),
+      el('div', { class: 'std', text: stText(k, v) }),
+    ));
+  }
+  return modal({
+    title: `${titleText || '状态一览'} · ${live.length} 项`,
+    body,
+    buttons: [{ label: '关闭', cls: 'primary', onClick() {} }],
+    closable: true,
+  });
+}
+
+/* ---------------- 药水替换 ----------------
+   药水槽满时买药水/拿药水，让玩家自己挑一瓶换掉（而不是直接说"满了拿不了"）。
+   每一条都把**效果原文**写出来 —— 换哪瓶是构筑决策，看不到效果就没法决定。 */
+export function pickPotionToReplace(slots, newPotion, onDone) {
+  const body = el('div');
+  if (newPotion) {
+    body.append(el('div', { class: 'potion-new' },
+      el('div', { class: 'tiny dim', style: { marginBottom: '4px' }, text: '要拿到' }),
+      el('div', { class: 'row gap8', style: { alignItems: 'center' } },
+        el('div', { class: 'relic', style: { width: '34px', height: '34px', backgroundImage: `url(${SPR(newPotion.sprite)})`, flex: 'none' } }),
+        el('div', { class: 'grow col' },
+          el('div', { class: 'small', style: { color: '#7ee787' }, text: newPotion.name }),
+          el('div', { class: 'tiny dim', html: newPotion.text })))));
+  }
+  body.append(el('div', { class: 'tiny dim', style: { margin: '12px 0 6px' }, text: '药水槽满了 —— 选一瓶替换掉：' }));
+  const list = el('div', { class: 'col gap8' });
+  (slots || []).forEach((p, i) => {
+    const row = el('div', { class: 'potion-row row gap8' },
+      el('div', { class: 'relic', style: { width: '34px', height: '34px', backgroundImage: `url(${SPR(p.sprite)})`, flex: 'none' } }),
+      el('div', { class: 'grow col' },
+        el('div', { class: 'small', style: { color: '#7ee787' }, text: p.name }),
+        el('div', { class: 'tiny dim', html: p.text })),
+      el('div', { class: 'tiny', style: { color: '#ff8a5c', flex: 'none' }, text: '替换 ▸' }));
+    row.addEventListener('click', () => { sfx.place(); m.close(); onDone(i); });
+    list.append(row);
+  });
+  body.append(list);
+  const m = modal({ title: '药水槽已满', body, buttons: [{ label: '取消', onClick() {} }], closable: true });
+  return m;
+}
+
 export function statusRow(e) {
   const wrap = el('div', { class: 'sts' });
-  for (const [k, v] of Object.entries(e.st || {})) {
-    if (!v) continue;
-    const d = ST[k];
-    if (!d) continue;
-    const chip = el('span', {
-      class: 'st ' + (d.buff ? 'buff' : 'debuff'),
-      style: { color: d.color },
-      data: { stk: k },
-    },
-      el('span', { class: 'sti', text: d.icon }),
-      el('span', { class: 'stn', text: d.name }),
-      el('b', { class: 'stv', text: String(v) }),
-    );
-    bindTip(chip, () => `<div class="tname" style="color:${d.color}">${d.icon} ${d.name} ×${v}</div>${stText(k, v)}`);
-    wrap.append(chip);
+  const live = sortedStatus(e);
+  // 状态多于 3 个时切紧凑标签：少折一行，敌人列矮一点，精灵就能画大一点
+  if (live.length > 3) wrap.classList.add('many');
+  for (const [k, v] of live.slice(0, ST_INLINE_MAX)) wrap.append(statusChip(k, v));
+
+  // 折叠：超过 ST_INLINE_MAX 的部分收进一个「…」，点它看完整表。
+  // 为什么必须折叠而不是全部铺开：.enemy 是 flex:0 0 auto（按内容撑开），
+  // 标签又是 nowrap 的 —— 挂 10 个状态能把一行挤爆、折行后总高翻几倍，
+  // 直接把战场顶穿（怪物跑到屏幕外）。
+  const rest = live.slice(ST_INLINE_MAX);
+  if (rest.length) {
+    const more = el('span', { class: 'st more', text: '…' });
+    bindTip(more, () => `<div class="tname">还有 ${rest.length} 个状态</div>` +
+      rest.map(([k, v]) => `${ST[k].icon} ${ST[k].name} ×${v}`).join('　') + '<div class="tip-hint">点一下看完整说明</div>');
+    more.addEventListener('click', ev => {
+      ev.stopPropagation();
+      ev.preventDefault();
+      sfx.open();
+      openStatusTable(e);
+    });
+    wrap.append(more);
   }
   return wrap;
 }

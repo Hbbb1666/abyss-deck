@@ -3,7 +3,7 @@ import { G, save, hasRelic } from '../core/state.js';
 import { NODE_TYPES, reachable, nodeAt, layout, MAP_ROWS } from '../core/map.js';
 import { classSprite } from '../data/classes.js';
 import { sfx } from '../core/audio.js';
-import { SPR, relicEl, bindTip, bindTipAction, hpBar, modal } from './widgets.js';
+import { SPR, relicEl, bindTip, bindTipAction, hpBar, modal, goldIcon } from './widgets.js';
 import { showHelp, deckBody } from './scene-battle.js';
 
 const key = n => `${n.r},${n.c}`;
@@ -16,7 +16,7 @@ export function mapScene({ onEnter }) {
   const hpWrap = el('div', { class: 'grow' });
   const bar = hpBar(G.hp, G.maxHp, 0);
   hpWrap.append(bar);
-  const goldStat = el('div', { class: 'stat' }, el('span', { class: 'ico', style: { backgroundImage: `url(${SPR('key_gold')})` } }), el('span', { class: 'gold', text: G.gold }));
+  const goldStat = el('div', { class: 'stat' }, goldIcon(), el('span', { class: 'gold', text: G.gold }));
   const actStat = el('div', { class: 'stat', html: `<span class="dim">第</span>${G.act}<span class="dim">层</span>` });
   const btnDeck = el('button', { class: 'btn sm ghost', text: '卡组', onClick: showDeck });
   const btnHelp = el('button', { class: 'btn sm ghost', text: '?', onClick: showHelp });

@@ -148,6 +148,10 @@ i { color: var(--dim); font-style: normal; }
 }
 .stat { display: flex; align-items: center; gap: 4px; font-size: 14px; padding: 0 2px; white-space: nowrap; }
 .stat .ico { width: 17px; height: 17px; background-size: contain; background-repeat: no-repeat; background-position: center; }
+/* 金币图标：全项目统一的金色圆圈（顶栏 / 商店价格 / 奖励 / 选职业都用它）。
+   以前顶栏用 key_gold 精灵图（一把钥匙），和商店的 ◉ 不是一套。 */
+.gcoin { color: var(--gold); font-size: 17px; line-height: 1; flex: none; }
+.price .gcoin { font-size: 14px; }
 
 /* ---------------- 遗物 / 药水条 ---------------- */
 .relicbar { display: flex; gap: 5px; padding: 5px 9px; overflow-x: auto; background: #120c1c; border-bottom: 1px solid #00000060; flex: none; scrollbar-width: none; }
@@ -204,7 +208,12 @@ i { color: var(--dim); font-style: normal; }
   position: relative; display: flex; flex-direction: column; align-items: center;
   gap: 5px; padding: 6px 4px; border-radius: 8px;
   transition: transform .12s, filter .12s;
-  flex: 0 0 auto; min-width: 88px; max-width: 100%;
+  flex: 0 0 auto; min-width: 88px;
+  /* --enemy-max-w 由 JS 按"这一行能分给每个敌人多少宽"算出。
+     没有它的话：.enemy 是 flex:0 0 auto（按内容撑开），而状态标签是 nowrap 的，
+     敌人挂 6 个状态就会把自己撑得很宽 → 一行挤不下 → 折行 → 总高翻几倍直接顶穿战场。
+     给了上限之后，标签会在容器内部换行，行数不变，只长高不长宽。 */
+  max-width: var(--enemy-max-w, 100%);
 }
 .enemy .body { position: relative; display: flex; align-items: center; justify-content: center; }
 /* 脚下的影子，把怪物"落"在地面上 */
@@ -257,6 +266,24 @@ i { color: var(--dim); font-style: normal; }
 
 /* 状态图标 */
 .sts { display: flex; flex-wrap: wrap; gap: 3px; justify-content: center; max-width: 100%; }
+/* 状态多的时候缩小标签：敌人列少折一行，精灵就能大一点 */
+.sts.many { gap: 2px; }
+.sts.many .st { font-size: 10px; line-height: 14px; padding: 0 4px; gap: 2px; border-radius: 3px; }
+/* 折叠块：点击展开完整状态表 */
+.st.more { cursor: pointer; background: #ffffff1f; border-style: dashed; font-weight: 700; letter-spacing: 1px; }
+.st.more:active { background: #ffffff3d; }
+.tip-hint { margin-top: 4px; opacity: .65; font-size: .85em; }
+
+/* 状态一览表 */
+.sttable { display: flex; flex-direction: column; gap: 7px; }
+.strow {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 9px; border-radius: 6px;
+  background: #ffffff0d; border: 1px solid #ffffff1a;
+}
+.strow.buff { border-color: #6ee7a833; background: #6ee7a80d; }
+.strow .st { flex: none; }
+.strow .std { font-size: 12.5px; line-height: 1.45; color: #cdc4dd; }
 .st {
   display: inline-flex; align-items: center; gap: 3px; font-size: 12px;
   padding: 1px 6px; border-radius: 4px; background: #000000b0; border: 1px solid #ffffff28;
@@ -285,12 +312,16 @@ i { color: var(--dim); font-style: normal; }
 
 /* 能量 / 牌堆 */
 .piles { display: flex; align-items: center; justify-content: space-between; padding: 2px 12px 4px; gap: 8px; flex: none; }
+/* 能量球：和卡面费用图标共用 --cc-* 变量，所以会跟着职业换色。
+   默认值给金色（万一脱离了带职业标记的容器也不会变成灰球）。 */
 .orb {
   width: 54px; height: 54px; border-radius: 50%; flex: none;
-  background: radial-gradient(circle at 35% 30%, #fff2b0, #ffcc52 45%, #a06f10 100%);
-  border: 3px solid #7a5510; display: flex; align-items: center; justify-content: center;
-  font-size: 22px; color: #3a2600; text-shadow: 0 1px 0 #ffffff70;
-  box-shadow: 0 0 14px #ffcc5260, inset 0 -4px 8px #00000045;
+  background: radial-gradient(circle at 35% 30%,
+    var(--cc-hi, #fff2b0), var(--cc-mid, #ffcc52) 45%, var(--cc-lo, #a06f10) 100%);
+  border: 3px solid var(--cc-bd, #7a5510); display: flex; align-items: center; justify-content: center;
+  font-size: 22px; color: var(--cc-fg, #3a2600); text-shadow: 0 1px 0 #ffffff70;
+  box-shadow: 0 0 14px var(--cc-glow, #ffcc5260), inset 0 -4px 8px #00000045;
+  transition: background .2s, border-color .2s, color .2s;
 }
 .pile { display: flex; flex-direction: column; align-items: center; font-size: 12px; color: var(--dim); cursor: pointer; }
 .pile .num { font-size: 17px; color: var(--text); }
@@ -320,13 +351,32 @@ i { color: var(--dim); font-style: normal; }
 .card.r-special { border-image-source: url('../assets/ui/frame_special.png'); }
 .card.t-curse, .card.t-status { border-image-source: url('../assets/ui/frame_curse.png'); filter: saturate(.5); }
 
+/* ---- 费用配色变量 ----
+   定义了两种用法：
+     1) .c-knight / .c-mage / … —— 挂在**容器**上（战斗界面根节点），里面的能量球跟着变
+     2) .card.c-knight / …      —— 挂在**卡牌**上，费用图标跟着变
+   注意：手牌也是战斗界面的子节点，所以灰底必须显式设在 .card 上，
+   否则中立牌会从战斗根节点继承到职业色。
+   前景色是为每个底色**实测算过对比度**的（深色字）：
+   灰 7.39 / 橙 8.24 / 粉 7.24 / 蓝 7.09 / 紫 5.30 : 1，都过 AA 的 4.5:1。
+   （紫色底如果配白字只有 3.28:1，所以它反而必须用深色字。） */
+.card {
+  --cc-hi: #d8d8df; --cc-mid: #a8a8b8; --cc-lo: #5c5c65;
+  --cc-bd: #404046; --cc-fg: #1a1a20; --cc-glow: #a8a8b860;
+}
+.c-knight,   .card.c-knight   { --cc-hi:#ffcfa1; --cc-mid:#ff9a3c; --cc-lo:#945923; --cc-bd:#6b4119; --cc-fg:#2a1500; --cc-glow:#ff9a3c66; }
+.c-mage,     .card.c-mage     { --cc-hi:#ffbfdd; --cc-mid:#ff7ab8; --cc-lo:#94476b; --cc-bd:#6b334d; --cc-fg:#2a1500; --cc-glow:#ff7ab866; }
+.c-rogue,    .card.c-rogue    { --cc-hi:#b0d6ff; --cc-mid:#5aa9ff; --cc-lo:#346294; --cc-bd:#26476b; --cc-fg:#2a1500; --cc-glow:#5aa9ff66; }
+.c-assassin, .card.c-assassin { --cc-hi:#d9b8ff; --cc-mid:#b06bff; --cc-lo:#663e94; --cc-bd:#4a2d6b; --cc-fg:#2a1500; --cc-glow:#b06bff66; }
+/* 寒冰法师：浅蓝。刻意比游侠的靛蓝更浅更青（ΔRGB≈101），小尺寸下也分得开 */
+.c-icemage,  .card.c-icemage  { --cc-hi:#dbf8ff; --cc-mid:#a5ecff; --cc-lo:#5f8994; --cc-bd:#44626b; --cc-fg:#0a2838; --cc-glow:#a5ecff66; }
+
 .card .cost {
   position: absolute; top: -10px; left: -10px; width: 28px; height: 28px; border-radius: 50%;
-  background: radial-gradient(circle at 35% 30%, #fff2b0, #ffcc52 45%, #a06f10);
-  border: 2px solid #7a5510; color: #3a2600; font-size: 15px; display: flex;
+  background: radial-gradient(circle at 35% 30%, var(--cc-hi), var(--cc-mid) 45%, var(--cc-lo));
+  border: 2px solid var(--cc-bd); color: var(--cc-fg); font-size: 15px; display: flex;
   align-items: center; justify-content: center; z-index: 3; box-shadow: 0 1px 4px #000c;
 }
-.card .cost.free { background: radial-gradient(circle at 35% 30%, #d0ffe0, #6ee7a8 45%, #1c7a4a); border-color: #14603a; }
 .card .cost.no { background: radial-gradient(circle at 35% 30%, #ffb0b0, #d94b3f 45%, #6e1c14); border-color: #5a1710; color: #fff; }
 
 .card .cname {
@@ -459,10 +509,11 @@ i { color: var(--dim); font-style: normal; }
 .title-screen { justify-content: center; align-items: center; gap: 8px; padding: 26px; text-align: center; }
 .game-title { font-size: 46px; color: var(--gold); letter-spacing: 5px; text-shadow: 0 3px 0 #6b4a08, 0 0 26px #ffcc5255; line-height: 1.12; }
 .game-sub { font-size: 13px; letter-spacing: 6px; color: var(--dim); margin-bottom: 8px; }
-.class-card { display: flex; gap: 12px; align-items: center; padding: 12px; border: 2px solid var(--line); border-radius: 7px; background: #ffffff07; width: 100%; text-align: left; cursor: pointer; }
+/* 5 个职业之后要一屏放下（或至少能滚），所以卡片压紧一点 */
+.class-card { display: flex; gap: 10px; align-items: center; padding: 8px 10px; border: 2px solid var(--line); border-radius: 7px; background: #ffffff07; width: 100%; text-align: left; cursor: pointer; flex: none; }
 .class-card:active { background: #ffffff12; }
-.class-card .cspr { width: 56px; height: 56px; flex: none; background-size: contain; background-repeat: no-repeat; background-position: center; }
-.class-card .cname2 { font-size: 18px; color: var(--gold); }
+.class-card .cspr { width: 46px; height: 46px; flex: none; background-size: contain; background-repeat: no-repeat; background-position: center; }
+.class-card .cname2 { font-size: 16px; color: var(--gold); }
 .class-card.picked { border-color: var(--gold); background: #ffcc5215; }
 
 /* 结算 */
@@ -482,3 +533,44 @@ i { color: var(--dim); font-style: normal; }
   .hand-wrap { min-height: 158px; }
   .hand { min-height: 150px; }
 }
+
+/* 药水替换弹窗 */
+.potion-new { padding: 9px; border-radius: 6px; background: #7ee78712; border: 1px solid #7ee78733; }
+.potion-row {
+  padding: 9px; border-radius: 6px; cursor: pointer;
+  background: #ffffff08; border: 1px solid #ffffff1a;
+}
+.potion-row:active { background: #ffffff1f; border-color: #7ee78766; }
+
+/* 职业特性（选职业界面） */
+.ctrait {
+  margin-top: 3px; padding: 3px 6px; border-radius: 5px; align-items: center;
+  background: #ff9a3c12; border: 1px solid #ff9a3c33;
+}
+.ctrait .ctrait-name { color: #ff9a3c; }
+.ctrait .relic { border-color: #ff9a3c55; }
+
+/* 起始遗物（选职业界面） */
+.crelic {
+  margin-top: 3px; padding: 3px 6px; border-radius: 5px; align-items: center;
+  background: #ffcc520f; border: 1px solid #ffcc5230;
+}
+.crelic .crelic-name { color: var(--gold); }
+.crelic .relic { border-color: #ffcc5255; }
+
+/* 状态图标：用贴图的那种（灼烧）。1em 让它跟着标签字号自动缩放（紧凑模式会变小） */
+.st .stimg {
+  width: 1em; height: 1em; flex: none; display: inline-block;
+  background-size: contain; background-repeat: no-repeat; background-position: center;
+}
+.stimg.tipimg { width: 1.1em; height: 1.1em; vertical-align: -0.15em; margin-right: 2px; }
+
+/* 被冰冻的怪物：盖一层浅蓝半透明滤镜。
+   放在 .body 上（那里包着立绘），::after 已经被脚下影子占了，所以用 ::before。 */
+.enemy.frozen .body::before {
+  content: ''; position: absolute; inset: -3px -2px; border-radius: 7px; pointer-events: none;
+  background: linear-gradient(rgba(165,236,255,.42), rgba(90,180,255,.34));
+  box-shadow: inset 0 0 10px #cdf3ffcc;
+}
+.enemy.frozen .name { color: #b8f0ff; }
+.enemy.frozen .plate { border-color: #a5ecff66; }

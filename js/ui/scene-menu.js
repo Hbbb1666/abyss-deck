@@ -3,7 +3,7 @@ import { G, hasSave, loadSave, clearSave, loadMeta, newRun } from '../core/state
 import { CLASS_LIST, CLASSES, className } from '../data/classes.js';
 import { RELICS } from '../data/relics.js';
 import { sfx } from '../core/audio.js';
-import { SPR, modal, relicEl, bindTip } from './widgets.js';
+import { SPR, modal, relicEl, bindTip, GOLD_ICON } from './widgets.js';
 import { showHelp } from './scene-battle.js';
 import { installable, canPrompt, promptInstall, isIOS, iosHint, onInstallStateChange, isStandalone } from '../core/pwa.js';
 
@@ -84,7 +84,8 @@ export function classScene({ onPick, onBack }) {
     el('div', { class: 'grow', style: { textAlign: 'center' }, html: '<span class="gold">选择你的职业</span>' }),
     el('div', { style: { width: '38px' } })));
 
-  const list = el('div', { class: 'col gap12', style: { padding: '14px' } });
+  // 5 个职业之后一屏放不下了：列表本身要能滚（.screen 是 overflow:hidden）
+  const list = el('div', { class: 'col gap8 scroll', style: { padding: '12px 14px' } });
   for (const c of CLASS_LIST) {
     const card = el('div', { class: 'class-card' },
       el('div', { class: 'cspr', style: { backgroundImage: `url(${SPR(c.sprite)})` } }),
@@ -93,9 +94,20 @@ export function classScene({ onPick, onBack }) {
         el('div', { class: 'tiny dim', html: c.desc }),
         el('div', { class: 'row gap8 tiny', style: { marginTop: '3px' } },
           el('span', { html: `<span style="color:#d94b3f">♥</span> ${c.hp}` }),
-          el('span', { html: `<span style="color:#ffcc52">◉</span> ${c.gold}` }),
+          el('span', { html: `${GOLD_ICON} ${c.gold}` }),
           el('span', { class: 'dim', text: '10 张起始卡组' }),
         ),
+        // 起始遗物：每个职业都把自己的那件写出来（图标 + 名称 + 效果）。
+        // 以前只写"10 张起始卡组"，玩家选职业时根本不知道会带什么遗物。
+        (() => {
+          const r = RELICS[c.relic];
+          if (!r) return null;
+          return el('div', { class: 'crelic row gap6' },
+            el('div', { class: 'relic', style: { width: '19px', height: '19px', backgroundImage: `url(${SPR(r.sprite)})` } }),
+            el('div', { class: 'grow tiny', html: `<b class="crelic-name">${r.name}</b> ${r.desc}` }),
+          );
+        })(),
+
       ),
     );
     card.addEventListener('click', () => { sfx.confirm(); onPick(c.id); });
