@@ -8,7 +8,7 @@
  *   B. 数据层 —— 校验所有卡牌/敌人/遗物/事件定义自洽
  *   C. DOM 层 —— 真实加载 index.html + bundle，点按钮走完菜单→选职业→地图→战斗
  */
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { fileURLToPath } from 'node:url';
@@ -807,6 +807,70 @@ section('G. 本轮修复项');
     ok(chips.some(t => t.includes('虚弱')), '虚弱标签写出了名称', chips.join(' | '));
     ok(chips.some(t => t.includes('易伤')), '易伤标签写出了名称', chips.join(' | '));
   }
+}
+
+section('H. PWA / 预缓存清单（离线可玩）');
+{
+  // 【这条是补的】build.mjs 的 buildPrecache() 用 walk(ROOT) 扫整个目录树，
+  // 装完依赖后会把 node_modules 里上千个文件也写进清单 —— 而它们并不在发布产物里
+  // （workflow 的 rsync 明确排除了 node_modules），于是每个访客首开都要白跑
+  // 一千多个 404，Service Worker 的 install 也会被拖慢。
+  // 之所以能一直没被发现：整个测试套件里**压根没有**任何盯着 precache.json 的断言，
+  // 而 README 却写着"预缓存清单覆盖全部资源"。下面把这条关系钉死。
+  const prePath = join(ROOT, 'precache.json');
+  let list = null;
+  try { list = JSON.parse(readFileSync(prePath, 'utf8')); } catch { /* 没构建 */ }
+  ok(Array.isArray(list), 'precache.json 存在且可解析（由 npm run build 生成）');
+
+  if (Array.isArray(list)) {
+    const WEB_EXT = /\.(html|css|js|json|webmanifest|png|jpg|svg|ogg|mp3|wav|woff2?|ttf)$/;
+
+    // 独立遍历一遍"真正会被发布的目录"，不去复用 build.mjs 的逻辑
+    // （复用就等于拿被测实现给自己当尺子，它错了这里也会跟着错）
+    const PUBLISHED_DIRS = ['assets', 'css', 'js'];
+    const walkPublished = (dir, rel = '') => {
+      const out = [];
+      for (const name of readdirSync(dir, { withFileTypes: true })) {
+        const r = rel ? `${rel}/${name.name}` : name.name;
+        if (name.isDirectory()) out.push(...walkPublished(join(dir, name.name), r));
+        else out.push(r);
+      }
+      return out;
+    };
+    const expected = [
+      'index.html', 'manifest.webmanifest', 'css/style.css',
+      ...PUBLISHED_DIRS.flatMap(d => walkPublished(join(ROOT, d), d)),
+    ].filter(f => WEB_EXT.test(f) && !/^assets\/licenses\//.test(f));
+
+    // 1) 不该出现的东西（回归重点）
+    const junk = list.filter(u => /node_modules|\.git\/|\/tools\/|^\.\/package(-lock)?\.json$/.test(u));
+    ok(junk.length === 0, '清单里没有 node_modules / .git / tools / package-lock 等非运行期文件',
+       `${junk.length} 条，例如 ${junk.slice(0, 3).join(', ')}`);
+
+    // 2) 每条都必须真实存在，否则 SW 安装就是在打无效请求
+    const missing = list.filter(u => u !== './' && !existsSync(join(ROOT, u.replace(/^\.\//, ''))));
+    ok(missing.length === 0, '清单里每一条都能在磁盘上找到',
+       `${missing.length} 条缺失，例如 ${missing.slice(0, 3).join(', ')}`);
+
+    // 3) 清单 == 发布资源集合（不多不少）
+    const notCovered = expected.filter(f => !list.includes('./' + f));
+    ok(notCovered.length === 0, `清单覆盖全部发布资源（应 ${expected.length} 条）`,
+       `漏了 ${notCovered.length} 个：${notCovered.slice(0, 3).join(', ')}`);
+    const extra = list.filter(u => u !== './' && !expected.includes(u.replace(/^\.\//, '')));
+    ok(extra.length === 0, '清单里没有多余条目',
+       `多了 ${extra.length} 个：${extra.slice(0, 3).join(', ')}`);
+  }
+
+  // manifest 本身也要完整，否则安卓弹不出安装框
+  const mf = JSON.parse(readFileSync(join(ROOT, 'manifest.webmanifest'), 'utf8'));
+  ok(!!mf.name && !!mf.short_name, 'manifest 有 name / short_name');
+  ok(!!mf.start_url && !!mf.display, 'manifest 有 start_url / display');
+  const sizes = (mf.icons || []).map(i => i.sizes);
+  ok(sizes.includes('192x192') && sizes.includes('512x512'), 'manifest 含 192 与 512 图标', sizes.join(','));
+  const iconMissing = (mf.icons || []).filter(i => !existsSync(join(ROOT, i.src.replace(/^\.\//, ''))));
+  ok(iconMissing.length === 0, 'manifest 里每个图标文件都存在', iconMissing.map(i => i.src).join(', '));
+  ok(!!mf.shortcuts?.every(s => (s.icons || []).every(i => existsSync(join(ROOT, i.src.replace(/^\.\//, ''))))),
+     'manifest 快捷方式引用的图标也存在');
 }
 
 section('运行期 JS 错误');

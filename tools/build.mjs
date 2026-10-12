@@ -151,12 +151,22 @@ async function buildSingle(jsCode) {
 }
 
 /* ---------- 生成 Service Worker 的预缓存清单 ---------- */
+// 只发布仓库里真正会被浏览器请求的东西。几个必须排除的：
+//   node_modules/ —— 装了依赖后 walk() 会把里面上千个文件全扫进来，
+//                    它们既不在发布产物里（rsync 排除），也不该被预缓存，
+//                    否则每个访客首开都要白跑一千多个 404。
+//   .git/         —— 同上。walk() 不读 .gitignore，只能在这里挡。
+//   package-lock.json —— 36 KB 的依赖锁，浏览器用不到。
+//   .github/ tools/ dist/ server.mjs start.sh dev-agent 等 —— 不发布／非运行期资源。
+const PRECACHE_SKIP_DIRS = /^(node_modules|\.git|\.github|\.vscode|\.idea|tools|dist|_site)\//;
+const PRECACHE_SKIP_FILES = new Set(['package.json', 'package-lock.json', 'precache.json', 'sw.js', 'server.mjs', 'start.sh']);
+
 async function buildPrecache() {
   const files = (await walk(ROOT))
     .map(f => f.split('\\').join('/'))
-    .filter(f => !f.startsWith('dist/') && !f.startsWith('tools/') && !f.startsWith('_')
-                 && !f.endsWith('.md') && f !== 'package.json' && f !== 'precache.json'
-                 && f !== 'sw.js' && f !== 'server.mjs' && f !== 'start.sh')
+    .filter(f => !PRECACHE_SKIP_DIRS.test(f))
+    .filter(f => !PRECACHE_SKIP_FILES.has(f))
+    .filter(f => !f.endsWith('.md'))
     .filter(f => /\.(html|css|js|json|webmanifest|png|jpg|svg|ogg|mp3|wav|woff2?|ttf)$/.test(f));
   const list = ['./', ...files.map(f => './' + f)];
   await writeFile(join(ROOT, 'precache.json'), JSON.stringify(list, null, 0));
