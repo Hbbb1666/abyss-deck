@@ -43,14 +43,31 @@ export function newRun(clsId, seed) {
   return G;
 }
 
+/* ---------- 生命上限 ----------
+   提升上限时**当前生命同步增加相同的量**（上限涨 10，血也涨 10）——
+   不然"最大生命 +10"对满血玩家等于没效果，拿到手毫无感觉。
+   降低上限时只做夹紧，不会把人直接扣死。 */
+export function gainMaxHp(n) {
+  if (!n) return;
+  G.maxHp = Math.max(1, G.maxHp + n);
+  G.baseMaxHp = Math.max(1, (G.baseMaxHp ?? G.maxHp) + n);
+  if (n > 0) G.hp = Math.min(G.maxHp, G.hp + n);
+  else G.hp = clamp(G.hp, 0, G.maxHp);
+}
+
 /* ---------- 遗物 ---------- */
 export const hasRelic = id => G.relics.includes(id);
 
 export function addRelic(id, silent) {
   if (!id || G.relics.includes(id)) return false;
+  const def = RELICS[id];
+  // 未知遗物 id 直接忽略。G.relics 是**存进存档**的，一旦某个遗物被删掉/改名，
+  // 老存档里就会留着一个已经不存在于 RELICS 的 id —— 不校验的话，
+  // 光是把存档读出来渲染一遍（relicEl 读 .rarity）就会抛异常把整个界面搞崩。
+  if (!def) return false;
   G.relics.push(id);
-  const m = RELICS[id].mods || {};
-  if (m.maxHp) { G.maxHp = Math.max(1, G.maxHp + m.maxHp); G.baseMaxHp = Math.max(1, G.baseMaxHp + m.maxHp); G.hp = clamp(G.hp, 0, G.maxHp); }
+  const m = def.mods || {};
+  if (m.maxHp) gainMaxHp(m.maxHp);
   if (m.potionSlots) G.potionSlots = Math.max(1, G.potionSlots + m.potionSlots);
   return true;
 }
@@ -59,7 +76,9 @@ export function addRelic(id, silent) {
 export function relicMods() {
   const out = {};
   for (const id of G.relics) {
-    for (const [k, v] of Object.entries(RELICS[id].mods || {})) {
+    const def = RELICS[id];
+    if (!def) continue;                       // 防线：脏 id 直接跳过
+    for (const [k, v] of Object.entries(def.mods || {})) {
       if (typeof v === 'number') out[k] = (out[k] || 0) + v;
       else out[k] = v;
     }
@@ -69,7 +88,10 @@ export function relicMods() {
 
 /** 汇总遗物钩子 */
 export function relicHooks(name) {
-  return G.relics.map(id => RELICS[id].hooks?.[name] && [id, RELICS[id].hooks[name]]).filter(Boolean);
+  return G.relics
+    .filter(id => RELICS[id])                 // 防线：脏 id 直接跳过
+    .map(id => RELICS[id].hooks?.[name] && [id, RELICS[id].hooks[name]])
+    .filter(Boolean);
 }
 
 /* ---------- 卡组 ---------- */
@@ -82,7 +104,7 @@ export function removeCardAt(i) {
 }
 export function upgradeCardAt(i) {
   const c = G.deck[i];
-  if (c && CARDS[c.id].up && !c.up) c.up = true;
+  if (c && CARDS[c.id] && CARDS[c.id].up && !c.up) c.up = true;
 }
 export function hydrate(entry) { return makeCard(entry.id, entry.up); }
 
@@ -95,6 +117,11 @@ export function addPotion(p) {
 export function removePotionAt(i) { G.potions.splice(i, 1); }
 
 /* ---------- 奖励池 ---------- */
+/** 职业专属卡相对中立卡的权重。调高 = 更容易拿到本职业的牌。
+    设计意图：玩家选了这个职业，就应该主要在强化这个职业的打法，
+    不然奖励里一半是中立牌，构筑会越来越趋同。 */
+export const CLASS_CARD_WEIGHT = 3;
+
 export function rollCardChoices(n = 3) {
   const cls = G.cls;
   const rarityRoll = () => G.rng.weighted([['common', 58], ['uncommon', 32], ['rare', 10]]);
@@ -102,10 +129,10 @@ export function rollCardChoices(n = 3) {
   let guard = 0;
   while (out.length < n && guard++ < 200) {
     const r = rarityRoll();
-    const pool = rewardPool(cls, [r]);
+    // 同一个稀有度里，专属卡的抽取权重是中立卡的 CLASS_CARD_WEIGHT 倍
+    const pool = rewardPool(cls, [r]).filter(c => !out.some(x => x.id === c.id));
     if (!pool.length) continue;
-    const c = G.rng.pick(pool);
-    if (out.some(x => x.id === c.id)) continue;
+    const c = G.rng.weighted(pool.map(x => [x, x.cls === cls ? CLASS_CARD_WEIGHT : 1]));
     out.push(c);
   }
   // 兜底：池子太小时放宽
@@ -162,6 +189,27 @@ export function loadSave() {
         if (target) { target.type = 'boss'; target.c = bc; s.map.boss = target; }
       }
     }
+    // 清洗存档里引用了"已经不存在的数据"的条目。
+    // G.relics / G.deck 存的是 id，而 id 指向的数据表是会被改的
+    // （删掉一件遗物、重命名一张卡）—— 不清掉的话，这些脏 id 会在
+    // 渲染时到处炸（relicMods 每场战斗都读，relicEl 直接读 .rarity）。
+    // 集中在这里处理，比在二十几个调用点各加一次防护可靠得多。
+    const dropped = { relics: [], cards: [] };
+    if (Array.isArray(s.relics)) {
+      const keep = s.relics.filter(id => RELICS[id]);
+      dropped.relics = s.relics.filter(id => !RELICS[id]);
+      s.relics = keep;
+    }
+    if (Array.isArray(s.deck)) {
+      const keep = s.deck.filter(c => c && CARDS[c.id]);
+      dropped.cards = s.deck.filter(c => !c || !CARDS[c.id]).map(c => c && c.id);
+      s.deck = keep;
+    }
+    if (dropped.relics.length || dropped.cards.length) {
+      console.warn('[存档修补] 丢弃了已不存在的条目 —— 遗物:',
+        dropped.relics.join(',') || '无', '/ 卡牌:', dropped.cards.join(',') || '无');
+    }
+
     G = s;
     return G;
   } catch { return null; }

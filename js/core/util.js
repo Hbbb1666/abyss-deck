@@ -6,7 +6,15 @@ export function el(tag, props = {}, ...kids) {
     if (k === 'class') n.className = v;
     else if (k === 'html') n.innerHTML = v;
     else if (k === 'text') n.textContent = v;
-    else if (k === 'style' && typeof v === 'object') Object.assign(n.style, v);
+    else if (k === 'style' && typeof v === 'object') {
+      // 注意：CSS 自定义属性（--xxx）不能靠 Object.assign 写进去，会被静默忽略，
+      // 必须走 setProperty。这里统一处理，免得下次又踩。
+      for (const [sk, sv] of Object.entries(v)) {
+        if (sv == null) continue;
+        if (sk.startsWith('--')) n.style.setProperty(sk, String(sv));
+        else n.style[sk] = sv;
+      }
+    }
     else if (k === 'data' && typeof v === 'object') for (const [dk, dv] of Object.entries(v)) n.dataset[dk] = dv;
     else if (k.startsWith('on') && typeof v === 'function') n.addEventListener(k.slice(2).toLowerCase(), v);
     else n.setAttribute(k, v);

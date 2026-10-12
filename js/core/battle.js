@@ -27,15 +27,18 @@ export function stText(k, n) {
   return d.desc.replace(/N/g, String(n ?? 0));
 }
 
-/** 每层虚弱减少的伤害比例。**4 层 → 0 伤害**（堆够层数就是完全打不动）。
-    改这个数就等于调整整条虚弱曲线，别在两处各写一遍。 */
-export const WEAK_PER_STACK = 0.25;
+/** 每层虚弱让**每一次伤害结算**少打多少点。
+    注意是**固定值**不是百分比：虚弱 3 层，则每一段伤害都 -3。
+    分段的招式（如 3×4）会**每段各扣一次**，所以 3 层虚弱下 3 段 4 点 → 3×(4-3)=3 点。
+    因为扣的是固定值，大伤害不会被压成 0（22 点挨 3 层虚弱仍然打出 19 点），
+    只有本来就很小段的攻击才可能被削到 0 —— 这正是这套曲线想要的手感。 */
+export const WEAK_FLAT_PER_STACK = 1;
 
 export const ST = {
   strength: { name: '力量', icon: '⬆', desc: '攻击伤害 +N', buff: true, color: '#ff8a5c' },
   dexterity: { name: '敏捷', icon: '✦', desc: '获得的护甲 +N', buff: true, color: '#6ee7a8' },
   vulnerable: { name: '易伤', icon: '✸', desc: '受到的伤害 +50%，回合结束 -1', color: '#ff5c8a' },
-  weak: { name: '虚弱', icon: '↓', desc: '每层使造成的伤害 -25%（4 层即 0），回合结束 -1', color: '#c07bff' },
+  weak: { name: '虚弱', icon: '↓', desc: '每层使**每一次**造成的伤害 -1（分段招式每段都扣，每段至少留 1），回合结束 -1', color: '#c07bff' },
   poison: { name: '中毒', icon: '☠', desc: '回合开始失去 N 点生命，然后 -1', color: '#7ee787' },
   regen: { name: '再生', icon: '✚', desc: '回合结束回复 N 点生命，然后 -1', buff: true, color: '#7ee787' },
   thorns: { name: '荆棘', icon: '✹', desc: '被攻击时反弹 N 点伤害', buff: true, color: '#ffb04a' },
@@ -222,12 +225,14 @@ export class Battle {
 
   /* ---------------- 数值计算 ---------------- */
   calcDamage(base, atk, def) {
+    // 顺序是语义的一部分：先加力量、再减虚弱（都是固定值加减），最后才乘易伤。
     let d = base + this.get(atk, 'strength');
-    // 虚弱**按层数**递减伤害，每层 -25%：1 层和以前一样是 -25%，
-    // 但 4 层就是 0 伤害了。旧代码只判断 `> 0`（有/没有），
-    // 于是叠多少层都只减 25% —— 玩家把虚弱堆到十几层，伤害纹丝不动。
-    const weak = this.get(atk, 'weak');
-    if (weak > 0) d = Math.floor(d * Math.max(0, 1 - WEAK_PER_STACK * weak));
+    if (d > 0) {
+      // 本来有伤害才扣虚弱；扣完至少留 1 点 ——
+      // 否则叠够层数就能把敌人彻底废掉，"无论什么攻击都是 0" 会复现。
+      d -= WEAK_FLAT_PER_STACK * this.get(atk, 'weak');
+      if (d < 1) d = 1;
+    }
     if (this.get(def, 'vulnerable') > 0) d = Math.floor(d * 1.5);
     return Math.max(0, d);
   }
@@ -375,10 +380,18 @@ export class Battle {
       switch (f.t) {
         case 'dmg': {
           const hits = this.num(f.hits, card) || 1;
+          // 条件加伤。**必须在结算的那一刻读**：卡面写了什么就得真的生效。
+          // （`ifBlock` 以前只写在卡牌数据里、引擎从没读过，导致「反击」的
+          //   额外伤害一次都没触发过 —— 和 `execute` 是同一类坑。）
+          let hit = v;
+          if (f.ifBlock != null && this.player.block > 0) hit += this.num(f.ifBlock, card);
+          if (f.ifVulnerable != null && target && this.get(target, 'vulnerable') > 0) {
+            hit += this.num(f.ifVulnerable, card);
+          }
           for (let i = 0; i < hits; i++) {
             const t = target && !target.dead ? target : this.aliveEnemies()[0];
             if (!t) break;
-            await this.damage(t, v, card?.name || '效果', { attacker: this.player, melee: !!ctx.melee });
+            await this.damage(t, hit, card?.name || '效果', { attacker: this.player, melee: !!ctx.melee });
           }
           // 斩杀（fx 上的 execute 字段）：伤害结算完之后再判定
           await this.tryExecute(f, ctx, card, target);

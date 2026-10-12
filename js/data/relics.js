@@ -27,6 +27,10 @@ export const RELICS = {
     name: '法力水晶', sprite: 'potion_blue', rarity: 'starter',
     desc: '战斗第一回合额外获得 <b>1</b> 点能量。', mods: { firstTurnEnergy: 1 },
   },
+  shadow_mark: {
+    name: '影刃', sprite: 'key_purple', rarity: 'starter',
+    desc: '战斗开始时对所有敌人施加 <b>1</b> 层易伤。', mods: { startDebuffAll: { vulnerable: 1 } },
+  },
   venom_fang: {
     name: '毒牙', sprite: 'key_green', rarity: 'starter',
     desc: '战斗开始时对所有敌人施加 <b>1</b> 层中毒。', mods: { startPoisonAll: 1 },

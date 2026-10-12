@@ -368,6 +368,8 @@ export function infoModal(title, html) {
    很多人根本不知道能按）。长按仍然有效，两条路径写的是同一个 .tip。 */
 export function relicEl(id, { sceneNode } = {}) {
   const r = RELICS[id];
+  // 老存档里可能留着已经被删掉的遗物 id —— 画个占位符，不能整屏崩掉
+  if (!r) return el('div', { class: 'relic', style: { opacity: '.35' }, title: `未知遗物（${id}）` });
   const node = el('div', {
     class: 'relic ' + (r.rarity === 'boss' ? 'boss' : ''),
     style: { backgroundImage: `url(${SPR(r.sprite)})` },

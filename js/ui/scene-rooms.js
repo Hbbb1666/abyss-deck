@@ -1,5 +1,5 @@
 import { el, clear, sleep, toast, fxFloat } from '../core/util.js';
-import { G, save, addRelic, addPotion, addCardToDeck, removeCardAt, upgradeCardAt, rollCardChoices, rollRelic, rollPotion, relicMods, hydrate } from '../core/state.js';
+import { G, save, addRelic, addPotion, addCardToDeck, removeCardAt, upgradeCardAt, rollCardChoices, rollRelic, rollPotion, relicMods, hydrate, gainMaxHp } from '../core/state.js';
 import { CARDS, makeCard, rewardPool, RARITY } from '../data/cards.js';
 import { RELICS } from '../data/relics.js';
 import { POTIONS } from '../data/potions.js';
@@ -148,11 +148,12 @@ export function shopScene({ onDone }) {
   const removePriceOf = () => price(75 + removalsThisVisit * 50);
 
   function cardPrice(c) {
-    const r = CARDS[c.id].rarity;
+    // 加防护：老存档里的卡 id 可能已经不存在了，不能因为查不到稀有度就崩
+    const r = CARDS[c.id] && CARDS[c.id].rarity;
     return { common: 50, uncommon: 80, rare: 130 }[r] || 60;
   }
   function relicPrice(id) {
-    const r = RELICS[id].rarity;
+    const r = RELICS[id] && RELICS[id].rarity;
     return { common: 150, uncommon: 200, rare: 280, boss: 340 }[r] || 160;
   }
 
@@ -298,7 +299,7 @@ export function eventScene({ onDone, onFight, ev: givenEv, intro } = {}) {
     rng: () => G.rng(),
     heal: n => { const b = G.hp; G.hp = Math.min(G.maxHp, G.hp + n); log.push(`回复了 <b>${G.hp - b}</b> 点生命`); },
     damage: n => { G.hp = Math.max(0, G.hp - n); log.push(`失去了 <b>${n}</b> 点生命`); },
-    maxHp: n => { G.maxHp = Math.max(1, G.maxHp + n); G.hp = Math.min(G.hp, G.maxHp); log.push(n > 0 ? `最大生命 <b>+${n}</b>` : `最大生命 <b>${n}</b>`); },
+    maxHp: n => { gainMaxHp(n); log.push(n > 0 ? `最大生命 <b>+${n}</b>（当前生命同步 +${n}）` : `最大生命 <b>${n}</b>`); },
     gold: n => { G.gold = Math.max(0, G.gold + n); log.push(n >= 0 ? `获得 <b>${n}</b> 金币` : `失去 <b>${-n}</b> 金币`); },
     addRelic: id => { const r = id || rollRelic(['common', 'uncommon', 'rare', 'boss']); if (!r) return; addRelic(r); log.push(`获得遗物「<b>${RELICS[r].name}</b>」`); },
     addPotion: id => { const p = id ? { ...POTIONS[id] } : rollPotion(); if (G.potions.length >= G.potionSlots) { log.push('<span class="dim">药水槽已满，没能拿上</span>'); return; } addPotion(p); log.push(`获得药水「<b>${p.name}</b>」`); },

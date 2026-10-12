@@ -95,12 +95,13 @@ export function battleScene(B, { onFinish, onQuit, resumed }) {
     const node = el('div', { class: 'enemy', data: { uid: e.uid } });
     const intent = el('div', { class: 'intent unk' });
     const body = el('div', { class: 'body' });
-    const size = Math.round(76 * (e.body || 1));
+    const base = Math.round(76 * (e.body || 1));
     const sprite = el('div', {
       class: 'sprite',
       style: {
         backgroundImage: `url(${SPR(e.sprite)})`,
-        width: size + 'px', height: size + 'px',
+        // 只给基准尺寸，实际大小交给 CSS 的 min(基准, 战场上限)
+        '--spr-base': base + 'px',
         filter: (e.def?.tint || e.tint) ? `${e.def?.tint || e.tint} drop-shadow(0 4px 3px #0009)` : '',
       },
     });
@@ -123,6 +124,52 @@ export function battleScene(B, { onFinish, onQuit, resumed }) {
       if (pendingTarget) { sfx.back(); cancelSelect(); }
     }
   });
+
+  /* ---------- 敌人尺寸自适应 ----------
+     战场高度是 flex 撑出来的，屏幕矮 / 敌人多 / Boss 体型大时，
+     敌人很容易顶穿战场边框，盖到上面的药水条或下面的玩家区。
+     这里按「可用宽高 + 预估行数」算出每个精灵的上限，写进 --spr-cap。 */
+  let lastFitKey = '';
+  function updateEnemySizing() {
+    const alive = B.aliveEnemies();
+    if (!alive.length) { field.style.removeProperty('--spr-cap'); return; }
+    const key = alive.map(e => e.body || 1).join(',') + '|' + field.clientWidth + 'x' + field.clientHeight;
+    if (key === lastFitKey) return;          // 尺寸没变就不重算
+    lastFitKey = key;
+
+    const cs = getComputedStyle(field);
+    const availW = field.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    const availH = field.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+    if (availW <= 0 || availH <= 0) return;
+
+    const GAP = 8;            // 与 CSS 里 .field 的横向 gap 一致
+    const RESERVE = 74;       // 意图 + 名牌 + 间距 占掉的垂直空间（布局px）
+    const PAD = 12;           // .enemy 容器的左右内边距
+    const MIN_W = 88;         // .enemy 的 min-width（容器不会比这更窄）
+
+    const n = alive.length;
+    // 第一步：能不能挤成一行？一行的精灵上限由「每格可用宽度」决定。
+    const cellW = (availW - (n - 1) * GAP) / n;
+    let cap;
+    if (cellW >= MIN_W) {
+      cap = Math.round(cellW - PAD);
+    } else {
+      // 一行实在放不下（格子比 min-width 还窄）→ 算会折几行，按每行高度限制。
+      // 估行数要用**容器宽度**：容器有 padding 和 min-width，
+      // 按精灵宽度算会低估、以为塞得下一行，实际折成两行就顶穿了。
+      const bases = alive.map(e => Math.max(MIN_W, Math.round(76 * (e.body || 1)) + PAD));
+      let rows = 1, acc = 0;
+      for (const w of bases) {
+        if (acc > 0 && acc + GAP + w > availW) { rows++; acc = w; }
+        else acc += (acc > 0 ? GAP : 0) + w;
+      }
+      cap = Math.round(availH / rows - RESERVE);
+    }
+    // 纵向上永远不能让一列敌人高过战场
+    cap = Math.min(cap, Math.round(availH - RESERVE));
+    cap = Math.max(34, cap);
+    field.style.setProperty('--spr-cap', cap + 'px');
+  }
 
   const rebuildField = () => {
     clear(field);
@@ -269,6 +316,7 @@ export function battleScene(B, { onFinish, onQuit, resumed }) {
 
   let selectedTarget = null;
   function sync() {
+    updateEnemySizing();
     for (const e of B.enemies) renderEnemy(e);
     persist();
     renderPlayer();
@@ -494,6 +542,7 @@ export function battleScene(B, { onFinish, onQuit, resumed }) {
     onSummon(e) {
       const node = buildEnemy(e);
       field.append(node);
+      updateEnemySizing();     // 多了一只，尺寸上限要重算
       sync();
       toast(`${e.name} 出现了！`, 1100);
     },

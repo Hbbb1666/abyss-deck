@@ -40,10 +40,26 @@ html, body {
   overscroll-behavior: none;
   touch-action: manipulation;
 }
-img, .spr { image-rendering: pixelated; -ms-interpolation-mode: nearest-neighbor; }
+/* 像素贴图一律用最近邻放大，禁止浏览器平滑插值。
+   ------------------------------------------------------------------
+   2026-10-12 修：这条规则以前写的是 `img, .spr`，但**项目里根本不存在
+   `.spr` 元素**（贴图全靠 `background-image` 挂在 div 上），所以它从未生效 ——
+   实测全站 10 个贴图元素 `image-rendering` 全是 `auto`（放大后被插值糊掉）。
+   下面「舞台」那条注释还写着"像素画放大不糊"，说的其实正是这条失效的规则。
+
+   现在改成全局生效：**这个游戏里没有任何需要平滑插值的位图**
+   （全部是 16×16 像素画，没有照片/大图），所以 `*` 是最不容易漏的做法 ——
+   列举类名会漏掉场景里那些无类名的内联 div（事件立绘/营火火把/宝箱）。
+   将来若真的引入需要平滑的图片，给它单独写 `image-rendering: auto` 覆盖即可。 */
+*, *::before, *::after {
+  image-rendering: pixelated;
+  -ms-interpolation-mode: nearest-neighbor;
+}
 
 /* ---------------- 舞台 ----------------
-   用 zoom 而非 transform：zoom 会重新排版，文字和像素画都按原生分辨率渲染，放大不糊。 */
+   用 zoom 而非 transform：zoom 会重新排版，文字和像素画都按原生分辨率渲染。
+   ⚠️ 像素画真正不糊靠的是上面那条全局 `image-rendering: pixelated`
+   （2026-10-12 之前它写错了选择器、从未生效，所以当时其实是糊的）。 */
 #viewport {
   position: fixed; inset: 0; overflow: hidden;
   background:
@@ -94,6 +110,12 @@ i { color: var(--dim); font-style: normal; }
 .btn.block { width: 100%; }
 
 /* ---------------- 顶栏 ---------------- */
+/* 这几条栏位必须永远压在战场之上：
+   体型大的敌人（Boss）可能在高度不足时溢出战场边界，
+   若让它盖住药水条，玩家就点不到药水了。 */
+.topbar, .relicbar, .potionbar { position: relative; z-index: 6; }
+.field { z-index: 1; }
+
 .topbar {
   display: flex; align-items: center; gap: 8px; padding: 7px 9px;
   background: linear-gradient(#221733, #160f22);
@@ -193,7 +215,12 @@ i { color: var(--dim); font-style: normal; }
   pointer-events: none;
 }
 .enemy .sprite {
-  width: 76px; height: 76px; background-size: contain; background-repeat: no-repeat; background-position: center;
+  /* --spr-base 是这个怪自己的基准尺寸（含体型倍率），由 JS 写在元素上；
+     --spr-cap 是「当前战场还能塞下多大」，由 JS 按可用宽高算出来。
+     取两者较小值 —— 这样无论场上有几个敌人、屏幕多矮，都不会顶穿战场边框。 */
+  --spr-size: min(var(--spr-base, 76px), var(--spr-cap, 999px));
+  width: var(--spr-size); height: var(--spr-size);
+  background-size: contain; background-repeat: no-repeat; background-position: center;
   filter: drop-shadow(0 4px 3px #0009); transition: transform .1s;
 }
 .enemy.selectable { outline: 3px dashed var(--gold); outline-offset: 2px; background: #ffcc5210; animation: pulseT 1s infinite; }

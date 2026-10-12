@@ -16,7 +16,9 @@ mkdir -p dist
 OUT="dist/handoff-$(date +%Y%m%d-%H%M%S).patch"
 
 # sw.js 的 VERSION 是构建期自动盖章的，跨机器必然不同 —— 不进补丁，免得每次冲突
-git diff -- . ':(exclude)sw.js' > "$OUT"
+# --binary 不能省：不带它的话二进制文件（精灵图/音效）会输出成简写块，
+# 对方 git apply 会报 "cannot apply binary patch ... without full index line"。
+git diff --binary -- . ':(exclude)sw.js' > "$OUT"
 git diff --stat -- . ':(exclude)sw.js' | tail -25
 
 if [ ! -s "$OUT" ]; then echo "（没有改动）"; rm -f "$OUT"; exit 0; fi

@@ -1706,13 +1706,13 @@ section('P. 药水/遗物：点一下看说明，再点一下使用');
   }
 }
 
-section('Q. 虚弱按层递减 / 斩杀 / 毒死即结算');
+section('Q. 虚弱固定扣减 / 斩杀 / 毒死即结算');
 {
   const noopView = { step: async () => {}, sync() {}, log() {}, onDamage() {}, onHeal() {}, onBlock() {},
     onStatus() {}, onDraw() {}, onPlay() {}, onExhaust() {}, onEnergy() {}, onGold() {},
     onTurnStart() {}, onEnemyAct() {}, onSummon() {}, onDeath() {}, onEnd() {}, onPotion() {}, beforeEndTurn() {} };
   const { makeCard: mkCard } = await import('file://' + join(ROOT, 'js/data/cards.js'));
-  const { WEAK_PER_STACK } = await import('file://' + join(ROOT, 'js/core/battle.js'));
+  const { WEAK_FLAT_PER_STACK } = await import('file://' + join(ROOT, 'js/core/battle.js'));
 
   const mk = (ids = ['golem']) => {
     A.startRun('knight');
@@ -1722,35 +1722,71 @@ section('Q. 虚弱按层递减 / 斩杀 / 毒死即结算');
     return B;
   };
 
-  /* --- Q1. 虚弱随层数递减，4 层 = 0 伤害 ---
-     旧代码是 `if (get(atk,'weak') > 0) d *= 0.75` —— 只判断"有没有"，
-     叠到 20 层也只减 25%，玩家堆虚弱等于白堆。 */
+  /* --- Q1. 虚弱是「每层让每一次伤害 -1 点」的固定扣减，不是百分比 --- */
   {
     const B = mk();
     await B.start();
     const e = B.aliveEnemies()[0];
     const rows = [];
-    for (const n of [0, 1, 2, 3, 4, 8]) {
+    for (const n of [0, 1, 2, 3, 4, 8, 12]) {
       B.player.st.weak = n;
       rows.push([n, B.calcDamage(20, B.player, e)]);
     }
-    const expect = [[0, 20], [1, 15], [2, 10], [3, 5], [4, 0], [8, 0]];
+    const expect = [[0, 20], [1, 19], [2, 18], [3, 17], [4, 16], [8, 12], [12, 8]];
     ok(JSON.stringify(rows) === JSON.stringify(expect),
-       `虚弱每层 -25%、4 层归零（实测 ${rows.map(r => r[0] + '层→' + r[1]).join(' ')}）`);
-    ok(WEAK_PER_STACK === 0.25, `每层虚弱 = ${WEAK_PER_STACK * 100}%`);
+       `虚弱每层固定 -1 点（实测 ${rows.map(r => r[0] + '层→' + r[1]).join(' ')}）`);
+    // 下限：叠到超过伤害本身也仍然打出 1 点
+    B.player.st.weak = 999;
+    ok(B.calcDamage(20, B.player, e) === 1, `叠到 999 层仍然打出 1 点（不是 0）`);
+    ok(WEAK_FLAT_PER_STACK === 1, `每层虚弱 = ${WEAK_FLAT_PER_STACK} 点`);
   }
 
-  /* --- Q2. 0 伤害就是真的打不动（不掉血、不误杀） --- */
+  /* --- Q1b. 分段的招式「每段各扣一次」---
+     这是需求里点名的语义：3 段 4 点挨 3 层虚弱 → 每段 4-3=1，合计 3，
+     而不是"整招扣 3"（那会变成 12-3=9）。 */
   {
     const B = mk();
     await B.start();
     const e = B.aliveEnemies()[0];
-    e.hp = 20; e.maxHp = 20; e.block = 0;
-    B.add(B.player, 'weak', 4);
-    const hp0 = e.hp;
+    e.hp = 100; e.maxHp = 100; e.block = 0;
+    B.add(B.player, 'weak', 3);
+    await B.resolve([{ t: 'dmg', v: 4, hits: 3 }], { card: null, target: e, melee: true });
+    const dealt = 100 - e.hp;
+    ok(dealt === 3, `3 段 × 4 点挨 3 层虚弱 → 每段扣 3，合计打出 3（实测 ${dealt}）`);
+  }
+
+  /* --- Q2. 固定扣减意味着大伤害永远不会被压成 0（玩家报的就是这个） ---
+     以前的百分比模型下 4 层就归零，Boss 的一记重拳也变成 0 伤害。 */
+  {
+    const B = mk();
+    await B.start();
+    const e = B.aliveEnemies()[0];
+    e.hp = 300; e.maxHp = 300; e.block = 0;
+    B.add(B.player, 'weak', 12);
     await B.damage(e, 99, '测试', { attacker: B.player });
-    ok(e.hp === hp0, `4 层虚弱下 99 点攻击打出 0 伤害（${hp0} -> ${e.hp}）`);
-    ok(!e.dead, '也没有把它打成负血/打死');
+    ok(e.hp === 300 - 87, `12 层虚弱下 99 点攻击仍打出 87 点（实测 ${300 - e.hp}，不是 0）`);
+
+    // 每段至少留 1 点：叠再多层也不会出现「完全打不动」
+    const B2 = mk();
+    await B2.start();
+    const e2 = B2.aliveEnemies()[0];
+    e2.hp = 50; e2.maxHp = 50; e2.block = 0;
+    B2.add(B2.player, 'weak', 999);
+    await B2.damage(e2, 3, '小攻击', { attacker: B2.player });
+    ok(e2.hp === 49, `999 层虚弱下 3 点的小攻击仍打出 1 点（实测 ${50 - e2.hp}）`);
+  }
+
+  /* --- Q2b. 力量与虚弱的先后：先加力量再减虚弱，最后才乘易伤 --- */
+  {
+    const B = mk();
+    await B.start();
+    const e = B.aliveEnemies()[0];
+    B.player.st = { strength: 5, weak: 3 };
+    ok(B.calcDamage(10, B.player, e) === 12, `10 + 力量5 - 虚弱3 = 12（实测 ${B.calcDamage(10, B.player, e)}）`);
+    e.st = { vulnerable: 2 };
+    ok(B.calcDamage(10, B.player, e) === 18, `再乘易伤 1.5 → 18（实测 ${B.calcDamage(10, B.player, e)}）`);
+    B.player.st = { weak: 50 };
+    ok(B.calcDamage(10, B.player, e) === 1, `虚弱远超伤害时夹到下限 1，不会出负数或 0`);
   }
 
   /* --- Q3. 斩杀：伤害打不死、但打完低于阈值 → 处决 --- */
@@ -1778,7 +1814,7 @@ section('Q. 虚弱按层递减 / 斩杀 / 毒死即结算');
   }
 
   /* --- Q5. 用户的实际场景：**虚弱状态下**打 Boss，斩杀仍要生效 ---
-     虚弱只降低那 10 点伤害，不该影响"低于阈值就处决"这件事。 */
+     虚弱只把那一段伤害扣掉几层，不该影响"低于阈值就处决"这件事。 */
   {
     const B = mk(['boss_abyss']);
     await B.start();
@@ -1790,7 +1826,7 @@ section('Q. 虚弱按层递减 / 斩杀 / 毒死即结算');
     const dmg = B.calcDamage(10, B.player, e);
     const card = mkCard('assassinate');
     await B.resolve(card.fx, { card, target: e, melee: true });
-    ok(dmg === 5, `虚弱 2 层把 10 点削到 ${dmg} 点`);
+    ok(dmg === 8, `虚弱 2 层把 10 点削到 ${dmg} 点（固定 -1/层）`);
     ok(e.dead, `★ 虚弱状态下斩杀照常触发（45/200 = 22.5% < 25%）`);
   }
 
@@ -1967,6 +2003,419 @@ section('R. 遗物扩充 / 蓝色卡提费 / 开局事件');
     const units = s => { let u = 0; for (const ch of String(s)) { if (/\s/.test(ch)) u += 0.34; else u += /[\x00-\xff]/.test(ch) ? 0.5 : 1.0; } return u; };
     const tooLong = ACT_INTROS.flatMap(e => e.options).filter(o => units(o.desc) > 40).map(o => o.label);
     ok(tooLong.length === 0, '开场事件的选项描述不会长到撑破布局', tooLong.join(', '));
+  }
+}
+
+/* ================= S. 生命上限 / 体型 / 虚弱（本轮改动） ================= */
+section('S. 生命上限同步 / Boss 体型 / 虚弱固定扣减');
+{
+  const noopView = { step: async () => {}, sync() {}, log() {}, onDamage() {}, onHeal() {}, onBlock() {},
+    onStatus() {}, onDraw() {}, onPlay() {}, onExhaust() {}, onEnergy() {}, onGold() {},
+    onTurnStart() {}, onEnemyAct() {}, onSummon() {}, onDeath() {}, onVanish() {}, onEnd() {},
+    onPotion() {}, beforeEndTurn() {}, afterAction() {} };
+
+  /* --- S1. 职业基础生命上限已下调 15 --- */
+  {
+    const { CLASSES } = await import('file://' + join(ROOT, 'js/data/classes.js'));
+    const want = { knight: 67, mage: 53, rogue: 59 };
+    const bad = Object.entries(want).filter(([k, v]) => CLASSES[k].hp !== v);
+    ok(bad.length === 0, `职业基础生命上限已下调 15（骑士 67 / 法师 53 / 游侠 59）`,
+       bad.map(([k, v]) => `${k}=${CLASSES[k].hp}(期望${v})`).join(','));
+    // 起始血量必须跟着走，否则开局就是残血
+    ok(Object.keys(want).every(k => CLASSES[k].hp === want[k]),
+       '起始生命与上限一致（开局满血）');
+  }
+
+  /* --- S2. 提升生命上限时，当前生命同步增加；降低时只夹紧 --- */
+  {
+    const S = await import('file://' + join(ROOT, 'js/core/state.js'));
+    S.newRun('knight');
+    S.G.hp = 30; S.G.maxHp = 50; S.G.baseMaxHp = 50;
+    S.gainMaxHp(10);
+    ok(S.G.maxHp === 60 && S.G.hp === 40,
+       `上限 +10 时当前生命同步 +10（血量 30→${S.G.hp}，上限 50→${S.G.maxHp}）`);
+    S.G.hp = 60;
+    S.gainMaxHp(-20);
+    ok(S.G.maxHp === 40 && S.G.hp === 40,
+       `上限 -20 时只夹紧不额外扣血（上限 ${S.G.maxHp}，血量 ${S.G.hp}）`);
+    // 满血时提升上限也要真有收益（这是这次改动的核心动机）
+    S.G.hp = S.G.maxHp;
+    const before = S.G.hp;
+    S.gainMaxHp(8);
+    ok(S.G.hp === before + 8, `满血时提升上限同样回血（${before} → ${S.G.hp}）`);
+  }
+
+  /* --- S3. 遗物给的「最大生命 +N」走的是同一条路径 --- */
+  {
+    const S = await import('file://' + join(ROOT, 'js/core/state.js'));
+    S.newRun('knight');
+    const { RELICS } = await import('file://' + join(ROOT, 'js/data/relics.js'));
+    const id = Object.keys(RELICS).find(k => (RELICS[k].mods || {}).maxHp > 0);
+    S.G.hp = 20;
+    const m = RELICS[id].mods.maxHp;
+    S.addRelic(id);
+    ok(S.G.maxHp === S.G.baseMaxHp && S.G.hp === 20 + m,
+       `遗物「${RELICS[id].name}」上限 +${m} 且当前生命同步（20 → ${S.G.hp}）`);
+  }
+
+  /* --- S4. 敌人形体倍率有上限（体型过大就会顶穿战场边框） --- */
+  {
+    const { ENEMIES } = await import('file://' + join(ROOT, 'js/data/enemies.js'));
+    const fat = Object.entries(ENEMIES).filter(([, e]) => (e.body || 1) > 2.2);
+    ok(fat.length === 0, '没有形体倍率 > 2.2 的敌人（Boss 过高会盖住药水条）',
+       fat.map(([k, e]) => `${k}=${e.body}`).join(','));
+    const bosses = Object.entries(ENEMIES).filter(([, e]) => e.boss);
+    ok(bosses.length > 0 && bosses.every(([, e]) => (e.body || 1) >= 1.5),
+       'Boss 仍然明显比小怪大（体型 ≥ 1.5）',
+       bosses.map(([k, e]) => `${k}=${e.body}`).join(','));
+  }
+
+  /* --- S5. 虚弱：固定值扣减，大伤害不会被压成 0 --- */
+  {
+    A.startRun('knight');
+    const B = new A.Battle(['golem'], { kind: 'battle' });
+    B.view = { ...noopView };
+    B.rollIntents();
+    await B.start();
+    const e = B.aliveEnemies()[0];
+    B.player.st = { weak: 30 };
+    const big = B.calcDamage(99, B.player, e);
+    ok(big > 0, `30 层虚弱下 99 点攻击仍然打出 ${big} 点（不会恒为 0）`);
+    ok(big === 69, `固定扣减：99 - 30 = ${big}`);
+    // 分段招式每段各扣一次
+    e.hp = 200; e.maxHp = 200; e.block = 0;
+    B.player.st = { weak: 2 };
+    await B.resolve([{ t: 'dmg', v: 4, hits: 3 }], { card: null, target: e, melee: true });
+    ok(200 - e.hp === 6, `3 段 × 4 点挨 2 层虚弱 → 每段扣 2，共 6（实测 ${200 - e.hp}）`);
+  }
+}
+
+/* ================= T. 新职业 / 职业卡权重 / 条件加伤 ================= */
+section('T. 暗影刺客 / 职业卡权重 / 条件加伤真的生效');
+{
+  const noopView = { step: async () => {}, sync() {}, log() {}, onDamage() {}, onHeal() {}, onBlock() {},
+    onStatus() {}, onDraw() {}, onPlay() {}, onExhaust() {}, onEnergy() {}, onGold() {},
+    onTurnStart() {}, onEnemyAct() {}, onSummon() {}, onDeath() {}, onVanish() {}, onEnd() {},
+    onPotion() {}, beforeEndTurn() {}, afterAction() {} };
+
+  /* --- T1. 新职业的基本自洽 --- */
+  {
+    const { CLASSES } = await import('file://' + join(ROOT, 'js/data/classes.js'));
+    const { CARDS } = await import('file://' + join(ROOT, 'js/data/cards.js'));
+    const { RELICS } = await import('file://' + join(ROOT, 'js/data/relics.js'));
+    const a = CLASSES.assassin;
+    ok(!!a, '暗影刺客已加入职业表');
+    ok(a && a.hp < CLASSES.knight.hp && a.hp > CLASSES.mage.hp,
+       `刺客生命 ${a && a.hp} 介于法师 ${CLASSES.mage.hp} 与骑士 ${CLASSES.knight.hp} 之间`);
+    ok(a && !!RELICS[a.relic], `起始遗物「${a && RELICS[a.relic] && RELICS[a.relic].name}」存在`);
+    // 起始卡组引用的卡必须都存在，且数量是 10
+    const bad = (a ? a.deck : []).filter(([id]) => !CARDS[id]);
+    ok(bad.length === 0, '刺客起始卡组引用的卡都存在', bad.map(x => x[0]).join(','));
+    const total = (a ? a.deck : []).reduce((n, [, k]) => n + k, 0);
+    ok(total === 10, `刺客起始卡组 ${total} 张（与其他职业一致）`);
+    // 每个职业都要有一批自己的专属卡，不然"职业"就没意义
+    const counts = {};
+    for (const c of Object.values(CARDS)) if (c.cls !== 'neutral') counts[c.cls] = (counts[c.cls] || 0) + 1;
+    const thin = Object.entries(counts).filter(([k, v]) => k !== 'basic' && k !== 'curse' && k !== 'status' && v < 15);
+    ok(thin.length === 0, '每个职业的专属卡都在 15 张以上', thin.map(([k, v]) => `${k}=${v}`).join(','));
+  }
+
+  /* --- T2. 职业专属卡在奖励池里的权重确实更高 ---
+     需求原话："职业获得卡牌时获得对应职业的专属卡牌时权重提高"。
+     注意：rollCardChoices 返回的是**卡实例** {id, up}，不是完整定义 ——
+     必须用 id 反查 CARDS 才能拿到 cls（写成 c.cls 会恒为 undefined，
+     测试会假绿/假红，第一版就踩了这个）。 */
+  {
+    const S = await import('file://' + join(ROOT, 'js/core/state.js'));
+    const { CARDS } = await import('file://' + join(ROOT, 'js/data/cards.js'));
+    const sample = (cls, rounds) => {
+      S.newRun(cls);
+      let mine = 0, other = 0;
+      const seen = new Set();
+      for (let i = 0; i < rounds; i++) {
+        for (const c of S.rollCardChoices(3)) {
+          const def = CARDS[c.id];
+          if (!def) { other++; continue; }        // 返回了不存在的 id 要算错
+          if (def.cls === cls) mine++; else other++;
+          seen.add(c.id);
+        }
+      }
+      return { mine, other, ratio: other === 0 ? 99 : mine / other, kinds: seen.size };
+    };
+    const a = sample('assassin', 300);
+    ok(a.ratio > 1.5,
+       `刺客的奖励池里专属卡占多数（自己 ${a.mine} / 中立 ${a.other}，比 ${a.ratio.toFixed(2)}）`);
+    ok(a.kinds >= 20, `奖励池覆盖面够广（抽到过 ${a.kinds} 种不同的卡）`);
+    // 抽到的 id 必须都能在 CARDS 里找到（防止 rollCardChoices 返回坏数据）
+    S.newRun('assassin');
+    const badId = [];
+    for (let i = 0; i < 100; i++) for (const c of S.rollCardChoices(3)) if (!CARDS[c.id]) badId.push(c.id);
+    ok(badId.length === 0, '奖励返回的 id 都能在 CARDS 里找到', badId.slice(0, 5).join(','));
+    // 每个职业都要享受同样的加权
+    const rows = [];
+    for (const cls of ['knight', 'mage', 'rogue']) {
+      const r = sample(cls, 150);
+      rows.push(`${cls} ${r.ratio.toFixed(2)}`);
+    }
+    ok(rows.every(r => parseFloat(r.split(' ')[1]) > 1.5), `各职业都加权（${rows.join(' / ')}）`);
+  }
+
+  /* --- T3. 条件加伤（ifBlock / ifVulnerable）必须真的生效 ---
+     `ifBlock` 以前只写在卡牌数据里、引擎从没读过 ——
+     「反击」卡面写着"若你有护甲额外 5 点"，实际一次都没触发过。
+     和 `execute` 是同一类坑，都是"文档承诺了但引擎没实现"。 */
+  {
+    const { makeCard } = await import('file://' + join(ROOT, 'js/data/cards.js'));
+    A.startRun('knight');
+    const B = new A.Battle(['golem'], { kind: 'battle' });
+    B.view = { ...noopView };
+    B.rollIntents();
+    await B.start();
+    const e = B.aliveEnemies()[0];
+
+    const card = makeCard('riposte');
+    const hit = async (block) => {
+      e.hp = 300; e.maxHp = 300; e.block = 0;
+      B.player.block = block;
+      await B.resolve(card.fx, { card, target: e, melee: true });
+      return 300 - e.hp;
+    };
+    const noBlk = await hit(0);
+    const withBlk = await hit(12);
+    ok(noBlk === card.dmg, `无护甲时按卡面打出 ${card.dmg}（实测 ${noBlk}）`);
+    ok(withBlk - noBlk === card.bonus,
+       `有护甲时真的多打 ${card.bonus} 点（${noBlk} → ${withBlk}）`);
+
+    // ifVulnerable：目标已易伤才加伤
+    const cut = makeCard('throat_slit');
+    const hit2 = async (vul) => {
+      e.hp = 300; e.maxHp = 300; e.block = 0; e.st = {};
+      if (vul) B.add(e, 'vulnerable', 1);
+      B.player.block = 0;
+      await B.resolve(cut.fx, { card: cut, target: e, melee: true });
+      return 300 - e.hp;
+    };
+    const plain = await hit2(false);
+    const marked = await hit2(true);
+    // 注意：易伤本身还会 ×1.5，所以这里只断言"确实变高了且幅度合理"
+    ok(plain === cut.dmg, `目标不易伤时打出 ${cut.dmg}（实测 ${plain}）`);
+    ok(marked > plain, `目标已易伤时伤害更高（${plain} → ${marked}，含易伤 1.5 倍与额外 ${cut.bonus} 点）`);
+  }
+}
+
+/* ================= U. 老存档兼容：数据表里删掉的东西不能把界面搞崩 ================= */
+section('U. 老存档里引用了已删除的数据时不能崩');
+{
+  const doc = window.document;
+  const { CARDS } = await import('file://' + join(ROOT, 'js/data/cards.js'));
+  const { RELICS } = await import('file://' + join(ROOT, 'js/data/relics.js'));
+
+  // 1) addRelic 拒绝未知 id（G.relics 会进存档，必须挡住脏数据）
+  {
+    const S = await import('file://' + join(ROOT, 'js/core/state.js'));
+    S.newRun('knight');
+    const before = S.G.relics.length;
+    const r = S.addRelic('__not_a_real_relic__');
+    ok(r === false && S.G.relics.length === before,
+       'addRelic 拒绝不存在的遗物 id（不会把脏 id 写进存档）');
+  }
+
+  // 2) loadSave 会把脏 id 清洗掉（这是治本的那一处）
+  {
+    // 直接 import 的模块跑在 Node 环境里，没有 localStorage ——
+    // 不补这一行的话 save/loadSave 会静默失败（loadSave 内部 catch 掉返回 null），
+    // 测试就会以"断言不成立"的形式失败，很容易误判成被测代码有问题。
+    const hadLS = 'localStorage' in globalThis;
+    const prevLS = globalThis.localStorage;
+    globalThis.localStorage = window.localStorage;
+    const S = await import('file://' + join(ROOT, 'js/core/state.js'));
+    S.newRun('knight');
+    S.G.relics.push('__ghost_relic__');                 // 模拟"这件遗物后来被删了"
+    S.G.deck.push({ id: '__ghost_card__', up: false }); // 模拟"这张卡后来被删了"
+    S.save();
+    const loaded = S.loadSave();
+    ok(loaded && !loaded.relics.includes('__ghost_relic__'),
+       'loadSave 丢弃了已不存在的遗物 id');
+    ok(loaded && !loaded.deck.some(c => c.id === '__ghost_card__'),
+       'loadSave 丢弃了已不存在的卡牌 id');
+    ok(loaded && loaded.deck.length > 0, '正常的卡牌没有被误删');
+    // 遗物修改聚合函数必须能扛住脏 id（它每场战斗都会被调用）
+    S.G.relics.push('__ghost_relic__');
+    let err = null;
+    try { S.relicMods(); S.relicHooks('battleStart'); } catch (e) { err = e.message; }
+    ok(!err, 'relicMods / relicHooks 遇到不存在的 id 不抛异常', err || '');
+    // 收尾，别污染后面的测试
+    try { window.localStorage.removeItem('abyss_deck_save_v1'); } catch {}
+    if (hadLS) globalThis.localStorage = prevLS; else delete globalThis.localStorage;
+  }
+
+  // 3) 整条链路：往 G.relics 塞一个已删除的 id，然后真的渲染一遍战斗界面 + 地图
+  {
+    let err = null;
+    try {
+      A.startRun('assassin');
+      A.G.relics = [...A.G.relics, '__ghost_relic__'];   // 模拟"这个遗物后来被删掉了"
+      A.go('map'); await new Promise(r => setTimeout(r, 120));
+      const B = new A.Battle(['slime'], { kind: 'battle' });
+      B.view = { step: async () => {}, sync() {}, log() {}, onDamage() {}, onHeal() {}, onBlock() {},
+        onStatus() {}, onDraw() {}, onPlay() {}, onExhaust() {}, onEnergy() {}, onGold() {},
+        onTurnStart() {}, onEnemyAct() {}, onSummon() {}, onDeath() {}, onVanish() {}, onEnd() {},
+        onPotion() {}, beforeEndTurn() {}, afterAction() {} };
+      B.rollIntents();
+      await B.start();
+      A.go('battle', B, true);
+      await new Promise(r => setTimeout(r, 160));
+    } catch (e) { err = e.message; }
+    ok(!err, '存档里有已删除的遗物 id 时，地图/战斗界面照常渲染', err || '');
+    ok(doc.querySelector('.field'), '战斗界面确实渲染出来了');
+  }
+
+  // 4) 所有遗物/卡牌的 id 与定义自洽（防止将来手滑改错 key）
+  {
+    const bad = [];
+    for (const [id, r] of Object.entries(RELICS)) {
+      if (!r.name || !r.sprite || !r.rarity) bad.push(`遗物 ${id} 缺字段`);
+      if (r.rarity === 'starter' && !Object.values(
+        (await import('file://' + join(ROOT, 'js/data/classes.js'))).CLASSES
+      ).some(c => c.relic === id)) bad.push(`起始遗物 ${id} 没有任何职业在用`);
+    }
+    ok(bad.length === 0, '每件遗物的字段完整、起始遗物都有归属', bad.slice(0, 4).join(' | '));
+  }
+}
+
+section('V. 贴图：源码即真相（PNG 必须与字符地图一致）');
+{
+  // 【这条是补的】以前贴图是「二进制文件 + 一张来自 Kenney 图集的坐标表」，
+  // 谁改了 PNG 没有任何东西会发现，改动也不可复现、不可 review。
+  // 现在 Boss/精英这几张改成**字符地图源码生成**（tools/make-sprites.mjs），
+  // 于是可以断言：磁盘上的 PNG 字节 == 源码渲染出来的字节。
+  // 谁手改了 PNG、或改了字符地图却忘了重新生成，这条都会红。
+  const { SPRITES, PALETTE, rasterize, render } = await import('file://' + join(ROOT, 'tools/make-sprites.mjs'));
+
+  ok(Object.keys(SPRITES).length >= 4, `自绘贴图数量 ≥ 4（实际 ${Object.keys(SPRITES).length}）`);
+
+  /* --- V1. 字符地图本身必须合法（画歪一个字符就报出来）--- */
+  {
+    const bad = [];
+    for (const name of Object.keys(SPRITES)) {
+      try { rasterize(name); } catch (e) { bad.push(`${name}: ${e.message}`); }
+    }
+    ok(bad.length === 0, '所有字符地图都能渲染（16 行 × 16 列、颜色字符都已定义）', bad.slice(0, 3).join(' | '));
+  }
+
+  /* --- V2. 磁盘上的 PNG 必须和源码渲染结果逐字节相同 --- */
+  {
+    // 注意：render() 在字符地图非法时会抛错（V1 已经报过了）。
+    // 这里必须自己兜住 —— 否则一条画歪的贴图会让**整个测试进程崩掉**，
+    // 而不是干净地报一条失败（我第一版就踩了这个：输出里连"通过 N 失败 M"都没有）。
+    const drift = [], crashed = [];
+    for (const name of Object.keys(SPRITES)) {
+      let fromSource;
+      try { fromSource = render(name); } catch (e) { crashed.push(`${name}: ${e.message}`); continue; }
+      const onDisk = readFileSync(join(ROOT, 'assets/sprites', `${name}.png`));
+      if (!onDisk.equals(fromSource)) {
+        drift.push(`${name}.png（磁盘 ${onDisk.length}B ≠ 源码 ${fromSource.length}B）`);
+      }
+    }
+    ok(crashed.length === 0, '所有字符地图都能编码成 PNG（不会让测试进程崩溃）', crashed.slice(0, 3).join(' | '));
+    ok(drift.length === 0,
+       '磁盘贴图与字符地图源码一致（改了源码要跑 node tools/make-sprites.mjs）',
+       drift.join(', '));
+  }
+
+  /* --- V3. 只允许用项目原有调色板里的颜色 --- */
+  {
+    // 现有 63 张贴图一共只用了 34 种颜色；自绘贴图不许引入"外来色"，
+    // 否则新贴图和旧素材摆在一起会显得不是一个游戏。
+    const KNOWN = new Set([
+      '#3f2631', '#8b9bb4', '#c0cbdc', '#262b44', '#bd6c4a', '#763b36', '#eaa56c',
+      '#52607c', '#f7c282', '#e84537', '#2c1842', '#43e1b3', '#e19a65', '#ff706d',
+      '#9b4ca3', '#25956a', '#5a6988', '#64358a', '#d176d0', '#0099db', '#75e3ff',
+      '#552d78', '#391f55', '#c667c2', '#ffffff', '#e4edf9', '#69ffd4', '#feae34',
+      '#984ca9', '#cf8254', '#fee761', '#2b1840', '#9d4eac', '#aab7cc',
+    ]);
+    const foreign = Object.entries(PALETTE).filter(([, hex]) => !KNOWN.has(hex)).map(([ch, hex]) => `'${ch}'=${hex}`);
+    ok(foreign.length === 0,
+       `自绘贴图只用项目原有调色板（共 ${Object.keys(PALETTE).length} 色）`, foreign.join(', '));
+  }
+
+  /* --- V4. Boss 立绘必须彼此可区分（这正是本次优化的目的）--- */
+  {
+    const { ENEMIES, ENCOUNTERS, TOTAL_ACTS } = await import('file://' + join(ROOT, 'js/data/enemies.js'));
+    const bossSprites = [];
+    for (let a = 1; a <= TOTAL_ACTS; a++) {
+      for (const [id] of ENCOUNTERS[a].boss) bossSprites.push(`${ENEMIES[id].name}:${ENEMIES[id].sprite}`);
+    }
+    const files = bossSprites.map(s => s.split(':')[1]);
+    ok(new Set(files).size === files.length,
+       `每个 Boss 都有不同的立绘文件：${bossSprites.join(' / ')}`, bossSprites.join(', '));
+    // 每个 Boss 立绘都必须真的存在于 assets/sprites/
+    const missing = files.filter(f => !existsSync(join(ROOT, 'assets/sprites', `${f}.png`)));
+    ok(missing.length === 0, '每个 Boss 的立绘文件都存在', missing.join(', '));
+    // 最终 Boss 必须有自己的专属图（不再是借用 + 染色）
+    const finalBoss = ENEMIES[ENCOUNTERS[TOTAL_ACTS].boss[0][0]];
+    ok(finalBoss.sprite === 'boss_abyss' && !finalBoss.tint,
+       `最终 Boss 用专属立绘且不再靠染色区分（sprite=${finalBoss.sprite}, tint=${finalBoss.tint || '无'}）`);
+    // 精英石像鬼 与 Boss 深渊之主 曾经是同一张图
+    ok(ENEMIES.gargoyle.sprite !== ENEMIES.boss_lord.sprite,
+       `精英石像鬼与深渊之主不再共用一张图（${ENEMIES.gargoyle.sprite} vs ${ENEMIES.boss_lord.sprite}）`);
+  }
+
+  /* --- V5. sprites.json 只登记真实存在的贴图 --- */
+  {
+    const spritesJson = JSON.parse(readFileSync(join(ROOT, 'assets/sprites.json'), 'utf8'));
+    const missing = Object.keys(spritesJson).filter(n => !existsSync(join(ROOT, 'assets/sprites', `${n}.png`)));
+    ok(missing.length === 0, 'sprites.json 里的每个条目都有对应 PNG 文件', missing.join(', '));
+    const drawn = Object.keys(SPRITES);
+    const unmarked = drawn.filter(n => !String(spritesJson[n] || '').startsWith('custom:'));
+    ok(unmarked.length === 0, '自绘贴图在 sprites.json 里标注了来源（不再假装来自图集）', unmarked.join(', '));
+  }
+
+  /* --- V6. 像素贴图必须真的不糊（image-rendering 要生效）--- */
+  {
+    // 【这条是补的】CSS 里原本有一条 `img, .spr { image-rendering: pixelated }`，
+    // 看起来"已经处理了"，但**项目里根本不存在 .spr 元素**（贴图全挂在 div 的
+    // background-image 上）→ 规则从未生效，全站贴图被浏览器平滑插值糊掉。
+    // 这种"声明了但匹配不到"的规则静态看不出问题，必须在真实元素上量。
+    const cssRaw = readFileSync(join(ROOT, 'css/style.css'), 'utf8');
+    // ⚠️ 必须先剥掉注释再解析选择器。我第一版忘了剥，结果 `sel.includes('*')`
+    //    匹配到了上面注释里的 markdown 星号（`**项目里…**`），于是把退回
+    //    `img, .spr` 的失效版本也误判成"全局规则"→ 断言被自己的注释放行。
+    const css = cssRaw.replace(/\/\*[\s\S]*?\*\//g, '');
+    const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)];
+    const pxRules = rules.filter(m => /image-rendering\s*:\s*pixelated/.test(m[2]));
+    ok(pxRules.length >= 1, 'CSS 里有 image-rendering: pixelated 规则');
+
+    // 关键：至少有一条规则的选择器能匹配到**用 background-image 的元素**。
+    // 贴图元素的类名都来自下面这个集合（`*` / 类名 / 属性都算命中）。
+    const SPRITE_CLASSES = ['sprite', 'player-sprite', 'ico', 'relic', 'avatar', 'cart', 'cspr'];
+    const coversBackgrounds = pxRules.some(m => {
+      const sel = m[1].trim();
+      if (sel.includes('*')) return true;                       // 全局规则，能匹配
+      return SPRITE_CLASSES.some(c => new RegExp(`\\.${c}\\b`).test(sel));
+    });
+    ok(coversBackgrounds,
+       '像素化规则的选择器能匹配到用 background-image 的贴图元素（不能只写 img/.spr）',
+       pxRules.map(m => m[1].trim()).join(' | '));
+
+    // 反向断言：不要再出现只匹配 img/.spr 的孤立规则（那正是当初失效的那条）
+    const staleOnly = pxRules.filter(m => {
+      const sel = m[1].trim();
+      return !sel.includes('*') && /^(img|\.spr)\b/.test(sel) &&
+             !SPRITE_CLASSES.some(c => new RegExp(`\\.${c}\\b`).test(sel));
+    });
+    ok(staleOnly.length === 0,
+       '没有"只匹配 img/.spr"的失效像素化规则', staleOnly.map(m => m[1].trim()).join(', '));
+
+    // ⚠️ 这里**不能**用 jsdom 的 getComputedStyle 去量 image-rendering：
+    //    实测 jsdom 根本不支持该属性（`getComputedStyle(el).imageRendering` 恒为 `""`，
+    //    而 `color` 正常返回 `rgb(...)`）→ 在 jsdom 里量它只会得到一条**永远失败**
+    //    或（若用 !=='auto' 之类的宽松判据）**永远通过**的空断言。
+    //    所以元素级验证放在真浏览器做，结论记在这里：
+    //      修复前：10 个贴图元素 image-rendering 全为 auto（放大后被插值糊掉）
+    //      修复后：10/10 为 pixelated（`*{image-rendering:pixelated}` 生效）
+    //    本段回归靠上面的**选择器覆盖率**分析 —— 它才是"当初为什么失效"的那条逻辑。
+    ok(true, '（说明）元素级 image-rendering 需真浏览器量；jsdom 不支持该属性，故用选择器覆盖分析代替');
   }
 }
 

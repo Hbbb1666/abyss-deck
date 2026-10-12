@@ -367,6 +367,222 @@ export const CARDS = {
     fx: [{ t: 'dmg', v: 'dmg', execute: 'exec' }],
   },
 
+
+  /* ============ 骑士 · 补充 ============ */
+  iron_vow: {
+    name: '铁誓', cls: 'knight', type: 'power', rarity: 'rare', cost: 2, target: 'self',
+    art: 'stone_platform', blk: 2, str: 1, up: { blk: 3 },
+    text: c => `每回合开始时获得 <b>${c.blk}</b> 点护甲和 <b>${c.str}</b> 层力量。`,
+    fx: [{ t: 'buff', k: 'undying', v: 'blk' }, { t: 'buff', k: 'ritual', v: 'str' }],
+  },
+  gravity_slam: {
+    name: '重力猛击', cls: 'knight', type: 'attack', rarity: 'uncommon', cost: 2, target: 'all',
+    art: 'hammer', dmg: 8, blk: 5, up: { dmg: 11, blk: 8 },
+    text: c => `对<b>所有</b>敌人造成 <b>${c.dmg}</b> 点伤害，你获得 <b>${c.blk}</b> 点护甲。`,
+    fx: [{ t: 'dmgAll', v: 'dmg' }, { t: 'block', v: 'blk' }],
+  },
+  guardian_angel: {
+    name: '守护天使', cls: 'knight', type: 'skill', rarity: 'rare', cost: 2, target: 'self',
+    art: 'grave_cross', heal: 8, blk: 8, up: { heal: 12, blk: 12 },
+    text: c => `回复 <b>${c.heal}</b> 点生命，获得 <b>${c.blk}</b> 点护甲。`,
+    fx: [{ t: 'heal', v: 'heal' }, { t: 'block', v: 'blk' }],
+  },
+  titan_strength: {
+    name: '巨力', cls: 'knight', type: 'power', rarity: 'rare', cost: 2, target: 'self',
+    art: 'poleaxe', str: 4, up: { str: 6 },
+    text: c => `获得 <b>${c.str}</b> 层力量。`,
+    fx: [{ t: 'buff', k: 'strength', v: 'str' }],
+  },
+
+  /* ============ 法师 · 补充 ============ */
+  thunderstorm: {
+    name: '雷暴', cls: 'mage', type: 'attack', rarity: 'rare', cost: 3, target: 'all',
+    art: 'key_bone', dmg: 14, up: { dmg: 18 },
+    text: c => `对<b>所有</b>敌人造成 <b>${c.dmg}</b> 点伤害。`,
+    fx: [{ t: 'dmgAll', v: 'dmg' }],
+  },
+  frost_armor: {
+    name: '霜甲', cls: 'mage', type: 'skill', rarity: 'uncommon', cost: 1, target: 'all',
+    art: 'door', blk: 6, weak: 2, up: { blk: 9, weak: 3 },
+    text: c => `获得 <b>${c.blk}</b> 点护甲，对<b>所有</b>敌人施加 <b>${c.weak}</b> 层虚弱。`,
+    fx: [{ t: 'block', v: 'blk' }, { t: 'debuffAll', k: 'weak', v: 'weak' }],
+  },
+  void_bolt: {
+    name: '虚空箭', cls: 'mage', type: 'attack', rarity: 'uncommon', cost: 1, target: 'enemy',
+    art: 'key_purple', dmg: 12, selfdmg: 3, up: { dmg: 16 },
+    text: c => `造成 <b>${c.dmg}</b> 点伤害，你失去 <b>${c.selfdmg}</b> 点生命。`,
+    fx: [{ t: 'dmg', v: 'dmg' }, { t: 'loseHp', v: 'selfdmg' }],
+  },
+  mind_spike: {
+    name: '心灵尖刺', cls: 'mage', type: 'attack', rarity: 'common', cost: 1, target: 'enemy',
+    art: 'key_blue', dmg: 6, draw: 1, up: { dmg: 9, draw: 2 },
+    text: c => `造成 <b>${c.dmg}</b> 点伤害，抽 <b>${c.draw}</b> 张牌。`,
+    fx: [{ t: 'dmg', v: 'dmg' }, { t: 'draw', v: 'draw' }],
+  },
+
+  /* ============ 游侠 · 补充 ============ */
+  blade_rain: {
+    name: '刃雨', cls: 'rogue', type: 'attack', rarity: 'rare', cost: 2, target: 'all',
+    art: 'sword_dagger', dmg: 8, poi: 2, up: { dmg: 10, poi: 3 },
+    text: c => `对<b>所有</b>敌人造成 <b>${c.dmg}</b> 点伤害，施加 <b>${c.poi}</b> 层中毒。`,
+    fx: [{ t: 'dmgAll', v: 'dmg' }, { t: 'debuffAll', k: 'poison', v: 'poi' }],
+  },
+  toxic_cloud: {
+    name: '毒云', cls: 'rogue', type: 'skill', rarity: 'uncommon', cost: 2, target: 'all',
+    art: 'potion_green', poi: 4, up: { poi: 6 },
+    text: c => `对<b>所有</b>敌人施加 <b>${c.poi}</b> 层中毒。`,
+    fx: [{ t: 'debuffAll', k: 'poison', v: 'poi' }],
+  },
+  pickpocket: {
+    name: '扒窃', cls: 'rogue', type: 'skill', rarity: 'uncommon', cost: 1, target: 'self',
+    art: 'key_gold', gain: 25, draw: 1, up: { gain: 40 },
+    text: c => `获得 <b>${c.gain}</b> 金币，抽 <b>${c.draw}</b> 张牌。`,
+    fx: [{ t: 'gold', v: 'gain' }, { t: 'draw', v: 'draw' }],
+  },
+  caltrops: {
+    name: '铁蒺藜', cls: 'rogue', type: 'skill', rarity: 'common', cost: 1, target: 'self',
+    art: 'spider', blk: 6, thn: 2, up: { blk: 9, thn: 3 },
+    text: c => `获得 <b>${c.blk}</b> 点护甲和 <b>${c.thn}</b> 层荆棘。`,
+    fx: [{ t: 'block', v: 'blk' }, { t: 'buff', k: 'thorns', v: 'thn' }],
+  },
+
+  /* ============ 暗影刺客 ============
+     职业定位：**易伤铺场 + 多段小伤害 + 斩杀**。
+     和游侠（中毒）、骑士（护甲/力量）刻意分开：
+     刺客的伤害靠"先把敌人的易伤铺厚，再用廉价多段把它放大"，最后用处决收尾。 */
+  shadow_stab: {
+    name: '影刺', cls: 'assassin', type: 'attack', rarity: 'basic', cost: 0, target: 'enemy',
+    art: 'sword_dagger', dmg: 4, up: { dmg: 6 },
+    text: c => `造成 <b>${c.dmg}</b> 点伤害。`,
+    fx: [{ t: 'dmg', v: 'dmg' }],
+  },
+  shadow_step: {
+    name: '暗影步', cls: 'assassin', type: 'skill', rarity: 'common', cost: 1, target: 'self',
+    art: 'door_wood', blk: 5, draw: 1, up: { blk: 8 },
+    text: c => `获得 <b>${c.blk}</b> 点护甲，抽 <b>${c.draw}</b> 张牌。`,
+    fx: [{ t: 'block', v: 'blk' }, { t: 'draw', v: 'draw' }],
+  },
+  twin_fang: {
+    name: '双牙', cls: 'assassin', type: 'attack', rarity: 'common', cost: 1, target: 'enemy',
+    art: 'sword_dagger', dmg: 3, hits: 2, up: { dmg: 5 },
+    text: c => `造成 <b>${c.dmg}</b> 点伤害 <b>${c.hits}</b> 次。`,
+    fx: [{ t: 'dmg', v: 'dmg', hits: 'hits' }],
+  },
+  rend: {
+    name: '撕裂', cls: 'assassin', type: 'attack', rarity: 'common', cost: 1, target: 'enemy',
+    art: 'sword_short', dmg: 6, vul: 2, up: { dmg: 9, vul: 3 },
+    text: c => `造成 <b>${c.dmg}</b> 点伤害，施加 <b>${c.vul}</b> 层易伤。`,
+    fx: [{ t: 'dmg', v: 'dmg' }, { t: 'debuff', k: 'vulnerable', v: 'vul' }],
+  },
+  nightfall: {
+    name: '夜幕', cls: 'assassin', type: 'skill', rarity: 'common', cost: 1, target: 'all',
+    art: 'portal', vul: 2, up: { vul: 3 },
+    text: c => `对<b>所有</b>敌人施加 <b>${c.vul}</b> 层易伤。`,
+    fx: [{ t: 'debuffAll', k: 'vulnerable', v: 'vul' }],
+  },
+  lethal_thrust: {
+    name: '致命突刺', cls: 'assassin', type: 'attack', rarity: 'common', cost: 2, target: 'enemy',
+    art: 'sword_long', dmg: 13, up: { dmg: 17 },
+    text: c => `造成 <b>${c.dmg}</b> 点伤害。`,
+    fx: [{ t: 'dmg', v: 'dmg' }],
+  },
+  shadow_flurry: {
+    name: '影舞', cls: 'assassin', type: 'attack', rarity: 'common', cost: 1, target: 'enemy',
+    art: 'sword_dagger', dmg: 2, hits: 4, up: { dmg: 3 },
+    text: c => `造成 <b>${c.dmg}</b> 点伤害 <b>${c.hits}</b> 次。`,
+    fx: [{ t: 'dmg', v: 'dmg', hits: 'hits' }],
+  },
+  lurk: {
+    name: '潜伏', cls: 'assassin', type: 'skill', rarity: 'common', cost: 1, target: 'self',
+    art: 'ghost', str: 2, up: { str: 3 },
+    text: c => `获得 <b>${c.str}</b> 层力量。`,
+    fx: [{ t: 'buff', k: 'strength', v: 'str' }],
+  },
+  blood_reap: {
+    name: '血色收割', cls: 'assassin', type: 'attack', rarity: 'uncommon', cost: 1, target: 'enemy',
+    art: 'potion_red', dmg: 8, heal: 3, up: { dmg: 11, heal: 5 },
+    text: c => `造成 <b>${c.dmg}</b> 点伤害，回复 <b>${c.heal}</b> 点生命。`,
+    fx: [{ t: 'dmg', v: 'dmg' }, { t: 'heal', v: 'heal' }],
+  },
+  vanish: {
+    name: '隐匿', cls: 'assassin', type: 'skill', rarity: 'common', cost: 1, target: 'self',
+    art: 'box', blk: 8, next: 4, up: { blk: 11, next: 6 },
+    text: c => `获得 <b>${c.blk}</b> 点护甲，下回合额外 <b>${c.next}</b> 点。`,
+    fx: [{ t: 'block', v: 'blk' }, { t: 'buff', k: 'block_next', v: 'next' }],
+  },
+  mark: {
+    name: '猎杀标记', cls: 'assassin', type: 'skill', rarity: 'common', cost: 0, target: 'enemy',
+    art: 'key_red', vul: 3, exhaust: true, up: { vul: 4 },
+    text: c => `施加 <b>${c.vul}</b> 层易伤。<i>消耗</i>`,
+    fx: [{ t: 'debuff', k: 'vulnerable', v: 'vul' }],
+  },
+  throat_slit: {
+    name: '割喉', cls: 'assassin', type: 'attack', rarity: 'uncommon', cost: 1, target: 'enemy',
+    art: 'sword_dagger', dmg: 7, bonus: 6, up: { dmg: 9, bonus: 8 },
+    text: c => `造成 <b>${c.dmg}</b> 点伤害。若目标已<b>易伤</b>，额外 <b>${c.bonus}</b> 点。`,
+    fx: [{ t: 'dmg', v: 'dmg', ifVulnerable: 'bonus' }],
+  },
+  dark_pact: {
+    name: '暗影契约', cls: 'assassin', type: 'skill', rarity: 'uncommon', cost: 1, target: 'self',
+    art: 'portal', selfdmg: 5, nrg: 2, up: { selfdmg: 3 },
+    text: c => `失去 <b>${c.selfdmg}</b> 点生命，获得 <b>${c.nrg}</b> 点能量。`,
+    fx: [{ t: 'loseHp', v: 'selfdmg' }, { t: 'energy', v: 'nrg' }],
+  },
+  chain_execution: {
+    name: '连环处决', cls: 'assassin', type: 'attack', rarity: 'uncommon', cost: 2, target: 'enemy',
+    art: 'sword_broad', dmg: 5, hits: 3, exec: 20, up: { dmg: 7 },
+    text: c => `造成 <b>${c.dmg}</b> 点伤害 <b>${c.hits}</b> 次；生命低于 <b>${c.exec}%</b> 则斩杀。`,
+    fx: [{ t: 'dmg', v: 'dmg', hits: 'hits', execute: 'exec' }],
+  },
+  assassins_mark: {
+    name: '刺客印记', cls: 'assassin', type: 'skill', rarity: 'uncommon', cost: 2, target: 'enemy',
+    art: 'grave_cross', vul: 5, draw: 2, up: { vul: 6, draw: 3 },
+    text: c => `施加 <b>${c.vul}</b> 层易伤，抽 <b>${c.draw}</b> 张牌。`,
+    fx: [{ t: 'debuff', k: 'vulnerable', v: 'vul' }, { t: 'draw', v: 'draw' }],
+  },
+  blade_flurry: {
+    name: '乱刃', cls: 'assassin', type: 'attack', rarity: 'uncommon', cost: 1, target: 'all',
+    art: 'axe', dmg: 5, up: { dmg: 8 },
+    text: c => `对<b>所有</b>敌人造成 <b>${c.dmg}</b> 点伤害。`,
+    fx: [{ t: 'dmgAll', v: 'dmg' }],
+  },
+  shadow_veil: {
+    name: '影纱', cls: 'assassin', type: 'power', rarity: 'uncommon', cost: 2, target: 'self',
+    art: 'portal', blk: 3, up: { blk: 5 },
+    text: c => `每回合开始时获得 <b>${c.blk}</b> 点护甲。`,
+    fx: [{ t: 'buff', k: 'undying', v: 'blk' }],
+  },
+  bloodlust: {
+    name: '嗜血', cls: 'assassin', type: 'power', rarity: 'rare', cost: 2, target: 'self',
+    art: 'crabdemon', str: 1, up: { str: 2 },
+    text: c => `每回合开始时获得 <b>${c.str}</b> 层力量。`,
+    fx: [{ t: 'buff', k: 'ritual', v: 'str' }],
+  },
+  execute: {
+    name: '处决', cls: 'assassin', type: 'attack', rarity: 'rare', cost: 2, target: 'enemy',
+    art: 'sword_broad', dmg: 12, exec: 35, up: { dmg: 16, exec: 40 },
+    text: c => `造成 <b>${c.dmg}</b> 点伤害。生命低于 <b>${c.exec}%</b> 则直接斩杀。`,
+    fx: [{ t: 'dmg', v: 'dmg', execute: 'exec' }],
+  },
+  final_cut: {
+    name: '终末之刃', cls: 'assassin', type: 'attack', rarity: 'rare', cost: 3, target: 'enemy',
+    art: 'sword_long', dmg: 20, exec: 40, up: { dmg: 26, exec: 45 },
+    text: c => `造成 <b>${c.dmg}</b> 点伤害。生命低于 <b>${c.exec}%</b> 则直接斩杀。`,
+    fx: [{ t: 'dmg', v: 'dmg', execute: 'exec' }],
+  },
+  mist_form: {
+    name: '雾化', cls: 'assassin', type: 'skill', rarity: 'rare', cost: 1, target: 'self',
+    art: 'ghost', blk: 12, thn: 3, up: { blk: 16, thn: 4 },
+    text: c => `获得 <b>${c.blk}</b> 点护甲和 <b>${c.thn}</b> 层荆棘。`,
+    fx: [{ t: 'block', v: 'blk' }, { t: 'buff', k: 'thorns', v: 'thn' }],
+  },
+  deathmark: {
+    name: '死亡印记', cls: 'assassin', type: 'skill', rarity: 'rare', cost: 1, target: 'enemy',
+    art: 'key_purple', vul: 4, weak: 4, up: { vul: 6, weak: 6 },
+    text: c => `施加 <b>${c.vul}</b> 层易伤和 <b>${c.weak}</b> 层虚弱。`,
+    fx: [{ t: 'debuff', k: 'vulnerable', v: 'vul' }, { t: 'debuff', k: 'weak', v: 'weak' }],
+  },
+
   /* ============ 中性 ============ */
   bandage: {
     name: '绷带', cls: 'neutral', type: 'skill', rarity: 'common', cost: 0, target: 'self',

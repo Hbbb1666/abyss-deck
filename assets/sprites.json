@@ -79,18 +79,9 @@
   3,
   8
  ],
- "boss_stone": [
-  10,
-  6
- ],
- "boss_demon": [
-  7,
-  1
- ],
- "boss_gargoyle": [
-  7,
-  0
- ],
+ "boss_stone": "custom:tools/make-sprites.mjs",
+ "boss_demon": "custom:tools/make-sprites.mjs",
+ "boss_gargoyle": "custom:tools/make-sprites.mjs",
  "sword_short": [
   7,
   8
@@ -219,10 +210,7 @@
   7,
   3
  ],
- "gargoyle": [
-  7,
-  0
- ],
+ "gargoyle": "custom:tools/make-sprites.mjs",
  "portal": [
   10,
   5
@@ -246,5 +234,7 @@
  "minecart": [
   7,
   4
- ]
+ ],
+ "hero_assassin": "recolor:hero_rogue/shadow",
+ "boss_abyss": "custom:tools/make-sprites.mjs"
 }

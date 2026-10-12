@@ -98,7 +98,7 @@ export const ENEMIES = {
     ai: (e, t) => (t % 3 === 1 ? 'shieldup' : 'cleave'),
   },
   slime_big: {
-    name: '巨型史莱姆', sprite: 'slime', hp: [34, 40], act: 1, elite: true, body: 1.7,
+    name: '巨型史莱姆', sprite: 'slime', hp: [34, 40], act: 1, elite: true, body: 1.5,
     moves: {
       devour: A('吞噬', 10),
       acid: { name: '酸液喷溅', intent: 'attack_debuff', dmg: 4, fx: [{ t: 'debuff', k: 'poison', v: 3 }] },
@@ -107,7 +107,7 @@ export const ENEMIES = {
     ai: (e, t) => (t % 4 === 2 ? 'split' : t % 3 === 1 ? 'acid' : 'devour'),
   },
   skeleton_king: {
-    name: '骷髅王', sprite: 'undead', hp: [40, 46], act: 1, elite: true, body: 1.7,
+    name: '骷髅王', sprite: 'undead', hp: [40, 46], act: 1, elite: true, body: 1.5,
     moves: {
       royal_slash: A('王之斩', 12),
       summon: { name: '召唤骸骨', intent: 'buff', fx: [{ t: 'summon', id: 'undead', n: 1 }] },
@@ -168,7 +168,7 @@ export const ENEMIES = {
     ai: (e, t) => (t === 0 ? 'intimidate' : t % 3 === 2 ? 'ironwall' : 'heavy'),
   },
   spider_queen: {
-    name: '蛛后', sprite: 'spider', hp: [50, 58], act: 2, elite: true, body: 1.9,
+    name: '蛛后', sprite: 'spider', hp: [50, 58], act: 2, elite: true, body: 1.6,
     moves: {
       venom: { name: '毒液喷射', intent: 'attack_debuff', dmg: 5, fx: [{ t: 'debuff', k: 'poison', v: 6 }] },
       rend: A('撕咬', 10),
@@ -178,7 +178,7 @@ export const ENEMIES = {
     ai: (e, t) => ['venom', 'rend', 'web', 'rend', 'brood', 'venom'][t % 6],
   },
   lich: {
-    name: '巫妖', sprite: 'witch', hp: [55, 64], act: 2, elite: true, body: 1.8,
+    name: '巫妖', sprite: 'witch', hp: [55, 64], act: 2, elite: true, body: 1.55,
     moves: {
       deathray: A('死亡射线', 14),
       curse: { name: '亡灵诅咒', intent: 'debuff', fx: [{ t: 'addCard', id: 'curse_regret', to: 'discard', n: 1 }, { t: 'debuff', k: 'vulnerable', v: 2 }] },
@@ -223,7 +223,7 @@ export const ENEMIES = {
     ai: (e, t, rng) => (e.hp < e.maxHp * 0.3 ? 'boom' : 'claw'),
   },
   gargoyle: {
-    name: '石像鬼', sprite: 'gargoyle', hp: [60, 70], act: 3, elite: true, body: 1.8,
+    name: '石像鬼', sprite: 'gargoyle', hp: [60, 70], act: 3, elite: true, body: 1.55,
     moves: {
       dive: A('俯冲', 13),
       petrify: { name: '石化', intent: 'debuff', fx: [{ t: 'debuff', k: 'weak', v: 3 }, { t: 'debuff', k: 'vulnerable', v: 3 }] },
@@ -234,7 +234,7 @@ export const ENEMIES = {
 
   /* ================= Boss ================= */
   boss_eye: {
-    name: '深渊魔眼', sprite: 'boss_demon', hp: [92, 92], act: 1, boss: true, body: 2.6,
+    name: '深渊魔眼', sprite: 'boss_demon', hp: [92, 92], act: 1, boss: true, body: 1.6,
     moves: {
       gaze: { name: '虚空凝视', intent: 'debuff', fx: [{ t: 'debuff', k: 'vulnerable', v: 2 }, { t: 'debuff', k: 'weak', v: 2 }] },
       wave: { name: '暗影波', intent: 'attack', dmg: 9 },
@@ -245,7 +245,7 @@ export const ENEMIES = {
     ai: (e, t) => ['gaze', 'wave', 'charge', 'ray', 'spawn', 'wave', 'ray'][t % 7],
   },
   boss_tyrant: {
-    name: '石像暴君', sprite: 'boss_stone', hp: [135, 135], act: 2, boss: true, body: 2.8,
+    name: '石像暴君', sprite: 'boss_stone', hp: [135, 135], act: 2, boss: true, body: 2.0,
     moves: {
       crush: A('碾压', 18),
       petrify: { name: '石化诅咒', intent: 'debuff', fx: [{ t: 'debuff', k: 'weak', v: 3 }, { t: 'debuff', k: 'vulnerable', v: 3 }] },
@@ -255,7 +255,7 @@ export const ENEMIES = {
     ai: (e, t) => ['petrify', 'crush', 'armor', 'quake', 'crush', 'quake'][t % 6],
   },
   boss_lord: {
-    name: '深渊之主', sprite: 'boss_gargoyle', hp: [180, 180], act: 3, boss: true, body: 3.0,
+    name: '深渊之主', sprite: 'boss_gargoyle', hp: [180, 180], act: 3, boss: true, body: 2.1,
     moves: {
       ruin: A('毁灭之爪', 26),
       void: { name: '虚空侵蚀', intent: 'debuff', fx: [{ t: 'addCard', id: 'curse_regret', to: 'discard', n: 2 }, { t: 'debuff', k: 'vulnerable', v: 3 }] },
@@ -266,11 +266,11 @@ export const ENEMIES = {
     ai: (e, t) => ['void', 'ruin', 'swarm', 'drain', 'doom', 'ruin', 'drain'][t % 7],
   },
   /* 第 4 层 · 深渊之底的最终 Boss。
-     基础数值就照第 4 层写（这一层会再乘 1.6 倍攻击，所以这里不能按第 3 层的量级给），
-     立绘复用深渊之主但做冷色染色，玩家能一眼看出是"更强的那个"。 */
+     基础数值就照第 4 层写（这一层会再乘 1.6 倍攻击，所以这里不能按第 3 层的量级给）。
+     立绘有**专属贴图**（`boss_abyss`）：以前它借的是「深渊之主」那张图 + 色相旋转，
+     两个 Boss 长得一模一样，最终决战毫无辨识度。 */
   boss_abyss: {
-    name: '深渊之眼', sprite: 'boss_gargoyle', hp: [210, 210], act: 4, boss: true, body: 3.2,
-    tint: 'hue-rotate(190deg) saturate(1.5) brightness(0.92)',
+    name: '深渊之眼', sprite: 'boss_abyss', hp: [210, 210], act: 4, boss: true, body: 2.2,
     moves: {
       rend: A('撕裂虚空', 30),
       mark: { name: '湮灭印记', intent: 'debuff', fx: [{ t: 'debuff', k: 'vulnerable', v: 4 }, { t: 'debuff', k: 'weak', v: 2 }] },

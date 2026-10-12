@@ -1,5 +1,5 @@
 import { el, clear, sleep, toast, fitStage, disposeScene } from './core/util.js';
-import { G, newRun, save, hasSave, loadSave, clearSave, loadMeta, saveMeta, bumpMeta, addRelic } from './core/state.js';
+import { G, newRun, save, hasSave, loadSave, clearSave, loadMeta, saveMeta, bumpMeta, addRelic, gainMaxHp } from './core/state.js';
 import { generateMap, MAP_ROWS } from './core/map.js';
 import { Battle } from './core/battle.js';
 import { ENCOUNTERS, TOTAL_ACTS } from './data/enemies.js';
@@ -220,5 +220,5 @@ document.body.addEventListener('touchmove', e => {
 go('menu');
 
 // 调试入口（headless 验证用）
-window.__ABYSS__ = { go, startRun, get G() { return G; }, enterRoom, pickEncounter, Battle, startBattle, CARDS, RELICS, fitStage };
+window.__ABYSS__ = { go, startRun, get G() { return G; }, enterRoom, pickEncounter, Battle, startBattle, CARDS, RELICS, fitStage, addRelic, gainMaxHp };
 
