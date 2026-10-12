@@ -55,7 +55,12 @@ createServer(async (req, res) => {
     if (!file.startsWith(ROOT)) { res.writeHead(403).end('forbidden'); return; }
     const st = await stat(file);
     if (st.isDirectory()) { res.writeHead(403).end('dir'); return; }
-    const body = await readFile(file);
+    let body = await readFile(file);
+    // DEV AGENT INJECT：本地开发时动态挂上调试代理；线上产物里不含它
+    if (file.endsWith('index.html')) {
+      body = Buffer.from(String(body).replace('</body>',
+        '<script type="module" src="js/dev-agent.js"></script>\n</body>'), 'utf8');
+    }
     res.writeHead(200, {
       'Content-Type': MIME[extname(file).toLowerCase()] || 'application/octet-stream',
       'Content-Length': body.length,

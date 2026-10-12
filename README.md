@@ -164,7 +164,7 @@ roguelike/
 │   └── licenses/           各素材的授权原文
 ├── tools/
 │   ├── build.mjs           打包（rollup）+ 生成单文件 HTML
-│   └── test.mjs            自动化测试（jsdom，179 项）
+│   └── test.mjs            自动化测试（jsdom，187 项）
 └── dist/                   构建产物
 ```
 
@@ -196,14 +196,14 @@ my_card: {
 ```bash
 npm ci                          # 一次性：装 jsdom + rollup
 npm run build                   # 必须先构建，测试要读 dist/bundle.js
-npm test                        # 跑测试（179 项）
+npm test                        # 跑测试（187 项）
 npm run build:single            # 额外产出 dist/abyss-deck.html（素材全内联）
 npm run serve                   # 本地起服务，手机同局域网可访问
 ```
 
 `dist/` 不在版本库里，所以**先 `build` 再 `test`**，顺序反了会 ENOENT。
 
-### 测试覆盖（179 项，全绿）
+### 测试覆盖（187 项，全绿）
 
 - **数据层**：61 张卡的文案/效果字段/立绘、24 种敌人的招式/AI/立绘/召唤目标、
   27 件遗物的图标与钩子方法、遭遇战配置、各职业奖励池
@@ -213,9 +213,16 @@ npm run serve                   # 本地起服务，手机同局域网可访问
   商店/事件/营火/宝箱/奖励 五个房间全部渲染 + 点击不崩；12 个事件 × 全部选项 × 3 职业
 - **PWA / 预缓存清单**：清单必须**恰好等于**发布目录里的 Web 资源（不多不少）、
   每条都能在磁盘上找到、且不混入 `node_modules`/`.git` 等非运行期文件；
-  manifest 的 name/start_url/192+512 图标齐全且每个图标文件真实存在
+  必须按**码位序**排列（`readdir` 的顺序随文件系统变化，会让 `sw.js` 的版本哈希
+  在 Windows/Linux 上不一致 —— 线上实测 `grave_cross` 与 `gravestone` 顺序相反）；
+  只在本地开发用的 `js/dev-agent.js` 必须**同时**被 build 的排除清单、workflow 的
+  rsync 排除、以及 `index.html` 三处挡住（漏一处线上 SW 就会请求到 404）
   （这条是补的：`buildPrecache()` 曾把 1156 个 `node_modules` 文件写进清单，
   而它们并不在发布产物里 → 每个访客首开白跑一千多个 404）
+- **卡面文案长度门禁**：所有卡牌（含升级版）的文案都必须在 28 单位预算内 ——
+  即**基准字号 10.5px 下就放得下**，不许依赖缩字。预算由真机标定，
+  见 [docs/真机审计报告.md](docs/真机审计报告.md) §2–3
+  （这条是补的：jsdom 没有布局引擎、量不到 `scrollHeight`，以前只能靠文档里的红线自觉）
 - **存档往返**：地图坐标在 JSON 序列化前后都必须落在 0~1 范围内
   （这条是补的：之前 `layout()` 用对象引用找节点，读档后 52 个节点全跑到屏幕外）
 - **地图语义**：200 个种子每张地图都必须**有且只有一个 Boss 节点**，且位于最后一行

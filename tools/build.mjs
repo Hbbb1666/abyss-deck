@@ -56,14 +56,24 @@ const MIME = {
 const b64 = buf => buf.toString('base64');
 const dataURI = (buf, mime) => `data:${mime};base64,${b64(buf)}`;
 
+/** 递归收集文件（相对 ROOT 的路径）。
+    ⚠️ 顺序取决于 `readdir`，而它是**文件系统相关**的：
+    NTFS 大致按名字、ext4 是哈希序 —— 同一份代码在 Windows 和 Linux 上会得到**不同的顺序**。
+    所以任何会写进产物或参与哈希的地方，都必须再显式排一次序（见 sortedWalk）。 */
 async function walk(dir, base = ROOT, out = []) {
   for (const name of await readdir(dir)) {
     const p = join(dir, name);
     const st = await stat(p);
     if (st.isDirectory()) await walk(p, base, out);
-    else out.push(relative(base, p));
+    else out.push(relative(base, p).split('\\').join('/'));
   }
   return out;
+}
+
+/** 与 walk 相同，但用**码位序**排好，保证跨机器/跨平台字节一致。
+    JS 的默认 sort 就是码位序（不依赖 locale），正是我们要的确定性。 */
+async function sortedWalk(dir, base = ROOT) {
+  return (await walk(dir, base)).slice().sort();
 }
 
 // 图标不需要进 JS 资源表：它们由 HTML 的 <link> 和 manifest 引用，
@@ -71,7 +81,7 @@ async function walk(dir, base = ROOT, out = []) {
 const SKIP_IN_JS_MAP = /^assets\/icons\//;
 
 async function buildAssetMap() {
-  const files = (await walk(join(ROOT, 'assets'))).filter(f => !SKIP_IN_JS_MAP.test(f.split('\\').join('/')));
+  const files = (await sortedWalk(join(ROOT, 'assets'))).filter(f => !SKIP_IN_JS_MAP.test(f));
   const map = {};
   let total = 0;
   for (const rel of files) {
@@ -79,7 +89,7 @@ async function buildAssetMap() {
     if (!mime) continue;
     const buf = await readFile(join(ROOT, rel));
     total += buf.length;
-    map[rel.split('\\').join('/')] = dataURI(buf, mime);
+    map[rel] = dataURI(buf, mime);
   }
   return { map, total };
 }
@@ -158,15 +168,26 @@ async function buildSingle(jsCode) {
 //                    否则每个访客首开都要白跑一千多个 404。
 //   .git/         —— 同上。walk() 不读 .gitignore，只能在这里挡。
 //   package-lock.json —— 36 KB 的依赖锁，浏览器用不到。
-//   .github/ tools/ dist/ server.mjs start.sh dev-agent 等 —— 不发布／非运行期资源。
+//   .github/ tools/ dist/ server.mjs start.sh 等 —— 不发布／非运行期资源。
 const PRECACHE_SKIP_DIRS = /^(node_modules|\.git|\.github|\.vscode|\.idea|tools|dist|_site)\//;
 const PRECACHE_SKIP_FILES = new Set(['package.json', 'package-lock.json', 'precache.json', 'sw.js', 'server.mjs', 'start.sh']);
 
+/** 只在本地开发用、**不进线上产物**的文件。
+    它们必须同时满足两件事，否则线上会请求到 404：
+      · `.github/workflows/deploy.yml` 的 rsync 要把它们排除出站点
+      · 这里要把它们排除出预缓存清单
+    目前只有真机调试代理一个（手机端审计时发现它被误发到线上）。
+    tools/test.mjs 的 H 段会校验这三个地方保持一致。 */
+const PRECACHE_SKIP_DEV_ONLY = new Set(['js/dev-agent.js']);
+
 async function buildPrecache() {
-  const files = (await walk(ROOT))
-    .map(f => f.split('\\').join('/'))
+  // sortedWalk：见 walk() 的说明 —— 必须用确定顺序，否则 precache.json 的字节
+  // 会随文件系统变化，进而让 sw.js 的版本哈希在 Windows/Linux 上不一致
+  // （实测：线上 Linux 产出把 grave_cross.png 排在 gravestone.png 前，NTFS 反之）。
+  const files = (await sortedWalk(ROOT))
     .filter(f => !PRECACHE_SKIP_DIRS.test(f))
     .filter(f => !PRECACHE_SKIP_FILES.has(f))
+    .filter(f => !PRECACHE_SKIP_DEV_ONLY.has(f))
     .filter(f => !f.endsWith('.md'))
     .filter(f => /\.(html|css|js|json|webmanifest|png|jpg|svg|ogg|mp3|wav|woff2?|ttf)$/.test(f));
   const list = ['./', ...files.map(f => './' + f)];

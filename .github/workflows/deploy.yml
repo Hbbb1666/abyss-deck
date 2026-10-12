@@ -49,7 +49,8 @@ jobs:
         run: |
           mkdir -p _site
           rsync -a --exclude node_modules --exclude .git --exclude .github \
-                --exclude tools --exclude _site --exclude dist ./ _site/
+                --exclude tools --exclude _site --exclude dist \
+                --exclude js/dev-agent.js ./ _site/
           cp dist/abyss-deck.html _site/abyss-deck.html
           echo "站点内容："; ls -la _site
       - uses: actions/configure-pages@v5

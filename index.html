@@ -30,7 +30,8 @@
 <div id="toast-wrap"></div>
 
 <script type="module" src="js/main.js"></script>
-<script type="module" src="js/dev-agent.js"></script>
+<!-- 调试代理不写死在这里：js/dev-agent.js 是开发工具，不该发到线上。
+     本地 server.mjs 会在返回 HTML 时动态注入，线上产物永远不带它。 -->
 <script>
 // 注册 Service Worker —— 让游戏能装到桌面并离线玩。
 // file:// 打开时（单文件版）浏览器不允许 SW，这里静默跳过即可，不影响游戏。

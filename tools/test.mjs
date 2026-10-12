@@ -102,6 +102,48 @@ section('B. 数据定义自洽性');
   }
   ok(textErr.length === 0, '所有卡牌文案生成不报错', textErr.slice(0, 5).join(' | '));
 
+  /* ---- 卡面文案长度门禁 ----
+     为什么需要：卡面高度固定，文案太长会被 .ctext 的 overflow 裁掉，玩家看不到完整效果。
+     jsdom 没有布局引擎，量不到 scrollHeight，所以这条以前只能靠文档里的"红线"自觉。
+     下面这个预算表是**真机标定**出来的（MIUI 浏览器 / 980x1755 视口 / #stage zoom 2.19）：
+       文字区 84 × 65 布局px，基准字号 10.5px、行高 1.26 → 约 4.9 行、每行约 8 个全宽字
+       用全宽汉字做最坏情况注入实测：
+         ≤28 单位 → 基准字号直接放得下（不缩字、不溢出）
+         30–34   → 出现 1px 溢出（落在 fitCardText 的 ±1px 容差里，玩家看不出来，
+                   但已经意味着开始依赖缩字了）
+         36–50   → 必须把字号降到 8.5px 才放得下（字变小，可读性下降）
+         ≥58     → 缩到底仍然裁字
+     所以把门禁定在 28 单位，语义是「必须在基准字号下放得下」。
+     真要写更长的文案，请先真机确认，再有意识地调高这个常量。 */
+  const TEXT_BUDGET = 28;
+  const textUnits = (card) => {
+    const plain = String(card.text(card)).replace(/<[^>]*>/g, '');
+    let u = 0;
+    for (const ch of plain) {
+      if (/\s/.test(ch)) { u += 0.34; continue; }
+      u += /[\x00-\xff]/.test(ch) ? 0.5 : 1.0;   // 像素字体的 ASCII 约为汉字一半宽
+    }
+    return u;
+  };
+  const textLen = [];
+  for (const id of ids) {
+    for (const up of [false, true]) {
+      if (up && !CARDS[id].up) continue;
+      const c = { ...CARDS[id] };
+      if (up) Object.assign(c, CARDS[id].up);
+      textLen.push({ label: CARDS[id].name + (up ? '+' : ''), u: textUnits(c) });
+    }
+  }
+  textLen.sort((a, b) => b.u - a.u);
+  const tooLong = textLen.filter(x => x.u > TEXT_BUDGET);
+  ok(tooLong.length === 0,
+    `卡面文案长度都在预算内（≤ ${TEXT_BUDGET} 单位，最长的 ${textLen[0].label} 是 ${textLen[0].u.toFixed(1)}）`,
+    tooLong.slice(0, 5).map(x => `${x.label} ${x.u.toFixed(1)} 单位`).join(' | '));
+  if (textLen.length) {
+    console.log(`     文案预算：最长 ${textLen[0].u.toFixed(1)} / ${TEXT_BUDGET} 单位（${textLen[0].label}），`
+      + `超 24 单位的 ${textLen.filter(x => x.u > 24).length} 张`);
+  }
+
   // 美术资源存在
   const missingArt = ids.filter(id => !sprites.has(CARDS[id].art));
   ok(missingArt.length === 0, '卡牌立绘资源都存在', missingArt.slice(0, 6).join(','));
@@ -825,6 +867,10 @@ section('H. PWA / 预缓存清单（离线可玩）');
   if (Array.isArray(list)) {
     const WEB_EXT = /\.(html|css|js|json|webmanifest|png|jpg|svg|ogg|mp3|wav|woff2?|ttf)$/;
 
+    // 只在本地开发用、明确**不进线上产物**的文件（与 build.mjs 的
+    // PRECACHE_SKIP_DEV_ONLY 和 workflow 的 rsync --exclude 三处必须一致）。
+    const DEV_ONLY = ['js/dev-agent.js'];
+
     // 独立遍历一遍"真正会被发布的目录"，不去复用 build.mjs 的逻辑
     // （复用就等于拿被测实现给自己当尺子，它错了这里也会跟着错）
     const PUBLISHED_DIRS = ['assets', 'css', 'js'];
@@ -840,7 +886,7 @@ section('H. PWA / 预缓存清单（离线可玩）');
     const expected = [
       'index.html', 'manifest.webmanifest', 'css/style.css',
       ...PUBLISHED_DIRS.flatMap(d => walkPublished(join(ROOT, d), d)),
-    ].filter(f => WEB_EXT.test(f) && !/^assets\/licenses\//.test(f));
+    ].filter(f => WEB_EXT.test(f) && !/^assets\/licenses\//.test(f) && !DEV_ONLY.includes(f));
 
     // 1) 不该出现的东西（回归重点）
     const junk = list.filter(u => /node_modules|\.git\/|\/tools\/|^\.\/package(-lock)?\.json$/.test(u));
@@ -859,10 +905,45 @@ section('H. PWA / 预缓存清单（离线可玩）');
     const extra = list.filter(u => u !== './' && !expected.includes(u.replace(/^\.\//, '')));
     ok(extra.length === 0, '清单里没有多余条目',
        `多了 ${extra.length} 个：${extra.slice(0, 3).join(', ')}`);
+
+    /* --- 4) 顺序必须确定（否则 sw.js 的版本哈希跨机器不一致）---
+       walk() 的顺序来自 readdir，它是**文件系统相关**的：
+       NTFS 大致按名字、ext4 是哈希序。实测线上(Linux) 把 grave_cross.png 排在
+       gravestone.png 之前，而 NTFS 恰好相反 —— 集合一样、字节不同 →
+       precache.json 变了 → SW 版本哈希变了 → 每次换机器构建都白失效一次全量缓存。
+       修法是 build.mjs 用 sortedWalk（码位序）。这里盯住它别再退回去。 */
+    const filesOnly = list.filter(u => u !== './');
+    const sortedCopy = filesOnly.slice().sort();
+    const orderDiff = filesOnly.findIndex((u, i) => u !== sortedCopy[i]);
+    ok(orderDiff < 0,
+       '清单按码位序排列（跨文件系统/跨机器字节一致，SW 版本哈希才可复现）',
+       orderDiff >= 0 ? `第 ${orderDiff} 项：${filesOnly[orderDiff]} 应为 ${sortedCopy[orderDiff]}` : '');
+
+    /* --- 5) 只应存在于本地开发、不该出现在线上产物的文件 ---
+       手机端审计时发现 /js/dev-agent.js 在生产返回 200（调试代理被发布上线）。
+       改法是三处联动：index.html 不写死 → server.mjs 动态注入 → workflow 排除。
+       这三处只要有一处漏了，要么线上多一个不该有的文件，要么 SW 去请求一个 404。 */
+    const devInPrecache = list.filter(u => DEV_ONLY.includes(u.replace(/^\.\//, '')));
+    ok(devInPrecache.length === 0,
+       '预缓存清单里不含只在本地开发用的文件（否则线上 SW 会请求到 404）',
+       devInPrecache.join(', '));
+
+    const wf = readFileSync(join(ROOT, '.github/workflows/deploy.yml'), 'utf8');
+    for (const f of DEV_ONLY) {
+      ok(wf.includes(`--exclude ${f}`),
+         `workflow 的站点组装排除了 ${f}（与预缓存清单保持一致）`);
+    }
+    const idx = readFileSync(join(ROOT, 'index.html'), 'utf8');
+    ok(!/<script[^>]*dev-agent[^>]*>/.test(idx),
+       'index.html 不再写死调试代理（否则会被发布到线上）');
+    const srv = readFileSync(join(ROOT, 'server.mjs'), 'utf8');
+    ok(/dev-agent\.js/.test(srv),
+       'server.mjs 会在本地动态注入调试代理（本地真机调试通道仍可用）');
   }
 
   // manifest 本身也要完整，否则安卓弹不出安装框
-  const mf = JSON.parse(readFileSync(join(ROOT, 'manifest.webmanifest'), 'utf8'));  ok(!!mf.name && !!mf.short_name, 'manifest 有 name / short_name');
+  const mf = JSON.parse(readFileSync(join(ROOT, 'manifest.webmanifest'), 'utf8'));
+  ok(!!mf.name && !!mf.short_name, 'manifest 有 name / short_name');
   ok(!!mf.start_url && !!mf.display, 'manifest 有 start_url / display');
   const sizes = (mf.icons || []).map(i => i.sizes);
   ok(sizes.includes('192x192') && sizes.includes('512x512'), 'manifest 含 192 与 512 图标', sizes.join(','));
