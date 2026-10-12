@@ -873,6 +873,227 @@ section('H. PWA / 预缓存清单（离线可玩）');
      'manifest 快捷方式引用的图标也存在');
 }
 
+section('I. 弃牌代价（「飞刀」）');
+{
+  // 【这条是补的】cards.js 里「飞刀」写着"然后弃 1 张牌"，fx 也有 {t:'discard'}，
+  // 但引擎调的是 this.view.requestDiscard?.()，而 scene-battle.js 的 view 对象
+  // 压根没有这个方法 —— 可选链把整条静默跳过，卡面承诺的代价从未发生。
+  // 这里把两个方向都钉住：界面接得上、且无论界面在不在，代价都必须真的付。
+  const doc = window.document;
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const clearModals = () => [...doc.querySelectorAll('.modal-bg')].forEach(m => m.remove());
+  const { makeCard: card } = await import('file://' + join(ROOT, 'js/data/cards.js'));
+  const noopView = { step: async () => {}, sync() {}, log() {}, onDamage() {}, onHeal() {}, onBlock() {},
+    onStatus() {}, onDraw() {}, onPlay() {}, onExhaust() {}, onEnergy() {}, onGold() {},
+    onTurnStart() {}, onEnemyAct() {}, onSummon() {}, onDeath() {}, onEnd() {}, onPotion() {}, beforeEndTurn() {} };
+
+  const mkBattle = () => {
+    A.startRun('rogue');
+    const B = new A.Battle(['slime'], { kind: 'battle' });
+    B.view = { ...noopView };
+    B.rollIntents();
+    return B;
+  };
+
+  /* --- I1. 界面实现存在（旧代码就是缺这个） --- */
+  {
+    A.startRun('rogue');
+    const B = new A.Battle(['slime'], { kind: 'battle' });
+    A.go('battle', B);
+    await sleep(150);
+    ok(typeof B.view?.requestDiscard === 'function',
+       '战斗界面实现了 view.requestDiscard（否则「弃 1 张牌」会静默空转）');
+    clearModals();
+  }
+
+  /* --- I2. 界面挑哪张就弃哪张 --- */
+  {
+    const B = mkBattle();
+    await B.start();
+    B.hand = [card('strike'), card('defend'), card('cleave')];
+    const want = B.hand[1];
+    B.view.requestDiscard = async () => 1;          // 模拟玩家点了第 2 张
+    const discarded = await B.discardFromHand(1);
+    ok(discarded.length === 1 && discarded[0] === want, '弃掉的正是玩家选中的那张');
+    ok(B.discard.includes(want), '被弃的牌进了弃牌堆');
+    ok(!B.hand.includes(want), '被弃的牌离开了手牌');
+    ok(B.hand.length === 2, `手牌少了一张（剩 ${B.hand.length}）`);
+  }
+
+  /* --- I3. 玩家取消 / 界面没实现 → 仍然要付代价（退化成随机） --- */
+  {
+    const B = mkBattle();
+    await B.start();
+    B.hand = [card('strike'), card('defend')];
+    B.view.requestDiscard = async () => -1;         // 模拟玩家取消
+    const discarded = await B.discardFromHand(1);
+    ok(discarded.length === 1, '取消弃牌也要付出代价（不能白赚）');
+    ok(B.hand.length === 1, '手牌确实少了一张');
+
+    const B2 = mkBattle();
+    await B2.start();
+    B2.hand = [card('strike'), card('defend')];
+    delete B2.view.requestDiscard;                  // 模拟界面完全没接这个回调
+    const d2 = await B2.discardFromHand(1);
+    ok(d2.length === 1, '界面未实现 requestDiscard 时也不会空转');
+  }
+
+  /* --- I4. 端到端：真打「飞刀」，被选中的那张必须进弃牌堆 --- */
+  {
+    const B = mkBattle();
+    await B.start();
+    B.energy = 3;
+    const dagger = card('dagger_throw');
+    const spare = card('defend');
+    B.hand = [dagger, card('strike'), spare];
+    B.view.requestDiscard = async hand => hand.indexOf(spare);   // 明确指定弃「防御」
+    await B.playCard(dagger, B.aliveEnemies()[0]);
+    ok(B.discard.includes(dagger), '打出的「飞刀」进了弃牌堆');
+    ok(B.discard.includes(spare), '「飞刀」确实弃掉了玩家选中的那张');
+    // 净变化：打出 −1、飞刀自带抽 1 张 +1、弃牌 −1 → 3-1+1-1 = 2
+    ok(B.hand.length === 2, `手牌按「打出1 / 抽1 / 弃1」净减 1（实际 ${B.hand.length}）`);
+  }
+
+  /* --- I5. 手牌为空时不能卡死 --- */
+  {
+    const B = mkBattle();
+    await B.start();
+    B.hand = [];
+    const d = await B.discardFromHand(1);
+    ok(d.length === 0, '手牌为空时弃牌不报错、返回空');
+  }
+}
+
+section('J. 战斗存档版本兼容（不能白送胜利）');
+{
+  // 【这条是补的】applySnapshot 原本是 `if (!s || s.v !== 1) return;` —— 静默返回。
+  // 而主线读档走 `new Battle([], {kind, restore})`（encounter 是空数组），
+  // 于是 enemies 保持空 → resume() 里 `!aliveEnemies().length` 成立 →
+  // endBattle(true) —— **直接判玩家胜利、白送一关**。
+  // 将来任何一次快照结构改动都会触发它，且玩家会以为是自己打赢的。
+  const noopView = { step: async () => {}, sync() {}, log() {}, onDamage() {}, onHeal() {}, onBlock() {},
+    onStatus() {}, onDraw() {}, onPlay() {}, onExhaust() {}, onEnergy() {}, onGold() {},
+    onTurnStart() {}, onEnemyAct() {}, onSummon() {}, onDeath() {}, onEnd() {}, onPotion() {}, beforeEndTurn() {} };
+
+  /* --- J1. 先拿一份真实快照当"正常档" --- */
+  A.startRun('knight');
+  const B0 = new A.Battle(['slime'], { kind: 'battle' });
+  B0.view = { ...noopView };
+  B0.rollIntents();
+  await B0.start();
+  const goodSnap = JSON.parse(JSON.stringify(B0.serialize()));
+  ok(goodSnap.v === 1, '新快照的版本号是 1');
+
+  /* --- J2. 版本正常的快照必须能读回来 --- */
+  {
+    const B = new A.Battle([], { kind: 'battle', restore: goodSnap });
+    B.view = { ...noopView };
+    ok(B.restoreFailed === false, '版本匹配时不标记 restoreFailed');
+    ok(B.aliveEnemies().length === goodSnap.enemies.length,
+       `敌人按快照恢复了（${B.aliveEnemies().length} 个）`);
+    ok(B.player.hp === goodSnap.player.hp, '玩家血量按快照恢复');
+  }
+
+  /* --- J3. 版本不认识时必须报告失败，而不是静默变空战场 --- */
+  {
+    const bad = { ...goodSnap, v: 99 };
+    const B = new A.Battle([], { kind: 'battle', restore: bad });
+    B.view = { ...noopView };
+    ok(B.restoreFailed === true, '版本不认识时 restoreFailed 为 true');
+    ok(B.aliveEnemies().length === 0, '（这正是危险之处）敌人数组是空的');
+  }
+
+  /* --- J4. 关键：这种状态下 resume() 绝不能判胜利 --- */
+  {
+    const bad = { ...goodSnap, v: 99 };
+    const B = new A.Battle([], { kind: 'battle', restore: bad });
+    B.view = { ...noopView };
+    let ended = null;
+    B.view.onEnd = r => { ended = r; };
+    const r = await B.resume();
+    ok(r === false, 'resume() 明确返回 false 表示没恢复成');
+    ok(B.over === false, '战斗没有被判定结束');
+    ok(!(B.over && B.result === 'win'), '★ 没有把"读档失败"当成"打赢了"');
+    ok(ended === null, '没有触发结算回调（否则玩家会看到白送的胜利画面）');
+  }
+
+  /* --- J5. 残缺快照同样不能白送 ---
+     注意契约：restore 为 null/undefined 表示"根本没有快照"（main.js 用 `if (!p.snap)`
+     单独兜底、走全新战斗），不算恢复失败；而"给了快照但内容不全"必须算失败。 */
+  {
+    const cases = [
+      [{}, true, '空对象'],
+      [{ v: 1 }, true, '有版本号但没有 player'],
+      [{ v: 1, player: null }, true, 'player 是 null'],
+      [{ v: 1, player: { hp: 10, maxHp: 20 } }, true, '有 player 但 enemies 为空'],
+      [{ v: 1, player: { hp: '10', maxHp: 20 }, enemies: [{ defId: 'slime' }] }, true, 'hp 不是数字'],
+      [{ v: 1, player: { hp: 10, maxHp: 20 }, enemies: [{ defId: '不存在的敌人' }] }, true, 'enemies 全是未知 defId'],
+    ];
+    for (const [snap, want, label] of cases) {
+      const B = new A.Battle([], { kind: 'battle', restore: snap });
+      B.view = { ...noopView };
+      ok(B.restoreFailed === want, `残缺快照被拒（${label}）`);
+    }
+    // 没有快照 ≠ 恢复失败
+    for (const none of [null, undefined]) {
+      const B = new A.Battle([], { kind: 'battle', restore: none });
+      ok(B.restoreFailed === false, `没给快照时不标记失败（${String(none)}）`);
+    }
+  }
+}
+
+section('K. 场景监听器回收（切场景不累积泄漏）');
+{
+  // 【这条是补的】原来全仓没有一处 removeEventListener：
+  // 每进一次战斗就往 window/document 上多挂 4 个监听器（beforeunload /
+  // visibilitychange / pagehide / resize），每进一次地图多挂 1 个。
+  // 这些闭包攥着那一场的 Battle、G 和整棵 DOM 树，而旧的 resize 回调
+  // 还会继续对已经脱离文档的节点跑 layoutHand()。
+  const sleep2 = ms => new Promise(r => setTimeout(r, ms));
+
+  // 统计"净存活"的监听器：add 进集合、remove 出集合。
+  // 注意：身份必须用**函数对象本身**（给每个函数分配唯一编号），
+  // 不能用 String(f) —— 源码文本相同的闭包（例如每个战斗场景都注册的
+  // `() => requestAnimationFrame(layoutHand)`）会被 Set 当成同一个而合并，
+  // 实测会把 30 个少算成 5 个，让这条断言变成永不触发的假测试。
+  let addCount = 0, removeCount = 0, fnSeq = 0;
+  const fnIds = new Map();
+  const idOf = f => { let v = fnIds.get(f); if (v === undefined) { v = ++fnSeq; fnIds.set(f, v); } return v; };
+  const patch = target => {
+    const add = target.addEventListener.bind(target);
+    const rm = target.removeEventListener.bind(target);
+    const active = new Set();
+    target.addEventListener = (t, f, o) => { addCount++; active.add(t + '#' + idOf(f)); return add(t, f, o); };
+    target.removeEventListener = (t, f, o) => { removeCount++; active.delete(t + '#' + idOf(f)); return rm(t, f, o); };
+    return active;
+  };
+  const winActive = patch(window);
+  const docActive = patch(window.document);
+  const live = () => winActive.size + docActive.size;
+
+  // 进一次战斗作为基线
+  A.startRun('knight');
+  A.go('battle', new A.Battle(['slime'], { kind: 'battle' }));
+  await sleep2(180);
+  const after1 = live();
+
+  // 来回切场景 5 轮
+  for (let i = 0; i < 5; i++) {
+    A.go('map');
+    await sleep2(80);
+    A.go('battle', new A.Battle(['slime'], { kind: 'battle' }));
+    await sleep2(180);
+  }
+  const after6 = live();
+  console.log(`     监听器统计：add ${addCount} / remove ${removeCount} / 当前存活 ${live()}` +
+              `（1 场后 ${after1} → 再切 5 轮后 ${after6}）`);
+
+  ok(removeCount > 0, `切场景时确实有 removeEventListener 被调用（${removeCount} 次）`);
+  ok(after6 <= after1,
+     `来回切 5 轮战斗/地图后监听器没有净累积（${after1} -> ${after6}）`);
+  ok(live() < addCount, `注册与摘除配对（累计 add ${addCount} / remove ${removeCount}，当前存活 ${live()}）`);
+}
+
 section('运行期 JS 错误');
 {
   const real = jsErrors.filter(e => !/Not implemented|Could not parse CSS|audio/i.test(e));

@@ -1,4 +1,4 @@
-import { el, clear, $, $$, sleep, fxFloat, shake, toast, clamp } from '../core/util.js';
+import { el, clear, $, $$, sleep, fxFloat, shake, toast, clamp, onScene } from '../core/util.js';
 import { G, save, relicMods, hydrate } from '../core/state.js';
 import { RELICS } from '../data/relics.js';
 import { CARDS, makeCard, RARITY, TYPE_LABEL } from '../data/cards.js';
@@ -256,7 +256,7 @@ export function battleScene(B, { onFinish, onQuit, resumed }) {
     });
     hand.style.justifyContent = step < CW * 0.9 ? 'flex-start' : 'center';
   }
-  addEventListener('resize', () => requestAnimationFrame(layoutHand));
+  onScene(root, window, 'resize', () => requestAnimationFrame(layoutHand));
 
   let selectedTarget = null;
   function sync() {
@@ -415,9 +415,11 @@ export function battleScene(B, { onFinish, onQuit, resumed }) {
     save();
   }
   // 关页面/切后台都要立刻落盘 —— beforeunload 在移动端不可靠，visibilitychange 更稳
-  addEventListener('beforeunload', () => { try { persist(true); } catch {} });
-  document.addEventListener('visibilitychange', () => { if (document.hidden) { try { persist(true); } catch {} } });
-  addEventListener('pagehide', () => { try { persist(true); } catch {} });
+  // 这四个监听器必须跟着场景走（onScene）：否则每进一次战斗就多留一份，
+  // 旧的闭包会一直攥着这一整场战斗的 Battle 和 DOM。
+  onScene(root, window, 'beforeunload', () => { try { persist(true); } catch {} });
+  onScene(root, document, 'visibilitychange', () => { if (document.hidden) { try { persist(true); } catch {} } });
+  onScene(root, window, 'pagehide', () => { try { persist(true); } catch {} });
 
   /* ================= 引擎回调 ================= */
   const view = {
@@ -485,6 +487,26 @@ export function battleScene(B, { onFinish, onQuit, resumed }) {
     },
     // 出牌结束 / 回合切换：立刻存一次，保证"刚打完一张牌就关页面"不会丢
     afterAction() { persist(true); },
+    /** 弃牌代价（「飞刀」）：弹选牌器让玩家自己挑，返回要丢的那张在手牌里的下标。
+        玩家点取消就返回 -1 —— 引擎侧会退化成随机弃一张，
+        因为卡面写的"弃 1 张牌"是**代价**：付不出也不能白赚。
+        返回 Promise，引擎的 discardFromHand() 会 await 它。 */
+    requestDiscard(hand) {
+      return new Promise(resolve => {
+        if (!hand.length) { resolve(-1); return; }
+        let settled = false;
+        const done = v => { if (!settled) { settled = true; resolve(v); } };
+        pickCards(hand.slice(), {
+          n: 1, title: '弃一张牌', hint: '「飞刀」的代价：选中的牌进入弃牌堆',
+          onDone: sel => {
+            if (!sel || !sel[0]) { done(-1); return; }
+            // 用对象身份找回下标（hand 里就是这些卡实例本身）
+            const i = hand.indexOf(sel[0]);
+            done(i >= 0 ? i : -1);
+          },
+        });
+      });
+    },
     onDeath(e) {
       const refs = enemyNodes.get(e.uid);
       if (refs) refs.node.classList.add('dead');

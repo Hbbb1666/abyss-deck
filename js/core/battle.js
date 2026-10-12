@@ -64,7 +64,8 @@ export class Battle {
     this.cardsPlayedThisTurn = 0;
 
     // 从存档恢复：直接套用快照，不要重新随机
-    if (opts.restore) this.applySnapshot(opts.restore);
+    this.restoreFailed = false;
+    if (opts.restore && !this.applySnapshot(opts.restore)) this.restoreFailed = true;
   }
 
   /* ---------------- 存档 / 读档 ----------------
@@ -90,15 +91,23 @@ export class Battle {
     };
   }
 
+  /** 套用快照。**返回是否成功** —— 调用方必须看这个返回值：
+      早先这里是 `if (!s || s.v !== 1) return;` 直接静默返回，敌人数组保持空
+      （resumeBattle 传进来的 encounter 是 []），于是 resume() 判定"敌人全死"，
+      直接 endBattle(true) —— 白送一关。改快照结构时必须同步改这里。 */
   applySnapshot(s) {
-    if (!s || s.v !== 1) return;
+    // 校验必须够严：只要有一点对不上就整体拒绝（返回 false 由调用方兜底），
+    // 半套用的状态比不套用更危险 —— 会留下一个"看起来正常"但数据错位的战斗。
+    if (!s || s.v !== 1) return false;
+    if (!s.player || typeof s.player.hp !== 'number' || typeof s.player.maxHp !== 'number') return false;
+    if (!Array.isArray(s.enemies) || !s.enemies.length) return false;
     this.turn = s.turn || 0;
     this.energy = s.energy || 0;
     this.energyMax = s.energyMax || 3;
     Object.assign(this.player, {
       hp: s.player.hp, maxHp: s.player.maxHp, block: s.player.block || 0, st: { ...(s.player.st || {}) },
     });
-    if (Array.isArray(s.enemies) && s.enemies.length) {
+    {
       // 先按快照顺序把敌人重建出来（uid 会重新分配）
       this.enemies = s.enemies.map(e => {
         const d = ENEMIES[e.defId];
@@ -118,15 +127,22 @@ export class Battle {
         const pi = typeof e.summonedBy === 'number' ? e.summonedBy : -1;
         child.summonedBy = (pi >= 0 && this.enemies[pi]) ? this.enemies[pi].uid : null;
       });
+      // 有敌人因为 defId 在 ENEMIES 里找不到而被 filter 掉时，下标就对不齐了
+      // （summonedBy 会整体错位），而且剩下空数组又会被 resume() 当成"打赢了"。
+      // 这两种情况都只能整体拒绝，交给调用方重新开一场。
+      if (this.enemies.length !== s.enemies.length) return false;
     }
     const re = arr => (arr || []).map(c => makeCard(c.id, c.up));
     this.draw = re(s.draw); this.hand = re(s.hand);
     this.discard = re(s.discard); this.exhaustPile = re(s.exhaust);
+    return true;
   }
 
   /** 读档后继续这场战斗（不重新开局） */
   async resume() {
     this.pushLog('战斗继续');
+    // 快照没套上就绝不能往下判：敌人数组空 ≠ 玩家打赢了
+    if (this.restoreFailed) return false;
     if (this.player.hp <= 0) { await this.endBattle(false); return; }
     if (!this.aliveEnemies().length) { await this.endBattle(true); return; }
     this.rollIntents();
@@ -325,7 +341,10 @@ export class Battle {
           for (const e of this.aliveEnemies()) { this.applyDebuff(e, f.k, v + (f.k === 'poison' ? this.get(this.player, 'poison_plus') : 0)); this.view.onStatus?.(e); }
           await this.view.step?.(); break;
         case 'gold': G.gold += v; this.view.onGold?.(v); await this.view.step?.(); break;
-        case 'discard': this.view.requestDiscard?.(v); break;
+        // 弃牌是「代价」不是「效果」，必须真的落在手牌上 —— 见 discardFromHand()。
+        // 旧代码是 `this.view.requestDiscard?.(v)`：界面根本没实现这个回调，
+        // 可选链把整条静默跳过 → 卡面写着"弃 1 张牌"却什么也没发生。
+        case 'discard': await this.discardFromHand(v || 1); break;
       }
     }
   }
@@ -388,6 +407,29 @@ export class Battle {
     return this.energy >= cost;
   }
   cardCost(c) { return Math.max(0, c.cost ?? 0); }
+
+  /** 从手牌里丢掉一张（「飞刀」之类的弃牌代价）。
+      优先让界面弹选牌器；界面没接这个回调、或玩家取消/没有可弃的牌时，
+      退化成随机丢一张，保证卡面承诺的代价一定真的发生、且永远不会卡住流程。 */
+  async discardFromHand(n = 1) {
+    const freed = [];
+    for (let i = 0; i < n; i++) {
+      if (!this.hand.length) break;
+      let idx = -1;
+      if (this.view.requestDiscard) {
+        try { idx = await this.view.requestDiscard(this.hand, this); } catch { idx = -1; }
+      }
+      if (typeof idx !== 'number' || idx < 0 || idx >= this.hand.length) idx = this.rng.int(0, this.hand.length - 1);
+      const [c] = this.hand.splice(idx, 1);
+      if (!c) break;
+      this.discard.push(c);
+      freed.push(c);
+      this.pushLog(`弃掉了「${c.name}」`);
+      await this.view.step?.(60);
+    }
+    if (freed.length) { this.view.sync?.(); }
+    return freed;
+  }
 
   async playCard(card, target) {
     if (!this.canPlay(card)) return false;

@@ -1,4 +1,4 @@
-import { el, clear, sleep, toast, fitStage } from './core/util.js';
+import { el, clear, sleep, toast, fitStage, disposeScene } from './core/util.js';
 import { G, newRun, save, hasSave, loadSave, clearSave, loadMeta, saveMeta, bumpMeta, addRelic } from './core/state.js';
 import { generateMap, MAP_ROWS } from './core/map.js';
 import { Battle } from './core/battle.js';
@@ -15,6 +15,7 @@ import { rewardScene, shopScene, eventScene, restScene, treasureScene } from './
 
 const app = document.getElementById('app');
 let rendering = false;
+let mounted = null;          // 当前挂在 #app 里的场景节点（切场景时用它摘监听器）
 
 /* ================= 路由 ================= */
 function go(name, ...args) {
@@ -35,8 +36,12 @@ function go(name, ...args) {
       case 'end': node = endScene(args[0], { onMenu: () => go('menu'), onRetry: () => go('class') }); break;
       default: node = el('div', { class: 'screen center' }, el('div', { text: '未知场景: ' + name }));
     }
+    // 先摘掉上一个场景注册的 window/document 监听器，再拆 DOM。
+    // 顺序很重要：反过来的话，监听器会短暂指着已经不在文档里的节点。
+    disposeScene(mounted);
     clear(app);
     app.append(node);
+    mounted = node;
     // 卡面描述长短不一，渲染后统一做一次文字适配（放不下的自动缩字号）
     requestAnimationFrame(() => fitAllCards(app));
     if (name !== 'menu' && name !== 'class' && name !== 'end') save();
@@ -112,6 +117,15 @@ function startBattle(kind, type) {
 function resumeBattle(p) {
   if (!p.snap) { startBattle(p.kind, p.type); return; }
   const B = new Battle([], { kind: p.kind, restore: p.snap });
+  // 快照版本不认（例如以后改了快照结构、或玩家存的是旧版本档）时，
+  // 绝不能顺着往下走 —— 那时敌人数组是空的，会被判成"敌人全死"直接白送一关。
+  // 退化成重新开一场同类型的战斗，玩家最多是重打这一场，而不是凭空通关。
+  if (B.restoreFailed) {
+    console.warn('[abyss] 战斗存档版本不兼容，改为重新开始这场战斗');
+    toast('这份战斗存档读不了，这场重新开始', 1800);
+    startBattle(p.kind, p.type);
+    return;
+  }
   go('battle', B, true);
 }
 
@@ -181,3 +195,4 @@ go('menu');
 
 // 调试入口（headless 验证用）
 window.__ABYSS__ = { go, startRun, get G() { return G; }, enterRoom, pickEncounter, Battle, startBattle, CARDS, RELICS, fitStage };
+

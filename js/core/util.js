@@ -131,6 +131,39 @@ export function toast(msg, ms = 1600) {
   setTimeout(() => { n.classList.remove('in'); setTimeout(() => n.remove(), 300); }, ms);
 }
 
+/* ============ 场景级监听器 ============ */
+/**
+ * 在场景节点上注册监听器，切场景时由路由统一摘掉。
+ *
+ * 为什么需要：场景节点会被 clear(#app) 丢掉，但挂在 window/document 上的监听器不会。
+ * 每进一次战斗就多 4 个（beforeunload / visibilitychange / pagehide / resize），
+ * 每进一次地图多 1 个；这些闭包攥着旧的 Battle、G 和整棵 DOM 树，
+ * 而旧的 resize 回调还会继续对**已经脱离文档**的节点跑 layoutHand()。
+ * 之前全仓没有一处 removeEventListener，所以这是按"每进一次战斗/地图"累加的泄漏。
+ *
+ * 用法：onScene(root, window, 'resize', fn)
+ */
+const sceneListeners = new WeakMap();
+
+export function onScene(node, target, type, fn, opts) {
+  target.addEventListener(type, fn, opts);
+  let set = sceneListeners.get(node);
+  if (!set) { set = []; sceneListeners.set(node, set); }
+  set.push(() => target.removeEventListener(type, fn, opts));
+  return fn;
+}
+
+/** 摘掉该场景注册过的全部监听器；返回摘掉的数量（路由在拆 DOM 之前调用） */
+export function disposeScene(node) {
+  if (!node) return 0;
+  const set = sceneListeners.get(node);
+  if (!set) return 0;
+  sceneListeners.delete(node);
+  let n = 0;
+  for (const off of set) { try { off(); n++; } catch { /* 单个失败不影响其它 */ } }
+  return n;
+}
+
 /* ============ 杂项 ============ */
 /**
  * 资源路径解析。

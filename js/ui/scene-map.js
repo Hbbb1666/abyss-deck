@@ -1,4 +1,4 @@
-import { el, clear, sleep, toast, fxFloat } from '../core/util.js';
+import { el, clear, sleep, toast, fxFloat, onScene } from '../core/util.js';
 import { G, save, hasRelic } from '../core/state.js';
 import { NODE_TYPES, reachable, nodeAt, layout, MAP_ROWS } from '../core/map.js';
 import { sfx } from '../core/audio.js';
@@ -141,7 +141,7 @@ export function mapScene({ onEnter }) {
 
   // 布局尺寸可能要等一两帧才稳定，滚两次确保落点正确
   requestAnimationFrame(() => { scrollToFrontier(false); requestAnimationFrame(() => scrollToFrontier(false)); });
-  addEventListener('resize', () => requestAnimationFrame(() => scrollToFrontier(false)));
+  onScene(root, window, 'resize', () => requestAnimationFrame(() => scrollToFrontier(false)));
 
   // 手动滑动到底/到顶时提示一下，避免以为是卡住了
   wrap.addEventListener('scroll', () => {
