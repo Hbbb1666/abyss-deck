@@ -1,0 +1,8 @@
+node_modules/
+dist/
+precache.json
+server.log
+*.log
+.DS_Store
+.vscode/
+.idea/

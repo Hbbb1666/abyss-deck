@@ -1,0 +1,488 @@
+import { el, clear, sleep, toast, fxFloat } from '../core/util.js';
+import { G, save, addRelic, addPotion, addCardToDeck, removeCardAt, upgradeCardAt, rollCardChoices, rollRelic, rollPotion, relicMods, hydrate } from '../core/state.js';
+import { CARDS, makeCard, rewardPool, RARITY } from '../data/cards.js';
+import { RELICS } from '../data/relics.js';
+import { POTIONS } from '../data/potions.js';
+import { EVENTS } from '../data/events.js';
+import { sfx } from '../core/audio.js';
+import { cardEl, modal, pickCards, SPR, relicEl, bindTip, hpBar, updateHpBar } from './widgets.js';
+import { showHelp, deckBody } from './scene-battle.js';
+
+function topbar(title, { onBack } = {}) {
+  return el('div', { class: 'topbar' },
+    onBack ? el('button', { class: 'btn sm ghost', text: '←', onClick: () => { sfx.back(); onBack(); } }) : el('div', { style: { width: '38px' } }),
+    el('div', { class: 'grow', style: { textAlign: 'center' }, html: `<span class="gold">${title}</span>` }),
+    el('button', { class: 'btn sm ghost', text: '卡组', onClick: () => { sfx.open(); modal({ title: `当前卡组（${G.deck.length} 张）`, closable: true, body: deckBody(), buttons: [{ label: '关闭', cls: 'primary' }] }); } }),
+  );
+}
+
+/**
+ * 血量条 + 金币。注意必须能刷新 ——
+ * 买东西会扣血上限、营火会回血，这些栏位如果只在进场景时渲染一次，
+ * 玩家就会看到"数字变了但血条没动"。凡是改动 G 的操作都要调 strip.refresh()。
+ */
+function statusStrip() {
+  const bar = hpBar(G.hp, G.maxHp, 0);
+  const goldNum = el('span', { class: 'goldAmt', text: String(G.gold) });
+  const node = el('div', { class: 'row gap8', style: { padding: '6px 10px' } },
+    bar,
+    el('div', { class: 'stat' }, el('span', { class: 'ico', style: { backgroundImage: `url(${SPR('key_gold')})` } }), goldNum));
+  node.refresh = () => {
+    updateHpBar(bar, Math.max(0, G.hp), G.maxHp, 0);
+    goldNum.textContent = String(G.gold);
+  };
+  return node;
+}
+
+/* =====================================================================
+   战斗奖励
+   ===================================================================== */
+export function rewardScene(kind, { onDone }) {
+  const root = el('div', { class: 'screen' });
+  const body = el('div', { class: 'scroll grow', style: { padding: '0 12px 12px' } });
+  const rwStrip = statusStrip();
+  root.append(topbar(kind === 'boss' ? '击败首领！' : kind === 'elite' ? '击败精英！' : '战斗胜利'), rwStrip);
+
+  const goldAmt = kind === 'boss' ? 90 + G.act * 25 : kind === 'elite' ? 45 + G.act * 12 : 18 + G.rng.int(6, 14);
+  const bonus = relicMods().battleGold || 0;
+  const total = goldAmt + bonus;
+  G.gold += total;
+  if (kind === 'boss') G.stats.bosses++;
+  else if (kind === 'elite') G.stats.elites++;
+  save();
+
+  const cards = rollCardChoices(3 + (relicMods().cardChoice || 0));
+  const relicId = (kind === 'elite' || kind === 'boss') ? rollRelic(kind === 'boss' ? ['rare', 'boss'] : ['common', 'uncommon', 'rare']) : null;
+  const potion = G.rng.chance(kind === 'battle' ? 0.42 : 0.6) ? rollPotion() : null;
+
+  const got = el('div', { class: 'col gap6', style: { padding: '10px 12px 2px' } });
+  got.append(el('div', { class: 'row gap6 small', html: `<span style="color:#ffcc52">◉</span> 获得 <b>${total}</b> 金币${bonus ? ` <span class="dim">(含遗物 +${bonus})</span>` : ''}` }));
+  body.append(got);
+
+  /* --- 遗物 --- */
+  if (relicId) {
+    addRelic(relicId);
+    const r = RELICS[relicId];
+    body.append(el('div', { class: 'small gold', style: { margin: '12px 0 6px' }, text: '获得遗物' }));
+    const box = el('div', { class: 'row gap8', style: { background: '#ffcc5210', border: '2px solid #ffcc5240', borderRadius: '6px', padding: '10px' } },
+      el('div', { class: 'relic', style: { width: '38px', height: '38px', backgroundImage: `url(${SPR(r.sprite)})`, flex: 'none' } }),
+      el('div', { class: 'col gap4' }, el('div', { class: 'gold', text: r.name }), el('div', { class: 'tiny dim', html: r.desc })));
+    body.append(box);
+    sfx.bell();
+    save();
+  }
+
+  /* --- 药水 --- */
+  if (potion && G.potions.length < G.potionSlots) {
+    addPotion(potion);
+    body.append(el('div', { class: 'small gold', style: { margin: '12px 0 6px' }, text: '获得药水' }));
+    body.append(el('div', { class: 'row gap8', style: { background: '#7ee78710', border: '2px solid #7ee78740', borderRadius: '6px', padding: '10px' } },
+      el('div', { class: 'relic', style: { width: '38px', height: '38px', backgroundImage: `url(${SPR(potion.sprite)})`, flex: 'none' } }),
+      el('div', { class: 'col gap4' }, el('div', { style: { color: '#7ee787' }, text: potion.name }), el('div', { class: 'tiny dim', html: potion.text }))));
+    save();
+  } else if (potion) {
+    body.append(el('div', { class: 'tiny dim', style: { marginTop: '10px' }, text: '药水槽已满，错过了这次掉落。' }));
+  }
+  rwStrip.refresh();   // 拿到的遗物可能改了最大生命（比如「贪婪之心」）
+
+  /* --- 选牌 --- */
+  let picked = false;
+  body.append(el('div', { class: 'small gold', style: { margin: '14px 0 6px' }, text: '选择一张卡牌加入卡组' }));
+  const grid = el('div', { class: 'deck-grid' });
+  const cont = el('button', { class: 'btn primary block mt16', text: '继续前进 →', onClick: () => { sfx.confirm(); onDone(); } });
+  cont.classList.add('disabled');
+  const skip = el('button', { class: 'btn ghost block mt8', text: '都不要，直接前进', onClick: () => { sfx.back(); onDone(); } });
+
+  const nodes = cards.map(c => {
+    const node = cardEl(makeCard(c.id), {
+      onClick: () => {
+        if (picked) return;
+        picked = true;
+        addCardToDeck(c.id);
+        save();
+        sfx.place();
+        node.classList.add('selected');
+        toast(`「${CARDS[c.id].name}」已加入卡组`);
+        cont.classList.remove('disabled');
+        skip.classList.add('disabled');
+      },
+    });
+    return node;
+  });
+  nodes.forEach(n => grid.append(n));
+  body.append(grid, cont, skip);
+
+  root.append(body);
+  return root;
+}
+
+/* =====================================================================
+   商店
+   ===================================================================== */
+export function shopScene({ onDone }) {
+  const discount = relicMods().shopDiscount || 0;
+  const price = p => Math.max(1, Math.round(p * (1 - discount)));
+  const root = el('div', { class: 'screen' });
+  const body = el('div', { class: 'scroll grow', style: { padding: '0 12px 12px' } });
+  const shopStrip = statusStrip();
+  root.append(topbar('商店', {}), shopStrip);
+
+  // 商品
+  const cardStock = rollCardChoices(5).map(c => ({ ...c, price: price(cardPrice(c)) }));
+  const relicStock = (() => {
+    const out = [];
+    for (let i = 0; i < 2; i++) {
+      const r = rollRelic(['common', 'uncommon', 'rare']);
+      if (r && !out.some(x => x.id === r)) out.push({ id: r, price: price(relicPrice(r)) });
+    }
+    return out;
+  })();
+  const potionStock = (() => {
+    const out = [];
+    for (let i = 0; i < 3; i++) { const p = rollPotion(); if (!out.some(x => x.id === p.id)) out.push({ ...p, price: price(p.price) }); }
+    return out;
+  })();
+  // 移除卡牌不限次数：同一次进店每移除一张涨 50 金（75 / 125 / 175…），
+  // 别再限制死一次 —— 那样会卡住玩家的卡组构筑。
+  let removalsThisVisit = 0;
+  const removePriceOf = () => price(75 + removalsThisVisit * 50);
+
+  function cardPrice(c) {
+    const r = CARDS[c.id].rarity;
+    return { common: 50, uncommon: 80, rare: 130 }[r] || 60;
+  }
+  function relicPrice(id) {
+    const r = RELICS[id].rarity;
+    return { common: 150, uncommon: 200, rare: 280, boss: 340 }[r] || 160;
+  }
+
+  function section(title) { return el('div', { class: 'small gold', style: { margin: '14px 0 8px' }, text: title }); }
+
+  function rerender() {
+    clear(body);
+    if (discount) body.append(el('div', { class: 'tiny dim', style: { paddingTop: '10px' }, html: `「商人徽章」生效中：价格已降低 <b>${Math.round(discount * 100)}%</b>` }));
+
+    /* 卡牌 */
+    body.append(section('卡牌'));
+    const cg = el('div', { class: 'shop-grid' });
+    for (const c of cardStock) {
+      if (c.bought) { cg.append(el('div', { class: 'reward-card gone' }, cardEl(makeCard(c.id)))); continue; }
+      const node = cardEl(makeCard(c.id));
+      const price_ = el('div', { class: 'price' + (G.gold < c.price ? ' cant' : ''), html: `<span style="color:#ffcc52">◉</span>${c.price}` });
+      const wrap = el('div', { class: 'reward-card' }, node, price_);
+      node.addEventListener('click', () => buy(c.price, () => { c.bought = true; addCardToDeck(c.id); toast(`买下了「${CARDS[c.id].name}」`); }, rerender));
+      cg.append(wrap);
+    }
+    body.append(cg);
+
+    /* 遗物 */
+    if (relicStock.length) {
+      body.append(section('遗物'));
+      const rg = el('div', { class: 'col gap8' });
+      for (const r of relicStock) {
+        if (r.bought) { continue; }
+        const info = RELICS[r.id];
+        const row = el('div', { class: 'row gap8', style: { border: '2px solid #ffcc5230', borderRadius: '6px', padding: '8px', background: '#ffcc5208' } },
+          el('div', { class: 'relic', style: { width: '36px', height: '36px', backgroundImage: `url(${SPR(info.sprite)})`, flex: 'none' } }),
+          el('div', { class: 'grow col' }, el('div', { class: 'gold small', text: info.name }), el('div', { class: 'tiny dim', html: info.desc })),
+          el('div', { class: 'price' + (G.gold < r.price ? ' cant' : ''), html: `<span style="color:#ffcc52">◉</span>${r.price}` }));
+        row.addEventListener('click', () => buy(r.price, () => { r.bought = true; addRelic(r.id); toast(`获得遗物「${info.name}」`); sfx.bell(); }, rerender));
+        rg.append(row);
+      }
+      body.append(rg);
+    }
+
+    /* 药水 */
+    if (potionStock.length) {
+      body.append(section('药水'));
+      const pg = el('div', { class: 'col gap8' });
+      for (const p of potionStock) {
+        if (p.bought) continue;
+        const row = el('div', { class: 'row gap8', style: { border: '2px solid #7ee78730', borderRadius: '6px', padding: '8px', background: '#7ee78708' } },
+          el('div', { class: 'relic', style: { width: '36px', height: '36px', backgroundImage: `url(${SPR(p.sprite)})`, flex: 'none' } }),
+          el('div', { class: 'grow col' }, el('div', { class: 'small', style: { color: '#7ee787' }, text: p.name }), el('div', { class: 'tiny dim', html: p.text })),
+          el('div', { class: 'price' + (G.gold < p.price ? ' cant' : ''), html: `<span style="color:#ffcc52">◉</span>${p.price}` }));
+        row.addEventListener('click', () => buy(p.price, () => {
+          if (G.potions.length >= G.potionSlots) { toast('药水槽满了'); sfx.error(); return false; }
+          p.bought = true; addPotion({ ...p }); toast(`买下了「${p.name}」`);
+        }, rerender));
+        pg.append(row);
+      }
+      body.append(pg);
+    }
+
+    /* 移除卡牌（可重复） */
+    body.append(section('服务'));
+    const rmPrice = removePriceOf();
+    const rm = el('div', { class: 'row gap8', style: { border: '2px solid #ffffff18', borderRadius: '6px', padding: '8px' } },
+      el('div', { class: 'relic', style: { width: '36px', height: '36px', backgroundImage: `url(${SPR('coil')})`, flex: 'none' } }),
+      el('div', { class: 'grow col' },
+        el('div', { class: 'small', text: '移除一张卡牌' }),
+        el('div', { class: 'tiny dim', text: removalsThisVisit ? `本次已移除 ${removalsThisVisit} 张 · 可以继续移除` : '把碍事的牌从卡组里拿掉 · 可重复购买' })),
+      el('div', { class: 'price' + (G.gold < rmPrice ? ' cant' : ''), html: `<span style="color:#ffcc52">◉</span>${rmPrice}` }));
+    rm.addEventListener('click', () => {
+      if (G.gold < rmPrice) { sfx.error(); toast('金币不够'); return; }
+      pickCards(G.deck.map(e => makeCard(e.id, e.up)), {
+        n: 1, title: '移除一张卡牌', hint: '选中的牌会永久离开你的卡组',
+        onDone: sel => {
+          if (!sel) return;
+          const target = G.deck.findIndex(e => e.id === sel[0].id && e.up === !!sel[0].upgraded);
+          if (target < 0) return;
+          G.gold -= rmPrice;
+          removeCardAt(target);
+          G._removes = (G._removes || 0) + 1;
+          removalsThisVisit++;
+          save();
+          sfx.place(); toast(`移除了「<b>${CARDS[sel[0].id].name}</b>」`, 1500);
+          rerender();
+        },
+      });
+    });
+    body.append(rm);
+
+    body.append(el('button', { class: 'btn primary block', style: { marginTop: '18px' }, text: '离开商店 →', onClick: () => { sfx.door(); onDone(); } }));
+    shopStrip.refresh();
+  }
+
+  function buy(cost, apply, after) {
+    if (G.gold < cost) { sfx.error(); toast('金币不够'); return; }
+    if (apply() === false) return;
+    G.gold -= cost;
+    sfx.coin();
+    save();
+    after();
+  }
+
+  root.append(body);
+  rerender();
+  return root;
+}
+
+/* =====================================================================
+   随机事件
+   ===================================================================== */
+export function eventScene({ onDone, onFight }) {
+  const ev = G.rng.pick(EVENTS);
+  const root = el('div', { class: 'screen' });
+  const body = el('div', { class: 'scroll grow', style: { padding: '0 14px 14px' } });
+  const evStrip = statusStrip();
+  root.append(topbar('事件', {}), evStrip);
+
+  body.append(el('div', { class: 'col center', style: { padding: '10px 0' } },
+    el('div', { style: { width: '76px', height: '76px', backgroundImage: `url(${SPR(ev.art)})`, backgroundSize: 'contain', backgroundRepeat: 'no-repeat', backgroundPosition: 'center', filter: 'drop-shadow(0 4px 6px #0008)' } }),
+    el('div', { class: 'gold', style: { fontSize: '18px', marginTop: '8px' }, text: ev.name }),
+  ));
+  body.append(el('div', { class: 'small', style: { lineHeight: '1.8', color: '#d8cfc0', padding: '6px 2px 14px' }, text: ev.text }));
+
+  const log = [];
+  const logBox = el('div', { class: 'col gap4', style: { marginBottom: '10px' } });
+  body.append(logBox);
+
+  const optWrap = el('div', { class: 'col gap8' });
+  body.append(optWrap);
+
+  let done = false;
+  const cont = el('button', { class: 'btn primary block mt16', text: '继续前进 →', onClick: () => { sfx.confirm(); onDone(); } });
+  cont.classList.add('disabled');
+  body.append(cont);
+
+  const api = {
+    rng: () => G.rng(),
+    heal: n => { const b = G.hp; G.hp = Math.min(G.maxHp, G.hp + n); log.push(`回复了 <b>${G.hp - b}</b> 点生命`); },
+    damage: n => { G.hp = Math.max(0, G.hp - n); log.push(`失去了 <b>${n}</b> 点生命`); },
+    maxHp: n => { G.maxHp = Math.max(1, G.maxHp + n); G.hp = Math.min(G.hp, G.maxHp); log.push(n > 0 ? `最大生命 <b>+${n}</b>` : `最大生命 <b>${n}</b>`); },
+    gold: n => { G.gold = Math.max(0, G.gold + n); log.push(n >= 0 ? `获得 <b>${n}</b> 金币` : `失去 <b>${-n}</b> 金币`); },
+    addRelic: id => { const r = id || rollRelic(['common', 'uncommon', 'rare', 'boss']); if (!r) return; addRelic(r); log.push(`获得遗物「<b>${RELICS[r].name}</b>」`); },
+    addPotion: id => { const p = id ? { ...POTIONS[id] } : rollPotion(); if (G.potions.length >= G.potionSlots) { log.push('<span class="dim">药水槽已满，没能拿上</span>'); return; } addPotion(p); log.push(`获得药水「<b>${p.name}</b>」`); },
+    addCard: id => { const cid = id || G.rng.pick(rewardPool(G.cls)).id; addCardToDeck(cid); log.push(`获得卡牌「<b>${CARDS[cid].name}</b>」`); },
+    addCurse: id => { const cid = id || G.rng.pick(['curse_wound', 'curse_pain', 'curse_regret']); addCardToDeck(cid); log.push(`获得诅咒「<b>${CARDS[cid].name}</b>」`); },
+    randomRelic: pool => rollRelic(pool || ['common', 'uncommon', 'rare']),
+    randomCard: (rs) => G.rng.pick(rewardPool(G.cls, rs || ['common', 'uncommon', 'rare'])).id,
+    removeCard: () => new Promise(res => {
+      pickCards(G.deck.map(e => makeCard(e.id, e.up)), {
+        n: 1, title: '移除一张卡牌',
+        onDone: sel => {
+          if (sel) {
+            const t = G.deck.findIndex(e => e.id === sel[0].id && e.up === !!sel[0].upgraded);
+            if (t >= 0) { removeCardAt(t); log.push(`移除了「<b>${CARDS[sel[0].id].name}</b>」`); }
+          } else log.push('<span class="dim">取消了选择</span>');
+          res();
+        },
+      });
+    }),
+    upgradeCard: () => new Promise(res => {
+      const cand = G.deck.filter(e => CARDS[e.id].up && !e.up);
+      if (!cand.length) { log.push('<span class="dim">没有可以升级的卡牌</span>'); return res(); }
+      pickCards(cand.map(e => makeCard(e.id, e.up ? false : false)), {
+        n: 1, title: '升级一张卡牌', hint: '仅显示可升级的卡牌',
+        onDone: sel => {
+          if (sel) {
+            const t = G.deck.findIndex(e => e.id === sel[0].id && CARDS[e.id].up && !e.up);
+            if (t >= 0) { upgradeCardAt(t); log.push(`升级了「<b>${CARDS[G.deck[t].id].name}</b>」`); }
+          } else log.push('<span class="dim">取消了选择</span>');
+          res();
+        },
+      });
+    }),
+    transformCard: () => new Promise(res => {
+      pickCards(G.deck.map(e => makeCard(e.id, e.up)), {
+        n: 1, title: '变化一张卡牌',
+        onDone: sel => {
+          if (sel) {
+            const t = G.deck.findIndex(e => e.id === sel[0].id && e.up === !!sel[0].upgraded);
+            if (t >= 0) {
+              const old = CARDS[G.deck[t].id];
+              const pool = rewardPool(G.cls, [old.rarity === 'basic' ? 'common' : old.rarity]).filter(c => c.id !== old.id);
+              if (pool.length) { const nc = G.rng.pick(pool); G.deck[t] = { id: nc.id, up: false }; log.push(`「<b>${old.name}</b>」变成了「<b>${nc.name}</b>」`); }
+            }
+          } else log.push('<span class="dim">取消了选择</span>');
+          res();
+        },
+      });
+    }),
+    upgradeBasics: () => { let n = 0; for (const e of G.deck) if ((e.id === 'strike' || e.id === 'defend') && CARDS[e.id].up && !e.up) { e.up = true; n++; } log.push(n ? `升级了 <b>${n}</b> 张基础牌` : '<span class="dim">没有可升级的基础牌</span>'); },
+    fightElite: () => { onFight(); },
+  };
+
+  const finishOpt = () => {
+    done = true;
+    clear(optWrap);
+    clear(logBox);
+    for (const l of log) logBox.append(el('div', { class: 'small', html: '· ' + l }));
+    save();
+    evStrip.refresh();      // 事件会改血量/上限/金币，必须刷新
+    cont.classList.remove('disabled');
+    if (G.hp <= 0) { toast('你倒下了…'); }
+  };
+
+  for (const o of ev.options) {
+    const available = !o.req || o.req(G);
+    const btn = el('button', { class: 'btn block', style: { textAlign: 'left', justifyContent: 'flex-start', flexDirection: 'column', alignItems: 'flex-start', gap: '2px', padding: '10px 12px' } },
+      el('span', { text: o.label }),
+      el('span', { class: 'tiny dim', html: o.desc || '' }));
+    if (!available) btn.classList.add('disabled');
+    btn.addEventListener('click', async () => {
+      if (done) return;
+      sfx.confirm();
+      const r = o.run(G, api);
+      if (r && typeof r.then === 'function') await r;
+      finishOpt();
+    });
+    optWrap.append(btn);
+  }
+
+  root.append(body);
+  return root;
+}
+
+/* =====================================================================
+   营火
+   ===================================================================== */
+export function restScene({ onDone }) {
+  const root = el('div', { class: 'screen' });
+  const body = el('div', { class: 'scroll grow', style: { padding: '0 14px 14px' } });
+  const restStrip = statusStrip();
+  root.append(topbar('营火', {}), restStrip);
+
+  body.append(el('div', { class: 'col center', style: { padding: '14px 0' } },
+    el('div', { style: { width: '80px', height: '80px', backgroundImage: `url(${SPR('torch')})`, backgroundSize: 'contain', backgroundRepeat: 'no-repeat', backgroundPosition: 'center', filter: 'drop-shadow(0 0 18px #ff9a3c80)' } }),
+    el('div', { class: 'small dim', style: { marginTop: '10px', textAlign: 'center', lineHeight: '1.8' }, html: '篝火噼啪作响。<br>你可以在这里歇一会儿。' }),
+  ));
+
+  const healAmt = Math.floor(G.maxHp * 0.3);
+  const opts = el('div', { class: 'col gap8' });
+  const cont = el('button', { class: 'btn primary block mt16', text: '继续前进 →', onClick: () => { sfx.confirm(); onDone(); } });
+  cont.classList.add('disabled');
+  let used = false;
+
+  /** 一行可点选项 */
+  const option = (label, desc, fn, disabled) => {
+    const b = el('button', {
+      class: 'btn block' + (disabled ? ' disabled' : ''),
+      style: { textAlign: 'left', flexDirection: 'column', alignItems: 'flex-start', gap: '2px', padding: '10px 12px' },
+    }, el('span', { text: label }), el('span', { class: 'tiny dim', html: desc }));
+    if (!disabled) b.addEventListener('click', () => { if (used) return; used = true; sfx.confirm(); fn(); done(); });
+    return b;
+  };
+
+  const done = () => {
+    clear(opts);
+    opts.append(el('div', { class: 'small gold', style: { textAlign: 'center', padding: '8px' }, text: '休息完毕。' }));
+    cont.classList.remove('disabled');
+    restStrip.refresh();
+  };
+
+  const doRest = () => {
+    const before = G.hp;
+    G.hp = Math.min(G.maxHp, G.hp + healAmt);
+    toast(`回复了 <b>${G.hp - before}</b> 点生命`, 1500);
+    save();
+  };
+
+  const doForge = () => {
+    const upgradable = G.deck.filter(e => CARDS[e.id].up && !e.up);
+    if (!upgradable.length) { toast('没有可升级的卡牌'); used = false; return; }
+    pickCards(upgradable.map(e => makeCard(e.id)), {
+      n: 1,
+      title: '升级一张卡牌',
+      hint: '卡面显示的是<b style="color:#7ee787">升级后</b>的效果，确认后该牌就变为此形态',
+      cardBadge: '↑ 升级后',
+      renderCard: c => makeCard(c.id, true),   // 直接渲染升级后的卡面，方便对比判断
+      onDone: sel => {
+        if (!sel) { used = false; return; }     // 取消：把选择权还给玩家
+        const t = G.deck.findIndex(e => e.id === sel[0].id && CARDS[e.id].up && !e.up);
+        if (t >= 0) { upgradeCardAt(t); sfx.mining(); toast(`「${CARDS[sel[0].id].name}」升级了！`, 1600); save(); }
+      },
+    });
+  };
+
+  const render = () => {
+    clear(opts);
+    if (used) { done(); return; }
+    const upgradable = G.deck.filter(e => CARDS[e.id].up && !e.up);
+    opts.append(option('🔥 休息', `回复 <b>${healAmt}</b> 点生命（当前 ${G.hp}/${G.maxHp}）`, doRest, G.hp >= G.maxHp));
+    opts.append(option('⚒ 锻造', upgradable.length ? `升级一张卡牌（可升级 <b>${upgradable.length}</b> 张）` : '<span class="dim">没有可升级的卡牌</span>', doForge, !upgradable.length));
+  };
+
+  render();
+  body.append(opts, cont);
+  root.append(body);
+  return root;
+}
+
+/* =====================================================================
+   宝箱
+   ===================================================================== */
+export function treasureScene({ onDone }) {
+  const root = el('div', { class: 'screen' });
+  const body = el('div', { class: 'scroll grow', style: { padding: '0 14px 14px' } });
+  const trStrip = statusStrip();
+  root.append(topbar('宝箱', {}), trStrip);
+
+  const roll = G.rng();
+  let title, html;
+  if (roll < 0.42) {
+    const id = rollRelic(['common', 'uncommon', 'rare']);
+    if (id) { addRelic(id); const r = RELICS[id];
+      title = `获得遗物：${r.name}`; html = `<div class="tiny dim">${r.desc}</div>`; sfx.bell(); }
+    else { const g = 60 + G.act * 20; G.gold += g; title = `获得 ${g} 金币`; html = ''; sfx.coin(); }
+  } else if (roll < 0.75) {
+    const g = 55 + G.act * 22 + G.rng.int(0, 30); G.gold += g;
+    title = `获得 ${g} 金币`; html = ''; sfx.coin();
+  } else {
+    const p = rollPotion();
+    if (G.potions.length < G.potionSlots) { addPotion(p); title = `获得药水：${p.name}`; html = `<div class="tiny dim">${p.text}</div>`; sfx.confirm(); }
+    else { const g = 45; G.gold += g; title = `药水槽已满，改拿 ${g} 金币`; html = ''; sfx.coin(); }
+  }
+  save();
+  trStrip.refresh();   // 遗物可能改了最大生命
+
+  body.append(el('div', { class: 'col center', style: { padding: '20px 0' } },
+    el('div', { style: { width: '84px', height: '84px', backgroundImage: `url(${SPR('chest_gold')})`, backgroundSize: 'contain', backgroundRepeat: 'no-repeat', backgroundPosition: 'center', filter: 'drop-shadow(0 0 16px #6ee7a860)' } }),
+    el('div', { class: 'gold', style: { fontSize: '17px', marginTop: '12px', textAlign: 'center' }, text: title }),
+    el('div', { style: { marginTop: '6px', textAlign: 'center' }, html }),
+  ));
+  body.append(el('button', { class: 'btn primary block', text: '继续前进 →', onClick: () => { sfx.confirm(); onDone(); } }));
+  root.append(body);
+  return root;
+}

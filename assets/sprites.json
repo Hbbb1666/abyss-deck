@@ -1,0 +1,250 @@
+{
+ "hero_knight": [
+  3,
+  7
+ ],
+ "hero_mage": [
+  0,
+  7
+ ],
+ "hero_rogue": [
+  4,
+  9
+ ],
+ "slime": [
+  0,
+  9
+ ],
+ "bat": [
+  0,
+  10
+ ],
+ "spider": [
+  2,
+  10
+ ],
+ "worm": [
+  3,
+  10
+ ],
+ "ghost": [
+  1,
+  10
+ ],
+ "undead": [
+  4,
+  10
+ ],
+ "golem": [
+  1,
+  9
+ ],
+ "crabdemon": [
+  2,
+  9
+ ],
+ "guard": [
+  0,
+  8
+ ],
+ "guard_elite": [
+  1,
+  8
+ ],
+ "apprentice": [
+  2,
+  8
+ ],
+ "witch": [
+  3,
+  9
+ ],
+ "dwarf": [
+  4,
+  8
+ ],
+ "monk": [
+  2,
+  7
+ ],
+ "warrior": [
+  4,
+  7
+ ],
+ "villager": [
+  1,
+  7
+ ],
+ "noble": [
+  3,
+  8
+ ],
+ "boss_stone": [
+  10,
+  6
+ ],
+ "boss_demon": [
+  7,
+  1
+ ],
+ "boss_gargoyle": [
+  7,
+  0
+ ],
+ "sword_short": [
+  7,
+  8
+ ],
+ "sword_long": [
+  8,
+  8
+ ],
+ "sword_dagger": [
+  9,
+  8
+ ],
+ "sword_broad": [
+  10,
+  8
+ ],
+ "hammer": [
+  9,
+  9
+ ],
+ "axe": [
+  10,
+  9
+ ],
+ "poleaxe": [
+  11,
+  9
+ ],
+ "potion_empty": [
+  5,
+  9
+ ],
+ "potion_green": [
+  6,
+  9
+ ],
+ "potion_red": [
+  7,
+  9
+ ],
+ "potion_blue": [
+  8,
+  9
+ ],
+ "key_gold": [
+  5,
+  10
+ ],
+ "key_green": [
+  6,
+  10
+ ],
+ "key_red": [
+  7,
+  10
+ ],
+ "key_blue": [
+  8,
+  10
+ ],
+ "key_purple": [
+  9,
+  10
+ ],
+ "key_bone": [
+  10,
+  10
+ ],
+ "pickaxe": [
+  11,
+  10
+ ],
+ "chest_closed": [
+  5,
+  7
+ ],
+ "chest_gold": [
+  7,
+  7
+ ],
+ "chest_gem": [
+  8,
+  7
+ ],
+ "anvil": [
+  2,
+  6
+ ],
+ "coil": [
+  8,
+  4
+ ],
+ "gravestone": [
+  5,
+  5
+ ],
+ "grave_cross": [
+  4,
+  5
+ ],
+ "crate": [
+  3,
+  6
+ ],
+ "box": [
+  1,
+  6
+ ],
+ "torch": [
+  5,
+  2
+ ],
+ "gate": [
+  11,
+  3
+ ],
+ "door": [
+  9,
+  3
+ ],
+ "portcullis": [
+  5,
+  3
+ ],
+ "bars": [
+  7,
+  3
+ ],
+ "gargoyle": [
+  7,
+  0
+ ],
+ "portal": [
+  10,
+  5
+ ],
+ "stone_platform": [
+  2,
+  0
+ ],
+ "floor_wood": [
+  1,
+  0
+ ],
+ "door_wood": [
+  6,
+  5
+ ],
+ "arcane_orb": [
+  8,
+  2
+ ],
+ "minecart": [
+  7,
+  4
+ ]
+}

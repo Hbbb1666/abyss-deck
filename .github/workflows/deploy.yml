@@ -1,0 +1,73 @@
+name: 测试 / 构建 / 部署
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  # ---------- 先跑测试，测试不过就不部署 ----------
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci || npm install
+      - name: 跑测试
+        run: npm test
+
+  # ---------- 构建 ----------
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci || npm install
+      - name: 构建（含单文件版）
+        run: npm run build:single
+      - name: 组装站点目录（只放真正要发布的文件）
+        run: |
+          mkdir -p _site
+          rsync -a --exclude node_modules --exclude .git --exclude .github \
+                --exclude tools --exclude _site --exclude dist ./ _site/
+          cp dist/abyss-deck.html _site/abyss-deck.html
+          echo "站点内容："; ls -la _site
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - name: 上传单文件版作为构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: abyss-deck-single-file
+          path: dist/abyss-deck.html
+          retention-days: 90
+
+  # ---------- 发布到 GitHub Pages ----------
+  deploy:
+    needs: build
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

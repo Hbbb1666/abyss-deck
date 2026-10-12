@@ -1,0 +1,20 @@
+{
+  "name": "abyss-deck",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "深渊牌局 · Abyss Deck —— 杀戮尖塔风格的肉鸽卡牌构筑游戏，纯网页、可离线",
+  "keywords": ["roguelike", "deckbuilder", "game", "html5", "pwa", "canvas-free"],
+  "license": "MIT",
+  "scripts": {
+    "build": "node tools/build.mjs",
+    "build:single": "node tools/build.mjs --single",
+    "test": "node tools/test.mjs",
+    "serve": "node server.mjs"
+  },
+  "devDependencies": {
+    "jsdom": "^27.0.0",
+    "rollup": "^4.0.0"
+  },
+  "engines": { "node": ">=20" }
+}

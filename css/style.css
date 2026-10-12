@@ -1,0 +1,452 @@
+/* =====================================================================
+   深渊牌局 · 样式
+   手机竖屏优先。整个界面装在 #stage 里由 JS 整体缩放，
+   设计基准宽度 430px —— 写尺寸时按这个宽度想，其他屏幕交给缩放。
+   ===================================================================== */
+@font-face {
+  font-family: 'FusionPixel';
+  src: url('../assets/font/fusion-pixel.woff2') format('woff2');
+  font-display: swap;
+}
+
+:root {
+  --bg0: #0b0810;
+  --bg2: #241a33;
+  --stone: #2b2138;
+  --line: #5a4a72;
+  --gold: #ffcc52;
+  --gold-dim: #b98f33;
+  --text: #ece4d4;
+  --dim: #9d90b0;
+  --hp: #d94b3f;
+  --hp2: #8a2620;
+  --blk: #6fa8dc;
+  --energy: #ffd24a;
+  --heal: #6ee7a8;
+  --purple: #c07bff;
+  --blue: #60a8ff;
+  --fs: 16px;
+  --k: 1;                /* 舞台缩放系数，JS 更新；供不参与缩放的那几层用 */
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body {
+  margin: 0; padding: 0; height: 100%; overflow: hidden;
+  background: var(--bg0); color: var(--text);
+  font-family: 'FusionPixel', 'PingFang SC', 'Noto Sans SC', system-ui, sans-serif;
+  font-size: var(--fs);
+  line-height: 1.45;
+  user-select: none; -webkit-user-select: none;
+  overscroll-behavior: none;
+  touch-action: manipulation;
+}
+img, .spr { image-rendering: pixelated; -ms-interpolation-mode: nearest-neighbor; }
+
+/* ---------------- 舞台 ----------------
+   用 zoom 而非 transform：zoom 会重新排版，文字和像素画都按原生分辨率渲染，放大不糊。 */
+#viewport {
+  position: fixed; inset: 0; overflow: hidden;
+  background:
+    radial-gradient(120% 55% at 50% 0%, #2a1b3d 0%, transparent 60%),
+    radial-gradient(100% 50% at 50% 100%, #1d1230 0%, transparent 55%),
+    var(--bg0);
+}
+#stage { position: relative; transform-origin: 0 0; }
+#app { position: absolute; inset: 0; display: flex; flex-direction: column; }
+/* 这几个浮层不缩放，用真实屏幕坐标定位；字号跟着 --k 放大 */
+#fx-layer { position: fixed; inset: 0; pointer-events: none; z-index: 900; overflow: hidden; }
+
+/* ---------------- 通用 ---------------- */
+.screen { position: absolute; inset: 0; display: flex; flex-direction: column; overflow: hidden; }
+.screen.enter { animation: screenIn .22s ease-out; }
+@keyframes screenIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+.hidden { display: none !important; }
+.row { display: flex; align-items: center; }
+.col { display: flex; flex-direction: column; }
+.grow { flex: 1; min-height: 0; min-width: 0; }
+.center { align-items: center; justify-content: center; }
+.gap4 { gap: 4px; } .gap6 { gap: 6px; } .gap8 { gap: 8px; } .gap12 { gap: 12px; }
+.mt4 { margin-top: 4px; } .mt8 { margin-top: 8px; } .mt16 { margin-top: 16px; }
+.dim { color: var(--dim); }
+.gold { color: var(--gold); }
+.small { font-size: 13px; }
+.tiny { font-size: 12px; }
+b { color: var(--gold); font-weight: normal; }
+i { color: var(--dim); font-style: normal; }
+
+/* ---------------- 按钮 ---------------- */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 11px 18px; min-height: 48px;
+  background: linear-gradient(#3d2f52, #2a1f3a);
+  color: var(--text); border: 2px solid var(--line); border-radius: 5px;
+  font-family: inherit; font-size: 16px; cursor: pointer;
+  box-shadow: inset 0 1px 0 #ffffff18, 0 2px 0 #00000060;
+  transition: transform .07s, filter .12s;
+}
+.btn:active { transform: translateY(2px); box-shadow: inset 0 1px 0 #ffffff10; filter: brightness(1.15); }
+.btn[disabled], .btn.disabled { opacity: .42; pointer-events: none; }
+.btn.primary { background: linear-gradient(#5c4418, #3d2c0e); border-color: var(--gold-dim); color: #ffe9b0; }
+.btn.danger { background: linear-gradient(#5c1f1a, #3a1210); border-color: #a33; color: #ffcfc9; }
+.btn.ghost { background: #ffffff08; border-color: #ffffff22; }
+.btn.sm { padding: 7px 11px; min-height: 38px; font-size: 14px; }
+.btn.block { width: 100%; }
+
+/* ---------------- 顶栏 ---------------- */
+.topbar {
+  display: flex; align-items: center; gap: 8px; padding: 7px 9px;
+  background: linear-gradient(#221733, #160f22);
+  border-bottom: 2px solid #00000080;
+  box-shadow: 0 2px 0 #ffffff08 inset;
+  flex: none;
+}
+.avatar { width: 40px; height: 40px; flex: none; background-size: contain; background-repeat: no-repeat; background-position: center; }
+
+/* 血条 —— 注意不能写 flex:1：血条也出现在 .enemy 这种纵向 flex 里，
+   flex-basis:0 会把高度压成 0，结果就是"血条在 DOM 里但屏幕上看不见"。 */
+.hpbar {
+  position: relative; width: 100%; height: 22px;
+  background: #170d12; border: 2px solid #000000a0; border-radius: 4px;
+  overflow: hidden; min-width: 78px;
+  box-shadow: inset 0 2px 5px #000000a0, 0 1px 0 #ffffff12;
+}
+.hpbar .fill {
+  position: absolute; inset: 0; width: 100%;
+  background: linear-gradient(#e8635a, var(--hp) 45%, var(--hp2));
+  transition: width .25s;
+}
+.hpbar .fill::after { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 36%; background: #ffffff2e; }
+.hpbar .fill.blk { background: linear-gradient(#b0dcff, #6fa8dc 45%, #3f6f9c); z-index: 2; }
+.hpbar .fill.blk::after { background: #ffffff35; }
+.hpbar .txt {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  font-size: 13px; letter-spacing: .5px; z-index: 3;
+  text-shadow: 0 1px 0 #000, 0 0 4px #000, 0 0 2px #000;
+}
+.stat { display: flex; align-items: center; gap: 4px; font-size: 14px; padding: 0 2px; white-space: nowrap; }
+.stat .ico { width: 17px; height: 17px; background-size: contain; background-repeat: no-repeat; background-position: center; }
+
+/* ---------------- 遗物 / 药水条 ---------------- */
+.relicbar { display: flex; gap: 5px; padding: 5px 9px; overflow-x: auto; background: #120c1c; border-bottom: 1px solid #00000060; flex: none; scrollbar-width: none; }
+.relicbar::-webkit-scrollbar { display: none; }
+.relic { width: 30px; height: 30px; flex: none; background: #00000050; border: 1px solid #ffffff18; border-radius: 3px; background-size: 78%; background-repeat: no-repeat; background-position: center; position: relative; }
+.relic.boss { border-color: var(--gold-dim); box-shadow: 0 0 6px #ffcc5240; }
+.potionbar { padding: 4px 9px; gap: 7px; background: #0f1520; border-bottom: 1px solid #00000060; min-height: 44px; }
+.relic.potion { border-color: #7ee78766; cursor: pointer; transition: transform .1s; }
+.relic.potion:active { transform: scale(.86); }
+
+/* ---------------- 通用面板 ---------------- */
+.panel {
+  background: linear-gradient(#241a33, #1a1226);
+  border: 3px solid #4a3a60;
+  border-image: url('../assets/ui/frame_panel.png') 20 fill / 18px / 0 stretch;
+  padding: 13px;
+}
+.scroll { overflow-y: auto; -webkit-overflow-scrolling: touch; scrollbar-width: thin; }
+.scroll::-webkit-scrollbar { width: 5px; }
+.scroll::-webkit-scrollbar-thumb { background: #5a4a72; border-radius: 3px; }
+
+/* ---------------- 战斗 ---------------- */
+.battle { display: flex; flex-direction: column; height: 100%; }
+
+.field {
+  flex: 1; min-height: 0; position: relative;
+  display: flex; align-items: center; justify-content: center;
+  flex-wrap: wrap; gap: 10px 8px; align-content: center;
+  padding: 10px 8px 26px;
+  background:
+    radial-gradient(70% 55% at 50% 88%, #4a352256 0%, transparent 72%),
+    repeating-linear-gradient(90deg, #00000000 0 47px, #ffffff05 47px 48px),
+    linear-gradient(#130d1d, #221830);
+}
+/* 地面线 + 透视格，让战场不那么空 */
+.field::before {
+  content: ''; position: absolute; left: 0; right: 0; bottom: 22%;
+  height: 2px; background: linear-gradient(90deg, transparent, #ffffff1c 20%, #ffffff1c 80%, transparent);
+  pointer-events: none;
+}
+.field::after {
+  content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 30%;
+  background: repeating-linear-gradient(0deg, #ffffff07 0 1px, transparent 1px 20px);
+  pointer-events: none;
+}
+
+/* 敌人 */
+.enemy {
+  position: relative; display: flex; flex-direction: column; align-items: center;
+  gap: 5px; padding: 6px 4px; border-radius: 8px;
+  transition: transform .12s, filter .12s;
+  flex: 0 0 auto; min-width: 88px; max-width: 100%;
+}
+.enemy .body { position: relative; display: flex; align-items: center; justify-content: center; }
+/* 脚下的影子，把怪物"落"在地面上 */
+.enemy .body::after {
+  content: ''; position: absolute; left: 50%; bottom: -4px; width: 74%; height: 10px;
+  transform: translateX(-50%); border-radius: 50%;
+  background: radial-gradient(closest-side, #00000088, transparent 78%);
+  pointer-events: none;
+}
+.enemy .sprite {
+  width: 76px; height: 76px; background-size: contain; background-repeat: no-repeat; background-position: center;
+  filter: drop-shadow(0 4px 3px #0009); transition: transform .1s;
+}
+.enemy.selectable { outline: 3px dashed var(--gold); outline-offset: 2px; background: #ffcc5210; animation: pulseT 1s infinite; }
+@keyframes pulseT { 50% { outline-color: #ffcc5280; } }
+.enemy.selected { outline: 3px solid var(--gold); outline-offset: 2px; background: #ffcc5218; }
+.enemy.dead { opacity: 0; transform: scale(.5) translateY(-16px); transition: all .35s; pointer-events: none; }
+
+/* 血条 + 名字：一个深色名牌，保证在任何背景上都看得清 */
+.enemy .plate {
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  background: #000000a0; border: 1px solid #ffffff1a; border-radius: 5px;
+  padding: 3px 6px 4px; width: 100%; min-width: 84px;
+  box-shadow: 0 2px 6px #00000090;
+}
+.enemy .name { font-size: 13px; color: #e6dccb; text-shadow: 0 1px 2px #000; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.enemy .ebar { height: 20px; min-width: 0; }
+
+.enemy.attacking .sprite { animation: lunge .42s ease-out; }
+@keyframes lunge { 0%{} 35% { transform: translateY(26px) scale(1.08); } 100% {} }
+.enemy .sprite.hurt { animation: hurt .32s; }
+@keyframes hurt { 0%,100%{} 20% { transform: translateX(-6px) scale(1.06); filter: brightness(2.4) saturate(0) drop-shadow(0 0 8px #f55); } 60% { transform: translateX(5px); } }
+
+/* 意图 */
+.intent {
+  display: flex; align-items: center; gap: 3px; font-size: 15px; padding: 2px 8px;
+  background: #00000090; border: 1px solid #ffffff25; border-radius: 12px; min-height: 24px;
+  text-shadow: 0 1px 2px #000; font-variant-numeric: tabular-nums;
+}
+.intent.atk { color: #ff9a8a; border-color: #ff6b5c70; }
+.intent.def { color: #9fd0ff; border-color: #6fa8dc70; }
+.intent.buf { color: #b4f0ac; border-color: #6ee7a870; }
+.intent.deb { color: #d9b0ff; border-color: #c07bff70; }
+.intent.unk { color: #ccc; }
+
+/* 状态图标 */
+.sts { display: flex; flex-wrap: wrap; gap: 3px; justify-content: center; max-width: 100%; }
+.st {
+  display: inline-flex; align-items: center; gap: 3px; font-size: 12px;
+  padding: 1px 6px; border-radius: 4px; background: #000000b0; border: 1px solid #ffffff28;
+  line-height: 17px; white-space: nowrap;
+}
+.st .sti { font-size: 12px; }
+.st .stv { color: #fff; font-size: 12px; }
+.st.buff { border-color: #6ee7a866; background: #0d2416c0; }
+.st.debuff { border-color: #ff5c8a66; background: #2a0d15c0; }
+/* 选牌器里的"升级后"角标 */
+.card-badge {
+  font-size: 11px; color: #7ee787; background: #0d2416e0; border: 1px solid #6ee7a860;
+  border-radius: 4px; padding: 1px 8px; letter-spacing: 1px;
+}
+
+/* 玩家区 */
+.player-zone { display: flex; align-items: center; gap: 12px; padding: 8px 14px 3px; justify-content: center; flex: none; }
+.player-sprite { width: 68px; height: 68px; background-size: contain; background-repeat: no-repeat; background-position: center; filter: drop-shadow(0 4px 3px #0009); }
+.player-sprite.hurt { animation: hurt .32s; }
+.blockbadge {
+  display: inline-flex; align-items: center; gap: 4px; font-size: 15px; color: #cde6ff;
+  background: #1b3550e0; border: 2px solid #6fa8dc90; border-radius: 5px; padding: 2px 9px; min-height: 28px;
+  opacity: 0; transition: opacity .15s; box-shadow: 0 0 10px #6fa8dc40;
+}
+.blockbadge.on { opacity: 1; }
+
+/* 能量 / 牌堆 */
+.piles { display: flex; align-items: center; justify-content: space-between; padding: 2px 12px 4px; gap: 8px; flex: none; }
+.orb {
+  width: 54px; height: 54px; border-radius: 50%; flex: none;
+  background: radial-gradient(circle at 35% 30%, #fff2b0, #ffcc52 45%, #a06f10 100%);
+  border: 3px solid #7a5510; display: flex; align-items: center; justify-content: center;
+  font-size: 22px; color: #3a2600; text-shadow: 0 1px 0 #ffffff70;
+  box-shadow: 0 0 14px #ffcc5260, inset 0 -4px 8px #00000045;
+}
+.pile { display: flex; flex-direction: column; align-items: center; font-size: 12px; color: var(--dim); cursor: pointer; }
+.pile .num { font-size: 17px; color: var(--text); }
+.pile .disc { width: 30px; height: 40px; border: 2px solid #6a5a82; border-radius: 3px; background: linear-gradient(#3a2d4b, #241a33); margin-bottom: 3px; }
+
+/* 手牌 */
+.hand-wrap { flex: none; padding: 4px 0 8px; min-height: 180px; }
+.hand {
+  display: flex; gap: 7px; padding: 4px 12px 10px; overflow-x: auto; overflow-y: visible;
+  scrollbar-width: none; min-height: 172px; align-items: flex-end;
+}
+.hand::-webkit-scrollbar { display: none; }
+.hand .card { flex: none; }
+
+/* ---------------- 卡牌 ---------------- */
+.card {
+  width: 108px; height: 162px; position: relative; flex: none;
+  background: linear-gradient(#2c2238, #191223);
+  border: 12px solid transparent; border-radius: 9px;
+  border-image: url('../assets/ui/frame_common.png') 20 fill / 11px / 0 stretch;
+  display: flex; flex-direction: column; align-items: center;
+  transition: transform .12s, filter .12s, box-shadow .12s;
+  cursor: pointer;
+}
+.card.r-uncommon { border-image-source: url('../assets/ui/frame_uncommon.png'); }
+.card.r-rare { border-image-source: url('../assets/ui/frame_rare.png'); }
+.card.r-special { border-image-source: url('../assets/ui/frame_special.png'); }
+.card.t-curse, .card.t-status { border-image-source: url('../assets/ui/frame_curse.png'); filter: saturate(.5); }
+
+.card .cost {
+  position: absolute; top: -10px; left: -10px; width: 28px; height: 28px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #fff2b0, #ffcc52 45%, #a06f10);
+  border: 2px solid #7a5510; color: #3a2600; font-size: 15px; display: flex;
+  align-items: center; justify-content: center; z-index: 3; box-shadow: 0 1px 4px #000c;
+}
+.card .cost.free { background: radial-gradient(circle at 35% 30%, #d0ffe0, #6ee7a8 45%, #1c7a4a); border-color: #14603a; }
+.card .cost.no { background: radial-gradient(circle at 35% 30%, #ffb0b0, #d94b3f 45%, #6e1c14); border-color: #5a1710; color: #fff; }
+
+.card .cname {
+  font-size: 12.5px; text-align: center; line-height: 1.1; margin-top: -6px; padding: 0 2px;
+  min-height: 19px; width: 100%; display: flex; align-items: center; justify-content: center;
+  color: #f2e9d8; text-shadow: 0 1px 2px #000;
+}
+.card .cart {
+  width: 43px; height: 43px; margin: 1px 0; background-size: contain; background-repeat: no-repeat; background-position: center;
+  filter: drop-shadow(0 2px 2px #0009);
+}
+.card .ctext {
+  font-size: 10.5px; line-height: 1.26; padding: 0 3px;
+  flex: 1; overflow: hidden; color: #ded5c5;
+  /* 必须显式撑满：.card 是 align-items:center 的纵向 flex，
+     不写 width:100% 的话描述会按内容收缩成窄条，换行数暴涨、文字被裁掉 */
+  width: 100%;
+  display: flex; align-items: center; justify-content: center;
+}
+/* 真正承载文字的是这个 span：整段文字是一个 flex item，
+   内部的 <b> 仍按行内排版，不会被拆成一行一段 */
+.card .ctext-in { display: block; width: 100%; text-align: center; }
+/* 描述实在放不下时，JS 会逐档缩字号（fitCardText）；这里只做最后兜底 */
+.card .ctext b { color: var(--gold); }
+.card .ctype { font-size: 9.5px; color: var(--dim); letter-spacing: .5px; padding-bottom: 1px; }
+.card.up .cname::after { content: ' +'; color: var(--heal); font-size: 12px; }
+
+.card.playable:active { transform: translateY(-10px) scale(1.04); }
+.card.selected { transform: translateY(-18px) scale(1.06); box-shadow: 0 0 0 3px var(--gold), 0 10px 24px #000b; z-index: 20; }
+.card.unplayable { filter: grayscale(.75) brightness(.72); }
+.card.dragging { opacity: .92; z-index: 60; }
+.card.ghost { opacity: .25; }
+
+/* 卡牌放大预览 */
+.card.inspect { transform: scale(1.4); transform-origin: bottom center; z-index: 40; box-shadow: 0 10px 30px #000c; }
+.preview-wrap { display: flex; justify-content: center; padding: 26px 0 16px; }
+.preview-wrap .card { transform: scale(1.62); transform-origin: top center; }
+.preview-wrap .card .ctext { font-size: 11px; }
+
+/* ---------------- 地图 ---------------- */
+.map-wrap {
+  position: relative; flex: 1; min-height: 0;
+  overflow-x: hidden; overflow-y: auto;          /* 必须能滚，否则走到边界就卡死 */
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  scrollbar-width: none;
+}
+.map-wrap::-webkit-scrollbar { display: none; }
+/* 上下边缘的渐隐，暗示还能继续滚 */
+.map-wrap::before, .map-wrap::after {
+  content: ''; position: absolute; left: 0; right: 0; height: 46px; z-index: 5; pointer-events: none;
+}
+.map-wrap::before { top: 0; background: linear-gradient(#0b0810dd, transparent); }
+.map-wrap::after { bottom: 0; background: linear-gradient(transparent, #0b0810dd); }
+.map-inner { position: relative; height: 230%; min-height: 100%; padding: 0 4px; }
+.map-lines { position: absolute; inset: 0; width: 100%; height: 100%; }
+.mnode {
+  position: absolute; width: 52px; height: 52px; margin: -26px 0 0 -26px;
+  display: flex; align-items: center; justify-content: center;
+  background: #00000070; border: 2px solid #ffffff22; border-radius: 50%;
+  transition: transform .15s, box-shadow .15s;
+}
+.mnode .ico { width: 36px; height: 36px; background-size: contain; background-repeat: no-repeat; background-position: center; }
+.mnode.avail { border-color: var(--gold); box-shadow: 0 0 14px #ffcc5270; animation: bob 1.2s ease-in-out infinite; cursor: pointer; }
+@keyframes bob { 50% { transform: translateY(-5px); } }
+.mnode.avail:active { transform: scale(.88); }
+.mnode.done { opacity: .38; filter: grayscale(.7); }
+.mnode.cur { border-color: #fff; box-shadow: 0 0 18px #fff9; }
+.mnode.boss { width: 74px; height: 74px; margin: -37px 0 0 -37px; border-color: var(--hp); box-shadow: 0 0 16px #ff2d5570; }
+.mnode.boss .ico { width: 52px; height: 52px; }
+
+/* ---------------- 奖励 / 商店 ---------------- */
+.reward-card { display: flex; flex-direction: column; align-items: center; gap: 5px; }
+.reward-card .card { transform: none; }
+.reward-card.picked .card { box-shadow: 0 0 0 3px var(--gold), 0 0 22px #ffcc5280; }
+.reward-card.gone { opacity: .3; pointer-events: none; }
+.shop-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(114px, 1fr)); gap: 12px; justify-items: center; }
+.price { font-size: 13px; color: var(--gold); display: flex; align-items: center; gap: 3px; }
+.price.cant { color: #8a7a7a; }
+
+/* ---------------- 弹层 ---------------- */
+/* 放在 #stage 里面（position:absolute），这样跟着一起缩放 */
+.modal-bg { position: absolute; inset: 0; background: #000000cc; display: flex; align-items: center; justify-content: center; z-index: 500; padding: 14px; animation: screenIn .16s; }
+.modal { max-width: 100%; width: 100%; max-height: 90%; display: flex; flex-direction: column; }
+.modal .mhead { font-size: 19px; color: var(--gold); text-align: center; padding-bottom: 9px; }
+.modal .mbody { flex: 1; min-height: 0; overflow-y: auto; }
+.modal .mfoot { display: flex; gap: 8px; justify-content: center; padding-top: 11px; flex-wrap: wrap; }
+
+/* 长按气泡（不缩放，真实屏幕坐标 + --k 字号） */
+.tip {
+  position: fixed; z-index: 950; pointer-events: none;
+  max-width: calc(270px * var(--k)); padding: calc(9px * var(--k)) calc(11px * var(--k));
+  background: #120c1cf5; border: calc(2px * var(--k)) solid var(--line); border-radius: 5px;
+  font-size: calc(13px * var(--k)); line-height: 1.45; box-shadow: 0 6px 20px #000d;
+}
+.tip .tname { color: var(--gold); font-size: calc(14px * var(--k)); margin-bottom: calc(4px * var(--k)); }
+
+/* 提示条 */
+#toast-wrap { position: fixed; left: 0; right: 0; bottom: 26%; display: flex; flex-direction: column; align-items: center; gap: calc(7px * var(--k)); z-index: 960; pointer-events: none; }
+.toast {
+  background: #1a1226f2; border: calc(2px * var(--k)) solid var(--line); border-radius: 5px;
+  padding: calc(9px * var(--k)) calc(16px * var(--k)); font-size: calc(14px * var(--k));
+  opacity: 0; transform: translateY(10px); transition: all .25s; max-width: 88%; text-align: center;
+}
+.toast.in { opacity: 1; transform: none; }
+
+/* 飘字 */
+.fx-float {
+  position: absolute; transform: translate(-50%, -50%); font-weight: bold;
+  font-size: calc(24px * var(--k));
+  text-shadow: 0 2px 0 #000, 0 0 10px #000; animation: floatUp 1s ease-out forwards; pointer-events: none;
+}
+.fx-float.dmg { color: #ff8172; }
+.fx-float.blk { color: #a8d8ff; }
+.fx-float.heal { color: #8bf0a8; }
+.fx-float.big { font-size: calc(34px * var(--k)); }
+.fx-float.st { font-size: calc(19px * var(--k)); }
+@keyframes floatUp { 0% { opacity: 0; transform: translate(-50%,-30%) scale(.6); } 25% { opacity: 1; transform: translate(-50%,-60%) scale(1.15); } 100% { opacity: 0; transform: translate(-50%,-170%) scale(1); } }
+
+.shake { animation: shk .32s; }
+@keyframes shk { 0%,100%{transform:translateX(0)} 20%{transform:translateX(-6px)} 40%{transform:translateX(5px)} 60%{transform:translateX(-3px)} 80%{transform:translateX(2px)} }
+
+/* 屏幕闪白（重击） */
+.screenflash { position: fixed; inset: 0; background: #fff; opacity: 0; pointer-events: none; z-index: 800; }
+.screenflash.on { animation: sf .25s; }
+@keyframes sf { 0% { opacity: .5; } 100% { opacity: 0; } }
+
+/* ---------------- 标题 / 菜单 ---------------- */
+.title-screen { justify-content: center; align-items: center; gap: 8px; padding: 26px; text-align: center; }
+.game-title { font-size: 46px; color: var(--gold); letter-spacing: 5px; text-shadow: 0 3px 0 #6b4a08, 0 0 26px #ffcc5255; line-height: 1.12; }
+.game-sub { font-size: 13px; letter-spacing: 6px; color: var(--dim); margin-bottom: 8px; }
+.class-card { display: flex; gap: 12px; align-items: center; padding: 12px; border: 2px solid var(--line); border-radius: 7px; background: #ffffff07; width: 100%; text-align: left; cursor: pointer; }
+.class-card:active { background: #ffffff12; }
+.class-card .cspr { width: 56px; height: 56px; flex: none; background-size: contain; background-repeat: no-repeat; background-position: center; }
+.class-card .cname2 { font-size: 18px; color: var(--gold); }
+.class-card.picked { border-color: var(--gold); background: #ffcc5215; }
+
+/* 结算 */
+.end-screen { justify-content: center; align-items: center; gap: 12px; padding: 26px; text-align: center; }
+.end-title { font-size: 40px; letter-spacing: 4px; }
+.end-title.win { color: var(--gold); text-shadow: 0 0 26px #ffcc5275; }
+.end-title.lose { color: #d94b3f; text-shadow: 0 0 26px #d94b3f65; }
+
+/* 卡组浏览 */
+.deck-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 10px; justify-items: center; }
+
+/* 矮屏微调（宽高比特别扁的时候把卡牌收一点） */
+@media (max-aspect-ratio: 5/9) {
+  :root { --fs: 15px; }
+  .card { width: 98px; height: 140px; }
+  .enemy .sprite { width: 68px; height: 68px; }
+  .hand-wrap { min-height: 158px; }
+  .hand { min-height: 150px; }
+}

@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no,maximum-scale=1">
+<title>深渊牌局 · Abyss Deck</title>
+<meta name="description" content="一款杀戮尖塔风格的肉鸽卡牌构筑游戏。61 张卡牌、24 种敌人、3 层地牢，纯网页、可离线游玩。">
+
+<!-- PWA -->
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0b0810">
+<meta name="color-scheme" content="dark">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="application-name" content="深渊牌局">
+<!-- iOS：Safari 不支持 manifest 的安装提示，靠这几个 meta 走「添加到主屏幕」 -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="深渊牌局">
+<link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
+
+<link rel="icon" href="assets/icons/favicon.png" sizes="any">
+<link rel="icon" href="assets/icons/favicon-32.png" sizes="32x32">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<!-- 舞台：JS 按视口大小缩放它，保证各种屏幕上都铺满、看得清 -->
+<div id="viewport"><div id="stage"><div id="app"></div></div></div>
+<!-- 下面几层不参与缩放，用真实屏幕坐标定位（飘字 / 长按气泡 / 提示条） -->
+<div id="fx-layer"></div>
+<div id="tooltip" class="tooltip hidden"></div>
+<div id="toast-wrap"></div>
+
+<script type="module" src="js/main.js"></script>
+<script type="module" src="js/dev-agent.js"></script>
+<script>
+// 注册 Service Worker —— 让游戏能装到桌面并离线玩。
+// file:// 打开时（单文件版）浏览器不允许 SW，这里静默跳过即可，不影响游戏。
+if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+  addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  });
+}
+</script>
+</body>
+</html>
