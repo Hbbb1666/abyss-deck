@@ -3,7 +3,7 @@ import { G, save, hasRelic } from '../core/state.js';
 import { NODE_TYPES, reachable, nodeAt, layout, MAP_ROWS } from '../core/map.js';
 import { classSprite } from '../data/classes.js';
 import { sfx } from '../core/audio.js';
-import { SPR, relicEl, bindTip, hpBar, modal } from './widgets.js';
+import { SPR, relicEl, bindTip, bindTipAction, hpBar, modal } from './widgets.js';
 import { showHelp, deckBody } from './scene-battle.js';
 
 const key = n => `${n.r},${n.c}`;
@@ -24,14 +24,17 @@ export function mapScene({ onEnter }) {
 
   /* ---------- 遗物条 ---------- */
   const relicbar = el('div', { class: 'relicbar' });
-  for (const id of G.relics) relicbar.append(relicEl(id));
+  for (const id of G.relics) relicbar.append(relicEl(id, { sceneNode: root }));
   const potionBar = el('div', { class: 'relicbar', style: { gap: '6px' } });
   for (let i = 0; i < G.potionSlots; i++) {
     const p = G.potions[i];
     if (p) {
       const n = el('div', { class: 'relic', style: { backgroundImage: `url(${SPR(p.sprite)})`, width: '30px', height: '30px', borderColor: '#7ee78760' } });
-      bindTip(n, () => `<div class="tname">${p.name}</div>${p.text}<br><span class="dim tiny">战斗中点击使用</span>`);
-      n.addEventListener('click', () => usePotion(i));
+      // 地图上只能看、不能用 —— 点一下就把作用显示出来，别让玩家空点
+      bindTipAction(n, {
+        html: () => `<div class="tname">${p.name}</div>${p.text}<br><span class="dim tiny">战斗中才能使用</span>`,
+        sceneNode: root,
+      });
       potionBar.append(n);
     } else {
       potionBar.append(el('div', { class: 'relic', style: { width: '30px', height: '30px', opacity: '.28' } }));
@@ -168,11 +171,6 @@ export function mapScene({ onEnter }) {
     G.visited[key(n)] = true;
     save();
     onEnter(n);
-  }
-
-  function usePotion(i) {
-    toast('药水只能在战斗中使用');
-    sfx.error();
   }
 
   function showDeck() {

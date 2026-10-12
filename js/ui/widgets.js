@@ -1,4 +1,4 @@
-import { el, clear, $, $$, toast, asset } from '../core/util.js';
+import { el, clear, $, $$, toast, asset, onSceneCleanup } from '../core/util.js';
 import { RARITY, TYPE_LABEL, CARDS } from '../data/cards.js';
 import { RELICS } from '../data/relics.js';
 import { ST, stText } from '../core/battle.js';
@@ -187,6 +187,59 @@ export function onLongPress(node, fn, ms = 380) {
   return node;
 }
 
+/* ---------------- 「点一下看说明，再点一下执行」 ---------------- */
+let armedState = null;   // { node, onAction, timer } —— 当前已点开、等待第二次确认的那个
+
+/** 收起当前气泡并解除待确认状态 */
+export function disarmTipAction() {
+  if (!armedState) { hideTip(); return; }
+  clearTimeout(armedState.timer);
+  armedState.node?.classList.remove('armed');
+  armedState = null;
+  hideTip();
+}
+
+/**
+ * 两段式点击：**第一次点开说明，第二次点同一个才真的执行**。
+ *
+ * 为什么不用 dblclick：触屏上双击有判定延迟，还会和已有的长按气泡互相干扰；
+ * 两段式在手机和桌面上行为完全一致，而且第一次点击本身就有反馈（说明当场看得见），
+ * 玩家不会"点了一下什么都没发生"。
+ *
+ * 不传 onAction 时退化成「点一下看说明」（遗物、地图上的药水都是这种）。
+ *
+ * @param node      要绑定的元素
+ * @param html      说明内容（字符串或返回字符串的函数）
+ * @param onAction  第二次点击时执行；不传则只显示说明
+ * @param hint      第二次点击前的提示文案
+ * @param sceneNode 所属场景节点。传入后切场景会自动收起气泡 ——
+ *                  气泡挂在 body 上，不会随 clear(#app) 一起消失。
+ */
+export function bindTipAction(node, { html, onAction, hint = '再点一次使用', sceneNode } = {}) {
+  const render = () => {
+    const body = typeof html === 'function' ? html() : (html || '');
+    return onAction ? `${body}<br><span class="dim tiny">${hint}</span>` : body;
+  };
+  const arm = () => {
+    disarmTipAction();                       // 同时只允许一个处于待确认状态
+    if (onAction) node.classList.add('armed');
+    showTip(node, render());
+    armedState = { node, onAction, timer: setTimeout(disarmTipAction, 5000) };
+  };
+  node.addEventListener('click', ev => {
+    ev.stopPropagation();
+    if (armedState && armedState.node === node && armedState.onAction) {
+      const run = armedState.onAction;
+      disarmTipAction();
+      run();                                  // 先收起气泡再执行，避免动作里重建 DOM 时残留
+      return;
+    }
+    arm();
+  });
+  if (sceneNode) onSceneCleanup(sceneNode, disarmTipAction);
+  return node;
+}
+
 /* ---------------- 弹窗 ---------------- */
 export function modal({ title, body, buttons = [], closable = false, onClose }) {
   const bg = el('div', { class: 'modal-bg' });
@@ -304,15 +357,18 @@ export function infoModal(title, html) {
   return modal({ title, body: `<div style="padding:4px">${html}</div>`, buttons: [{ label: '知道了', cls: 'primary' }], closable: true });
 }
 
-/* ---------------- 遗物图标 ---------------- */
-export function relicEl(id, { onClick } = {}) {
+/* ---------------- 遗物图标 ----------------
+   遗物没有"使用"动作，所以是纯查看：**点一下就把作用显示出来**（以前只能长按，
+   很多人根本不知道能按）。长按仍然有效，两条路径写的是同一个 .tip。 */
+export function relicEl(id, { sceneNode } = {}) {
   const r = RELICS[id];
   const node = el('div', {
     class: 'relic ' + (r.rarity === 'boss' ? 'boss' : ''),
     style: { backgroundImage: `url(${SPR(r.sprite)})` },
   });
-  bindTip(node, () => `<div class="tname">${r.name}</div>${r.desc}`);
-  if (onClick) node.addEventListener('click', () => onClick(id));
+  const tip = () => `<div class="tname">${r.name}</div>${r.desc}`;
+  bindTip(node, tip);                                    // 长按（老习惯）
+  bindTipAction(node, { html: tip, sceneNode });          // 点一下（主要路径）
   return node;
 }
 

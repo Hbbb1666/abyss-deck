@@ -135,6 +135,11 @@ i { color: var(--dim); font-style: normal; }
 .potionbar { padding: 4px 9px; gap: 7px; background: #0f1520; border-bottom: 1px solid #00000060; min-height: 44px; }
 .relic.potion { border-color: #7ee78766; cursor: pointer; transition: transform .1s; }
 .relic.potion:active { transform: scale(.86); }
+/* 「已点开、等第二次点击确认」的状态：加个金色呼吸边框，让玩家知道再点一下就用了 */
+.relic.armed { border-color: var(--gold) !important; box-shadow: 0 0 0 2px #ffcc5255, 0 0 10px #ffcc5288; animation: armedPulse 1s ease-in-out infinite; }
+@keyframes armedPulse { 50% { box-shadow: 0 0 0 2px #ffcc5222, 0 0 4px #ffcc5244; } }
+@media (prefers-reduced-motion: reduce) { .relic.armed { animation: none; } }
+.relic { cursor: pointer; }
 
 /* ---------------- 通用面板 ---------------- */
 .panel {

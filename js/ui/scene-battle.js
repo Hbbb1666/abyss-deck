@@ -5,7 +5,7 @@ import { CARDS, makeCard, RARITY, TYPE_LABEL } from '../data/cards.js';
 import { ST, stText } from '../core/battle.js';
 import { sfx } from '../core/audio.js';
 import { classSprite, className } from '../data/classes.js';
-import { cardEl, hpBar, updateHpBar, statusRow, SPR, relicEl, bindTip, onLongPress, modal, screenFlash, pickCards, fitAllCards } from './widgets.js';
+import { cardEl, hpBar, updateHpBar, statusRow, SPR, relicEl, bindTip, bindTipAction, disarmTipAction, onLongPress, modal, screenFlash, pickCards, fitAllCards } from './widgets.js';
 
 /**
  * 构建战斗界面，并把 view 回调挂到 B 上
@@ -30,15 +30,18 @@ export function battleScene(B, { onFinish, onQuit, resumed }) {
   const relicbar = el('div', { class: 'relicbar' });
   const rebuildRelics = () => {
     clear(relicbar);
-    for (const id of G.relics) relicbar.append(relicEl(id));
+    for (const id of G.relics) relicbar.append(relicEl(id, { sceneNode: root }));
     if (!G.relics.length) relicbar.append(el('span', { class: 'tiny dim', text: '（暂无遗物）' }));
   };
   rebuildRelics();
 
   /* ---------- 药水条 ---------- */
   const potionBar = el('div', { class: 'relicbar potionbar' });
+  let potionsDrawn = -1;          // 上一次渲染出来的药水数量，用来判断需不需要重建
   const rebuildPotions = () => {
+    disarmTipAction();                       // 药水被消耗后 DOM 会重建，收起可能还挂着的气泡
     clear(potionBar);
+    potionsDrawn = G.potions.length;
     if (!G.potions.length) {
       potionBar.append(el('span', { class: 'tiny dim', text: '（没有药水）' }));
       return;
@@ -48,8 +51,13 @@ export function battleScene(B, { onFinish, onQuit, resumed }) {
         class: 'relic potion',
         style: { backgroundImage: `url(${SPR(p.sprite)})`, width: '32px', height: '32px' },
       });
-      bindTip(n, () => `<div class="tname">${p.name}</div>${p.text}<br><span class="dim tiny">点击使用（本回合免费）</span>`);
-      n.addEventListener('click', () => usePotion(i));
+      // 两段式：点一下看作用，再点一下才真的喝掉（避免误触，尤其是战斗中）
+      bindTipAction(n, {
+        html: () => `<div class="tname">${p.name}</div>${p.text}`,
+        hint: '再点一次使用（不消耗能量）',
+        onAction: () => usePotion(i),
+        sceneNode: root,
+      });
       potionBar.append(n);
     });
   };
@@ -266,7 +274,10 @@ export function battleScene(B, { onFinish, onQuit, resumed }) {
     renderPlayer();
     renderHand();
     renderCounts();
-    if (potionBar.childElementCount !== Math.max(1, G.potions.length)) rebuildPotions();
+    // 用「上次渲染的数量」判断，而不是 childElementCount ——
+    // 空态会往药水条里放一句「（没有药水）」，于是 0 瓶和 1 瓶的 childElementCount
+    // 都是 1（Math.max(1, 1) === 1），从 0 变 1 时**不会重建**，新拿到的药水图标不显示。
+    if (potionsDrawn !== G.potions.length) rebuildPotions();
     for (const e of B.aliveEnemies()) renderIntent(e);
     endTurnBtn.classList.toggle('disabled', busy || finished);
     goldStat.querySelector('.gold').textContent = G.gold;

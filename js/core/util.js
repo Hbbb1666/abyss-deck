@@ -153,14 +153,27 @@ export function onScene(node, target, type, fn, opts) {
   return fn;
 }
 
-/** 摘掉该场景注册过的全部监听器；返回摘掉的数量（路由在拆 DOM 之前调用） */
+/** 注册「切场景时要执行的收尾动作」，和 onScene 共用同一批、按注册逆序执行。
+    给挂在 body / #stage 上的东西用 —— 它们**不会**随 clear(#app) 一起消失，
+    典型例子是长按/点击气泡（.tip 挂 body），切场景后不收拾就会留在屏幕上。 */
+export function onSceneCleanup(node, fn) {
+  let set = sceneListeners.get(node);
+  if (!set) { set = []; sceneListeners.set(node, set); }
+  set.push(fn);
+  return fn;
+}
+
+/** 摘掉该场景注册过的全部监听器并执行收尾动作（路由在拆 DOM 之前调用） */
 export function disposeScene(node) {
   if (!node) return 0;
   const set = sceneListeners.get(node);
   if (!set) return 0;
   sceneListeners.delete(node);
   let n = 0;
-  for (const off of set) { try { off(); n++; } catch { /* 单个失败不影响其它 */ } }
+  // 逆序：后注册的先收尾（先挂的东西最后拆）
+  for (let i = set.length - 1; i >= 0; i--) {
+    try { set[i](); n++; } catch { /* 单个失败不影响其它 */ }
+  }
   return n;
 }
 

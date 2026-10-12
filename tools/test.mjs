@@ -1544,6 +1544,104 @@ section('O. 四层结构与层级强度曲线');
   }
 }
 
+section('P. 药水/遗物：点一下看说明，再点一下使用');
+{
+  // 【这条是补的】以前遗物**只能长按**才显示作用（很多人根本不知道能按），
+  // 而战斗中药水是**单击直接喝掉** —— 误触就浪费一瓶。
+  // 现在统一成两段式：第一次点开说明，第二次点同一个才执行。
+  const doc = window.document;
+  const sleep3 = ms => new Promise(r => setTimeout(r, ms));
+  const tipText = () => (doc.querySelector('.tip')?.textContent || '').trim();
+
+  /* --- P1. 战斗中药水：第一次点击只弹说明、不消耗 --- */
+  {
+    A.startRun('knight');
+    const B = new A.Battle(['slime'], { kind: 'battle' });
+    A.go('battle', B);
+    await sleep3(250);
+    // 手动放一瓶药水进去（避免依赖随机掉落）
+    const { POTIONS } = await import('file://' + join(ROOT, 'js/data/potions.js'));
+    A.G.potions = [{ ...POTIONS.heal }];
+    B.view.sync?.();
+    await sleep3(200);
+    const bar = doc.querySelector('.potionbar') || doc.querySelectorAll('.relicbar')[1];
+    const potion = bar?.querySelector('.relic.potion');
+    ok(!!potion, '战斗界面渲染出药水图标');
+
+    const n0 = A.G.potions.length;
+    potion.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    await sleep3(150);
+    ok(A.G.potions.length === n0, '★ 第一次点击**不会**消耗药水');
+    ok(!!tipText(), '第一次点击弹出说明气泡', tipText().slice(0, 40));
+    ok(tipText().includes('治疗药水') || tipText().includes('回复'), '气泡里说明的是这瓶药水的作用', tipText().slice(0, 60));
+    ok(potion.classList.contains('armed'), '图标进入「待确认」状态（有视觉反馈）');
+  }
+
+  /* --- P2. 再点一次才真的喝掉 --- */
+  {
+    const bar = doc.querySelector('.potionbar') || doc.querySelectorAll('.relicbar')[1];
+    const potion = bar?.querySelector('.relic.potion');
+    const n0 = A.G.potions.length;
+    A.G.hp = 10;                                   // 留出治疗空间
+    potion.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    await sleep3(400);
+    ok(A.G.potions.length === n0 - 1, `★ 第二次点击真的用掉了药水（${n0} -> ${A.G.potions.length}）`);
+    ok(!doc.querySelector('.tip'), '用完后气泡收起');
+  }
+
+  /* --- P3. 遗物点一下就能看作用（以前只能长按） --- */
+  {
+    A.startRun('knight');
+    A.go('map');
+    await sleep3(250);
+    const relic = doc.querySelector('.relicbar .relic:not(.potion)');
+    ok(!!relic, '地图上渲染出遗物图标');
+    relic.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    await sleep3(150);
+    const t = tipText();
+    ok(!!t, '★ 单击遗物就弹出作用说明（不再需要长按）', t.slice(0, 40));
+    // 气泡必须写的是**这个遗物自己的**名称与描述，而不是某个泛化提示
+    const { RELICS } = await import('file://' + join(ROOT, 'js/data/relics.js'));
+    const rid = A.G.relics[0];
+    const def = RELICS[rid];
+    ok(t.includes(def.name), `气泡里是这个遗物的名字（${def.name}）`, t.slice(0, 40));
+    // desc 里可能带 <b> 标签，去掉后再比
+    const plainDesc = String(def.desc).replace(/<[^>]*>/g, '');
+    ok(t.includes(plainDesc), `气泡里是它的实际效果（${plainDesc}）`, t.slice(0, 80));
+  }
+
+  /* --- P4. 切场景不留孤儿气泡 --- */
+  {
+    A.go('map');
+    await sleep3(200);
+    const relic = doc.querySelector('.relicbar .relic:not(.potion)');
+    relic?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    await sleep3(150);
+    const before = !!doc.querySelector('.tip');
+    A.go('menu');                                   // 切场景
+    await sleep3(250);
+    ok(before && !doc.querySelector('.tip'),
+       '★ 切场景后气泡被收掉（它挂在 body 上，不会随 #app 清理而消失）');
+  }
+
+  /* --- P5. 地图上的药水只给说明，不会误用 --- */
+  {
+    A.startRun('knight');
+    const { POTIONS } = await import('file://' + join(ROOT, 'js/data/potions.js'));
+    A.G.potions = [{ ...POTIONS.heal }];
+    A.go('map');
+    await sleep3(250);
+    const bars = doc.querySelectorAll('.relicbar');
+    const potion = [...(bars[1]?.querySelectorAll('.relic') || [])].find(n => n.style.backgroundImage.includes('potion'));
+    ok(!!potion, '地图上渲染出药水图标');
+    potion.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    await sleep3(150);
+    ok(!!tipText(), '地图上点药水弹出说明');
+    ok(A.G.potions.length === 1, '地图上点击不会消耗药水');
+    ok(!potion.classList.contains('armed'), '地图上的药水不进入待确认状态（这里不能用）');
+  }
+}
+
 section('运行期 JS 错误');
 {
   const real = jsErrors.filter(e => !/Not implemented|Could not parse CSS|audio/i.test(e));
