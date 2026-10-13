@@ -1,5 +1,5 @@
 import { el, clear, sleep, toast, fitStage, disposeScene } from './core/util.js';
-import { G, newRun, save, hasSave, loadSave, clearSave, loadMeta, saveMeta, bumpMeta, addRelic, gainMaxHp, relicMods, relicHooks } from './core/state.js';
+import { gainGold, G, newRun, save, hasSave, loadSave, clearSave, loadMeta, saveMeta, bumpMeta, addRelic, gainMaxHp, relicMods, relicHooks } from './core/state.js';
 import { generateMap, MAP_ROWS } from './core/map.js';
 import { Battle } from './core/battle.js';
 import { ENCOUNTERS, TOTAL_ACTS } from './data/enemies.js';
@@ -26,12 +26,22 @@ function go(name, ...args) {
   try {
     let node;
     switch (name) {
-      case 'menu': node = menuScene({ onNew: () => go('class'), onContinue: resumeRun }); break;
-      case 'class': node = classScene({ onPick: askNoviceOrVeteran, onBack: () => go('menu') }); break;
-      // 新手/老手询问：只在**从未通关过**时出现（见 askNoviceOrVeteran）
-      case 'veteran': node = veteranScene({ clsId: args[0], onNovice: () => startRun(args[0], []), onVeteran: () => go('difficulty', args[0]), onBack: () => go('class') }); break;
-      // 难度选择
-      case 'difficulty': node = difficultyScene({ clsId: args[0], onStart: startRun, onBack: () => go('class') }); break;
+      case 'menu': node = menuScene({ onNew: beginNewRun, onContinue: resumeRun }); break;
+      /* 流程（桌面端 + 手机端合并后的最终顺序）：
+           点开始 → 问「新手 / 老手」→
+             新手 → 铁誓骑士直接开局（跳过难度与职业）
+             老手 → 先选难度与增益，再选职业（职业按难度分**解锁**）
+           通关过一次之后不再问，一律默认老手（见 beginNewRun）
+         ⚠️ 询问必须排在**职业之前**：职业解锁门槛是难度分（CLASSES[].unlockScore），
+            分数要先在难度页选出来 —— 顺序反了就没法解锁。 */
+      case 'veteran': node = veteranScene({ onNovice: () => startRun('knight', []), onVeteran: () => go('difficulty'), onBack: () => go('menu') }); break;
+      // picks 透传：从职业页点「返回」过来时要带着上一次的选择（否则回来一看全空了）
+      case 'difficulty': node = difficultyScene({ picks: args[0] || [], onStart: (picks) => go('class', picks), onBack: () => go('menu') }); break;
+      case 'class': node = classScene({
+        picks: args[0] || [],
+        onPick: (clsId) => startRun(clsId, args[0] || []),
+        onBack: () => go('difficulty', args[0] || []),   // 返回时把已选内容带回去，别让玩家重选
+      }); break;
       case 'map': node = mapScene({ onEnter: enterRoom }); break;
       case 'battle': node = battleScene(args[0], { onFinish: onBattleEnd, onQuit: quitRun, resumed: !!args[1] }); break;
       case 'reward': node = rewardScene(args[0], { onDone: afterRoom }); break;
@@ -41,7 +51,7 @@ function go(name, ...args) {
       case 'intro': node = eventScene({ onDone: afterIntro, onFight: () => startBattle('elite', 'elite'), ev: actIntro(G.act), intro: true }); break;
       case 'rest': node = restScene({ onDone: afterRoom }); break;
       case 'treasure': node = treasureScene({ onDone: afterRoom }); break;
-      case 'end': node = endScene(args[0], { onMenu: () => go('menu'), onRetry: () => go('class') }); break;
+      case 'end': node = endScene(args[0], { onMenu: () => go('menu'), onRetry: beginNewRun }); break;
       default: node = el('div', { class: 'screen center' }, el('div', { text: '未知场景: ' + name }));
     }
     // 先摘掉上一个场景注册的 window/document 监听器，再拆 DOM。
@@ -59,23 +69,20 @@ function go(name, ...args) {
 }
 
 /* ================= 开局 ================= */
-/** 选了职业之后决定去哪：
- *   · **从未通关过** → 问一句"新手 / 老手"
- *       新手 → 直接开局（0 分标准难度）
- *       老手 → 难度与增益选择界面
- *   · **通关过一次之后** → 不再问，一律当老手，直接进难度界面
- *     （那时玩家已经熟悉规则，再问只是多一次点击）
- *
- *  这样"通关一次解锁难度系统"这条旧规则**被新界面取代**了：
- *  没通关也能选老手进难度界面，只是默认给新手一条更省事的路。 */
-function askNoviceOrVeteran(clsId) {
+/** 选了职业之后：通关过就先进难度选择，否则直接开（0 分 = 标准难度） */
+/** 开始新的一局。
+    流程入口：
+      · **从未通关过** → 问一句「新手 / 老手」
+          新手 → 铁誓骑士直接开局（跳过难度与职业）
+          老手 → 难度页 → 职业页（职业按难度分解锁）
+      · **通关过一次之后** → 不再问，一律默认老手，直接进难度页
+        （玩家已经熟悉规则，再问只是多一次点击）
+    ⚠️ 询问必须排在职业之前：职业解锁要看难度分，而分数要先选出来。 */
+function beginNewRun() {
   const meta = loadMeta();
-  if (meta.wins > 0) { go('difficulty', clsId); return; }   // 已通关 = 默认老手
-  go('veteran', clsId);
+  if (meta.wins > 0) { go('difficulty'); return; }   // 已通关 = 默认老手
+  go('veteran');
 }
-
-/** 兼容旧调用名（测试与调试入口用过 pickDifficulty） */
-function pickDifficulty(clsId) { askNoviceOrVeteran(clsId); }
 
 function startRun(clsId, picks = []) {
   newRun(clsId, undefined, picks);
@@ -252,7 +259,8 @@ document.addEventListener('dblclick', e => e.preventDefault());
 // 防止整页滚动回弹
 document.body.addEventListener('touchmove', e => {
   // 只有这些容器允许触摸滚动，其它地方一律拦住（避免整页回弹）
-  const sc = e.target.closest?.('.scroll, .hand, .relicbar, .map-wrap, .mbody');
+  // .field 也允许滚：敌人太多时战场会纵向溢出，得能滚到下面几排
+  const sc = e.target.closest?.('.scroll, .hand, .relicbar, .map-wrap, .mbody, .field');
   if (!sc) e.preventDefault();
 }, { passive: false });
 
@@ -265,11 +273,12 @@ go('menu');
 //    我踩过一次：难度钩子的测试直接 import 了 state.js，钩子拿到空数组，
 //    表现成"这条难度没生效"，其实是测试连错了世界。
 window.__ABYSS__ = {
-  go, startRun, pickDifficulty, enterRoom, pickEncounter, startBattle, fitStage,
+  go, startRun, beginNewRun, enterRoom, pickEncounter, startBattle, fitStage,
   Battle, CARDS, RELICS, addRelic, gainMaxHp, relicMods, mapOpts, scoreOf, MAX_PICKS,
   // 与运行时**同一份实例**的状态与工具
   get G() { return G; },
-  save, loadSave, clearSave, hasSave, loadMeta, saveMeta, bumpMeta,
+  save, loadSave, clearSave, hasSave, loadMeta, saveMeta, bumpMeta, gainGold,
+  // gainGold 走统一的乘区（难度「金币减少」），测试要能验真实到账数额
   relicHooks, splitPicks, pickById,
 };
 

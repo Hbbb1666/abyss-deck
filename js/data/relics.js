@@ -27,8 +27,23 @@ export const RELICS = {
     name: '燃火水晶', sprite: 'potion_blue', rarity: 'starter',
     // 火焰法师唯一的起始遗物（起始遗物 + 职业特性合并成一件）。
     // 触发条件是**技能牌**且对敌人生效（单体 target:'enemy' 或群体 target:'all'）。
-    desc: '战斗第一回合额外获得 <b>1</b> 点能量；你打出的技能牌会给受影响的敌人施加 <b>1</b> 层灼烧。',
+    desc: '战斗第一回合额外获得 <b>1</b> 点能量；你打出的技能牌会给受影响的敌人施加 <b>1</b> 层点燃。',
     mods: { firstTurnEnergy: 1, burnOnSkill: 1 },
+  },
+  truth_core: {
+    name: '真理之核', sprite: 'key_purple', rarity: 'starter',
+    desc: '你每有 <b>1</b> 层真理，<b>多段</b>攻击/技能牌就额外多打 <b>1</b> 次。',
+    mods: { hitsPerTruth: 1 },
+  },
+  holy_oath: {
+    name: '圣誓', sprite: 'key_gold', rarity: 'starter',
+    desc: '单次造成超过 <b>7</b> 点伤害后，你回复 <b>1</b> 点生命。',
+    mods: { healOnBigHit: 1 },
+  },
+  alchemy_pouch: {
+    name: '炼金口袋', sprite: 'potion_green', rarity: 'starter',
+    desc: '药水槽 <b>+2</b>；战斗中每使用过 1 瓶药水，战斗结束时额外获得 <b>20</b> 金币。',
+    mods: { potionSlots: 2, potionBattleGold: 20 },
   },
   frost_core: {
     name: '寒霜核心', sprite: 'key_blue', rarity: 'starter',
@@ -37,11 +52,15 @@ export const RELICS = {
   },
   shadow_mark: {
     name: '影刃', sprite: 'key_purple', rarity: 'starter',
+    // 2026-10-13 产品要求：由 1 层提到 **2 层**（刺客要"先铺易伤"，1 层不够起手）。
+    // 注意手机端那份累积补丁是在旧基线上做的、会把它退回 1 层，合并时按产品口径落回 2。
     desc: '战斗开始时对所有敌人施加 <b>2</b> 层易伤。', mods: { startDebuffAll: { vulnerable: 2 } },
   },
   venom_fang: {
-    name: '毒牙', sprite: 'key_green', rarity: 'starter',
-    desc: '战斗开始时对所有敌人施加 <b>1</b> 层中毒。', mods: { startPoisonAll: 1 },
+    name: '血牙', sprite: 'key_green', rarity: 'starter',
+    // 游侠的设计核心改成"流血"：攻击牌自带 1 层流血，靠持续掉血滚雪球。
+    desc: '你打出的<b>攻击牌</b>会为目标附加 <b>1</b> 层流血。',
+    mods: { bleedOnAttack: 1 },
   },
   iron_belt: {
     name: '铁腰带', sprite: 'bars', rarity: 'common',

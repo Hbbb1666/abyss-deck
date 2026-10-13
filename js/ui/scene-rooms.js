@@ -1,5 +1,5 @@
 import { el, clear, sleep, toast, fxFloat } from '../core/util.js';
-import { G, save, addRelic, addPotion, addCardToDeck, removeCardAt, upgradeCardAt, rollCardChoices, rollRelic, rollPotion, relicMods, hydrate, gainMaxHp } from '../core/state.js';
+import { gainGold, G, save, addRelic, addPotion, addCardToDeck, removeCardAt, upgradeCardAt, rollCardChoices, rollRelic, rollPotion, relicMods, hydrate, gainMaxHp } from '../core/state.js';
 import { CARDS, makeCard, rewardPool, RARITY } from '../data/cards.js';
 import { RELICS } from '../data/relics.js';
 import { POTIONS } from '../data/potions.js';
@@ -46,7 +46,7 @@ export function rewardScene(kind, { onDone }) {
   const goldAmt = kind === 'boss' ? 90 + G.act * 25 : kind === 'elite' ? 45 + G.act * 12 : 18 + G.rng.int(6, 14);
   const bonus = relicMods().battleGold || 0;
   const total = goldAmt + bonus;
-  G.gold += total;
+  gainGold(total);
   if (kind === 'boss') G.stats.bosses++;
   else if (kind === 'elite') G.stats.elites++;
   save();
@@ -343,7 +343,7 @@ export function eventScene({ onDone, onFight, ev: givenEv, intro } = {}) {
     heal: n => { const b = G.hp; G.hp = Math.min(G.maxHp, G.hp + n); log.push(`回复了 <b>${G.hp - b}</b> 点生命`); },
     damage: n => { G.hp = Math.max(0, G.hp - n); log.push(`失去了 <b>${n}</b> 点生命`); },
     maxHp: n => { gainMaxHp(n); log.push(n > 0 ? `最大生命 <b>+${n}</b>（当前生命同步 +${n}）` : `最大生命 <b>${n}</b>`); },
-    gold: n => { G.gold = Math.max(0, G.gold + n); log.push(n >= 0 ? `获得 <b>${n}</b> 金币` : `失去 <b>${-n}</b> 金币`); },
+    gold: n => { const g = gainGold(n); log.push(n >= 0 ? `获得 <b>${g}</b> 金币` : `失去 <b>${-g}</b> 金币`); },
     addRelic: id => { const r = id || rollRelic(['common', 'uncommon', 'rare', 'boss']); if (!r) return; addRelic(r); log.push(`获得遗物「<b>${RELICS[r].name}</b>」`); },
     addPotion: id => { const p = id ? { ...POTIONS[id] } : rollPotion(); if (G.potions.length >= G.potionSlots) { log.push('<span class="dim">药水槽已满，没能拿上</span>'); return; } addPotion(p); log.push(`获得药水「<b>${p.name}</b>」`); },
     addCard: id => { const cid = id || G.rng.pick(rewardPool(G.cls)).id; addCardToDeck(cid); log.push(`获得卡牌「<b>${CARDS[cid].name}</b>」`); },
@@ -512,7 +512,7 @@ export function restScene({ onDone }) {
     G.hp = Math.max(1, G.hp - 5);          // 至少留 1 点，别让"献祭"把自己变成尸体
     const id = rollRelic(['common', 'uncommon', 'rare']);
     if (id) { addRelic(id); toast(`献出 5 点生命，获得「<b>${RELICS[id].name}</b>」`, 1800); sfx.bell(); }
-    else { G.gold += 50; toast('已经没有可拿的遗物了，改为获得 50 金币', 1800); }
+    else { gainGold(50); toast('已经没有可拿的遗物了，改为获得 50 金币', 1800); }
     save();
   };
 
@@ -537,14 +537,14 @@ export function treasureScene({ onDone }) {
     const id = rollRelic(['common', 'uncommon', 'rare']);
     if (id) { addRelic(id); const r = RELICS[id];
       title = `获得遗物：${r.name}`; html = `<div class="tiny dim">${r.desc}</div>`; sfx.bell(); }
-    else { const g = 60 + G.act * 20; G.gold += g; title = `获得 ${g} 金币`; html = ''; sfx.coin(); }
+    else { const g = gainGold(60 + G.act * 20); title = `获得 ${g} 金币`; html = ''; sfx.coin(); }
   } else if (roll < 0.75) {
-    const g = 55 + G.act * 22 + G.rng.int(0, 30); G.gold += g;
+    const g = gainGold(55 + G.act * 22 + G.rng.int(0, 30));
     title = `获得 ${g} 金币`; html = ''; sfx.coin();
   } else {
     const p = rollPotion();
     if (G.potions.length < G.potionSlots) { addPotion(p); title = `获得药水：${p.name}`; html = `<div class="tiny dim">${p.text}</div>`; sfx.confirm(); }
-    else { const g = 45; G.gold += g; title = `药水槽已满，改拿 ${g} 金币`; html = ''; sfx.coin(); }
+    else { const g = gainGold(45); title = `药水槽已满，改拿 ${g} 金币`; html = ''; sfx.coin(); }
   }
   save();
   trStrip.refresh();   // 遗物可能改了最大生命

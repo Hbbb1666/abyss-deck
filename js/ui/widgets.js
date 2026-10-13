@@ -148,7 +148,7 @@ export function sortedStatus(e) {
 }
 
 /** 状态图标：定义了 sprite 的用图形（画出来的），否则用字符。
-    字符图标靠系统字体回退，风格不统一；新加的「灼烧」按项目调色板手绘成了贴图。 */
+    字符图标靠系统字体回退，风格不统一；新加的「点燃」按项目调色板手绘成了贴图。 */
 function statusIcon(d) {
   if (d.sprite) {
     return el('i', { class: 'stimg', style: { backgroundImage: `url(${SPR(d.sprite)})` } });

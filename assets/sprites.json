@@ -244,5 +244,9 @@
  "icon_frost": "custom:tools/make-sprites.mjs",
  "icon_freeze": "custom:tools/make-sprites.mjs",
  "snowball": "custom:tools/make-sprites.mjs",
- "hero_icemage": "recolor:hero_mage/ice"
+ "hero_icemage": "recolor:hero_mage/ice",
+ "hero_arcanist": "recolor:hero_icemage/arcane",
+ "hero_alchemist": "recolor:hero_arcanist/alchemist",
+ "hero_paladin": "recolor:hero_knight/paladin",
+ "boss_frostqueen": "custom:tools/make-sprites.mjs"
 }

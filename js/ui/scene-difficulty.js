@@ -1,8 +1,9 @@
 /**
  * 难度选择界面
  * =====================================================================
- * 通关过一次后才解锁。左侧/上方是**难度规则**（每条 +9 分），
- * 下方是**增益**（每条 −4 分）；最多各选至多共 10 条。
+ * 流程中的位置：**老手路径的第一步**（新手直接骑士开局，不进这里）。
+ * 它只负责选出 picks，选完交给职业页 —— 职业按这一页的**难度分**解锁。
+ * 左侧/上方是**难度规则**（每条 +9 分），下方是**增益**（每条 −4 分），最多共 10 条。
  * 底部实时显示当前总分与档位（0 分 = 标准难度）。
  *
  * 设计取舍：
@@ -13,12 +14,13 @@
  */
 import { el, clear, toast } from '../core/util.js';
 import { G, loadMeta } from '../core/state.js';
-import { DIFFICULTY, BOONS, DIFF_POINTS, BOON_POINTS, MAX_PICKS, scoreOf, scoreLabel, splitPicks } from '../data/difficulty.js';
+import { DIFFICULTY, BOONS, DIFF_POINTS, BOON_POINTS, MAX_PICKS, scoreOf, scoreLabel, splitPicks, pickById } from '../data/difficulty.js';
 import { sfx } from '../core/audio.js';
 import { SPR, modal } from './widgets.js';
 
-export function difficultyScene({ clsId, onStart, onBack }) {
-  const cls = clsId;    // ⚠️ 不能读 G.cls —— 这时 newRun 还没跑，G 是上一局或 null
+export function difficultyScene({ picks = [], onStart, onBack }) {
+  // 难度页现在排在**职业页之前**（产品要求），所以这里不再接收职业 id，也不再读 G.cls。
+  // 它只负责选出 picks，选完交给职业页（职业按难度分解锁）。
   const meta = loadMeta();
   const root = el('div', { class: 'screen' });
   const body = el('div', { class: 'scroll grow', style: { padding: '0 12px 12px' } });
@@ -30,13 +32,14 @@ export function difficultyScene({ clsId, onStart, onBack }) {
   );
   root.append(topbar);
 
-  /** 已选中的 id（顺序无关） */
-  const picked = new Set();
+  /** 已选中的 id（顺序无关）。
+      从职业页点「返回」过来时带着上一次的选择 —— 回来一看全空了会很难受。 */
+  const picked = new Set(picks.filter(id => pickById(id)));
 
   /* ---------- 顶部说明 ---------- */
   body.append(el('div', {
     class: 'tiny dim', style: { padding: '10px 2px 6px', lineHeight: '1.8' },
-    html: `通关过一次后解锁。<br>难度规则每条 <b style="color:#ff8a8a">+${DIFF_POINTS}</b> 分，增益每条 <b style="color:#7ee787">${BOON_POINTS}</b> 分；<b>最多选 ${MAX_PICKS} 条</b>。<br>不选任何条目就是 <b>0 分标准难度</b>。<br>` +
+    html: `难度规则每条 <b style="color:#ff8a8a">+${DIFF_POINTS}</b> 分，增益每条 <b style="color:#7ee787">${BOON_POINTS}</b> 分；<b>最多选 ${MAX_PICKS} 条</b>。<br>不选任何条目就是 <b>0 分标准难度</b>。<br><b class="gold">难度分决定你能选哪些职业</b>（骑士永远可选）。<br>` +
       (meta.bestWinScore ? `你通关过的最高分：<b class="gold">${meta.bestWinScore}</b>` : ''),
   }));
 
@@ -110,7 +113,7 @@ export function difficultyScene({ clsId, onStart, onBack }) {
   const startBtn = el('button', {
     class: 'btn primary block', style: { marginTop: '18px' },
     text: '以当前设置出发 →',
-    onClick: () => { sfx.door(); onStart(cls, [...picked]); },
+    onClick: () => { sfx.door(); onStart([...picked]); },
   });
   const clearBtn = el('button', {
     class: 'btn block', style: { marginTop: '8px' },

@@ -1,6 +1,7 @@
 import { el, clear, sleep, toast } from '../core/util.js';
 import { G, hasSave, loadSave, clearSave, loadMeta, newRun } from '../core/state.js';
 import { CLASS_LIST, CLASSES, className } from '../data/classes.js';
+import { scoreOf, scoreLabel } from '../data/difficulty.js';
 import { RELICS } from '../data/relics.js';
 import { sfx } from '../core/audio.js';
 import { SPR, modal, relicEl, bindTip, GOLD_ICON } from './widgets.js';
@@ -76,15 +77,69 @@ export function menuScene({ onNew, onContinue }) {
   return root;
 }
 
-/* ---------------- 选职业 ---------------- */
-export function classScene({ onPick, onBack }) {
+/* ---------------- 新手 / 老手（整条流程的第一步） ----------------
+   点「新的冒险」后先问这一句。两个分支完全不同：
+     新手 → 铁誓骑士直接开局（跳过难度与职业）
+     老手 → 先选难度与增益，再选职业（职业按难度分**解锁**）
+   ⚠️ 询问必须排在**职业之前**：职业解锁的门槛是难度分（`CLASSES[].unlockScore`），
+   而分数要先在难度页选出来 —— 顺序反了就没法解锁。
+   ⚠️ 只在**从未通关过**时才问（见 main.js 的 beginNewRun）：通关过一次之后
+   一律默认老手、直接进难度页 —— 那时玩家已经熟悉规则，再问只是多一次点击。 */
+export function veteranScene({ onNovice, onVeteran, onBack }) {
+  const meta = loadMeta();
   const root = el('div', { class: 'screen' });
   root.append(el('div', { class: 'topbar' },
     el('button', { class: 'btn sm ghost', text: '←', onClick: () => { sfx.back(); onBack(); } }),
-    el('div', { class: 'grow', style: { textAlign: 'center' }, html: '<span class="gold">选择你的职业</span>' }),
+    el('div', { class: 'grow', style: { textAlign: 'center' }, html: '<span class="gold">你是新手还是老手？</span>' }),
     el('div', { style: { width: '38px' } })));
 
-  // 5 个职业之后一屏放不下了：列表本身要能滚（.screen 是 overflow:hidden）
+  const body = el('div', { class: 'scroll grow col gap12', style: { padding: '14px' } });
+  body.append(el('div', { class: 'col center', style: { padding: '10px 0 2px' } },
+    el('div', { style: { width: '58px', height: '58px', backgroundImage: `url(${SPR('portal')})`, backgroundSize: 'contain', backgroundRepeat: 'no-repeat', backgroundPosition: 'center', filter: 'drop-shadow(0 4px 6px #0008)' } }),
+    el('div', { class: 'small dim', style: { marginTop: '6px', textAlign: 'center', lineHeight: '1.7' }, html: '一副卡组，一条不归路。' }),
+  ));
+
+  const pick = (label, desc, hint, onClick, highlight) => {
+    const b = el('button', {
+      class: 'btn block',
+      style: { textAlign: 'left', flexDirection: 'column', alignItems: 'flex-start', gap: '3px', padding: '12px 14px', borderColor: highlight ? '#ffcc5260' : undefined },
+    },
+      el('span', { class: highlight ? 'gold' : '', text: label }),
+      el('span', { class: 'tiny dim', html: desc }),
+      el('span', { class: 'tiny', style: { color: '#8fa8c0', marginTop: '2px' }, text: hint }),
+    );
+    b.addEventListener('click', () => { sfx.confirm(); onClick(); });
+    return b;
+  };
+
+  body.append(
+    pick('🌱 我是新手', '还没通关过，想先熟悉规则。<br>用<b>铁誓骑士</b>直接开始（标准难度）。',
+      '跳过难度与职业选择，玩法与原版一致', onNovice),
+    pick('⚔ 我是老手', '已经熟悉这套玩法，想自己调难度。<br>先选<b>难度与增益</b>，再选职业。',
+      '难度分越高，能解锁的职业越多', onVeteran, true),
+  );
+
+  if (meta.runs > 0 && !meta.wins) {
+    body.append(el('div', { class: 'tiny dim', style: { textAlign: 'center', padding: '4px' },
+      html: `你已经尝试过 <b>${meta.runs}</b> 局但还没通关。<br>随时可以改主意 —— 老手也能只选 0 条难度（依旧是标准难度）。` }));
+  }
+
+  root.append(body);
+  return root;
+}
+
+/* ---------------- 选职业 ---------------- */
+export function classScene({ picks = [], onPick, onBack }) {
+  // 难度分在这一步**已经选好了**（难度页排在前面），职业按它解锁
+  const score = scoreOf(picks);
+  const root = el('div', { class: 'screen' });
+  root.append(el('div', { class: 'topbar' },
+    el('button', { class: 'btn sm ghost', text: '←', onClick: () => { sfx.back(); onBack(); } }),
+    el('div', { class: 'grow', style: { textAlign: 'center' },
+      html: `<span class="gold">选择你的职业</span> <span class="tiny dim">当前难度 <b class="gold">${score > 0 ? '+' : ''}${score}</b> 分</span>` }),
+    el('div', { style: { width: '38px' } })));
+
+  // 6 个职业一屏放不下：列表本身要能滚（.screen 是 overflow:hidden）
   const list = el('div', { class: 'col gap8 scroll', style: { padding: '12px 14px' } });
   for (const c of CLASS_LIST) {
     const card = el('div', { class: 'class-card' },
@@ -110,61 +165,21 @@ export function classScene({ onPick, onBack }) {
 
       ),
     );
-    card.addEventListener('click', () => { sfx.confirm(); onPick(c.id); });
+    // 难度分不够 → 置灰、显示门槛、点不动
+    const need = c.unlockScore || 0;
+    if (need > score) {
+      card.classList.add('locked');
+      card.append(el('div', { class: 'locknote', text: `🔒 需要 ${need} 难度分` }));
+      card.addEventListener('click', () => {
+        sfx.back();
+        toast(`「${c.name}」需要 <b>${need}</b> 难度分才能选（当前 ${score}）`, 2200);
+      });
+    } else {
+      card.addEventListener('click', () => { sfx.confirm(); onPick(c.id); });
+    }
     list.append(card);
   }
   root.append(list);
-  return root;
-}
-
-/* ---------------- 新手 / 老手 ----------------
-   选完职业后问一句。两个按钮的分支完全不同：
-     新手 → 直接进地图（0 分标准难度，不接触难度系统）
-     老手 → 进难度积分界面
-   ⚠️ 只在**从未通关过**时才问（见 main.js 的 askOrSkip）。通关过一次之后
-   一律当老手处理、直接进难度界面 —— 那时玩家已经熟悉规则，再问是多余的点击。 */
-export function veteranScene({ clsId, onNovice, onVeteran, onBack }) {
-  const cls = CLASSES[clsId];
-  const meta = loadMeta();
-  const root = el('div', { class: 'screen' });
-  root.append(el('div', { class: 'topbar' },
-    el('button', { class: 'btn sm ghost', text: '←', onClick: () => { sfx.back(); onBack(); } }),
-    el('div', { class: 'grow', style: { textAlign: 'center' }, html: '<span class="gold">你是新手还是老手？</span>' }),
-    el('div', { style: { width: '38px' } })));
-
-  const body = el('div', { class: 'scroll grow col gap12', style: { padding: '14px' } });
-  body.append(el('div', { class: 'col center', style: { padding: '6px 0 2px' } },
-    el('div', { style: { width: '58px', height: '58px', backgroundImage: `url(${SPR(cls.sprite)})`, backgroundSize: 'contain', backgroundRepeat: 'no-repeat', backgroundPosition: 'center', filter: 'drop-shadow(0 4px 6px #0008)' } }),
-    el('div', { class: 'small dim', style: { marginTop: '6px' }, text: `${cls.name} · ${cls.tagline}` }),
-  ));
-
-  const pick = (label, desc, hint, onClick, highlight) => {
-    const b = el('button', {
-      class: 'btn block',
-      style: { textAlign: 'left', flexDirection: 'column', alignItems: 'flex-start', gap: '3px', padding: '12px 14px', borderColor: highlight ? '#ffcc5260' : undefined },
-    },
-      el('span', { class: highlight ? 'gold' : '', text: label }),
-      el('span', { class: 'tiny dim', html: desc }),
-      el('span', { class: 'tiny', style: { color: '#8fa8c0', marginTop: '2px' }, text: hint }),
-    );
-    b.addEventListener('click', () => { sfx.confirm(); onClick(); });
-    return b;
-  };
-
-  body.append(
-    pick('🌱 我是新手', '还没通关过，想先熟悉规则。<br>直接开始，<b>标准难度</b>。',
-      '不接触难度系统，玩法与原版一致', onNovice),
-    pick('⚔ 我是老手', '已经熟悉这套玩法，想自己调难度。<br>进入<b>难度与增益</b>选择。',
-      '难度 +9 分／增益 −4 分，最多选 10 条', onVeteran, true),
-  );
-
-  // 给个"跳过询问"的提示 —— 通关过一次后这里就不再出现了
-  if (meta.runs > 0 && !meta.wins) {
-    body.append(el('div', { class: 'tiny dim', style: { textAlign: 'center', padding: '4px' },
-      html: `你已经尝试过 <b>${meta.runs}</b> 局但还没通关。<br>任何时候都可以改主意 —— 老手也能只选 0 条难度。` }));
-  }
-
-  root.append(body);
   return root;
 }
 
@@ -181,9 +196,16 @@ export function endScene(result, { onMenu, onRetry }) {
         抵达：第 <b>${G.act}</b> 层 · 通过 <b>${G.stats.floors}</b> 个房间<br>
         击杀 <b>${G.stats.kills}</b> 个敌人（精英 ${G.stats.elites} · Boss ${G.stats.bosses}）<br>
         打出 <b>${G.stats.cardsPlayed}</b> 张牌 · 造成 <b>${G.stats.dmgDealt}</b> 伤害<br>
-        最终卡组 <b>${G.deck.length}</b> 张 · 遗物 <b>${G.relics.length}</b> 件`,
+        最终卡组 <b>${G.deck.length}</b> 张 · 遗物 <b>${G.relics.length}</b> 件<br>
+        本局难度分：<b class="gold">${sc > 0 ? '+' : ''}${sc}</b> <span class="dim">（${scoreLabel(sc)}）</span>${picks}`,
     }),
   );
+  // 结算界面必须显示本局难度分 —— 以前只在难度选择页和开局 toast 里出现，
+  // 通关后反而看不到（玩家选了难度却不知道自己打了多少分）。
+  const sc = scoreOf(G.picks || []);
+  const picks = (G.picks && G.picks.length)
+    ? `<span class="dim"> · 已选 ${G.picks.length} 条</span>`
+    : `<span class="dim"> · 标准难度（未选任何条目）</span>`;
   const col = el('div', { class: 'col gap8', style: { width: '100%', maxWidth: '280px' } });
   col.append(el('button', { class: 'btn primary block', html: '↻ 再来一局', onClick: () => { sfx.confirm(); onRetry(); } }));
   col.append(el('button', { class: 'btn ghost block', html: '返回主菜单', onClick: () => { sfx.back(); onMenu(); } }));

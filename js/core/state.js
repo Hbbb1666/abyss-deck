@@ -77,7 +77,7 @@ function applyPickStartBonuses() {
   const m = pickMods();                       // ← 只取难度/增益，不含遗物
   if (m.maxHp) gainMaxHp(m.maxHp);
   if (m.potionSlots) G.potionSlots = Math.max(1, G.potionSlots + m.potionSlots);
-  if (m.bonusGold) G.gold = Math.max(0, G.gold + m.bonusGold);
+  if (m.bonusGold) gainGold(m.bonusGold);
   if (m.startExtraRelic) {
     for (let i = 0; i < m.startExtraRelic; i++) {
       const id = rollRelic(['common', 'uncommon']);
@@ -195,6 +195,19 @@ export function addPotion(p) {
   return true;
 }
 export function removePotionAt(i) { G.potions.splice(i, 1); }
+
+/** 统一的「获得金币」入口。
+    所有**赚到的**钱都走这里，这样难度词条（如「获得的金币减少 30%」）只需读一个乘区；
+    花费不走这里 —— 花钱时不该再被同一个乘区打一次折。
+    返回**实际到账**的数额（提示文案要显示真实数字，不能显示税前）。 */
+export function gainGold(n) {
+  if (!n) return 0;
+  if (n < 0) { G.gold = Math.max(0, G.gold + n); return n; }
+  const mult = relicMods().goldMult ?? 1;
+  const real = Math.max(0, Math.round(n * mult));
+  G.gold += real;
+  return real;
+}
 
 /* ---------- 奖励池 ---------- */
 /** 职业专属卡相对中立卡的权重。调高 = 更容易拿到本职业的牌。

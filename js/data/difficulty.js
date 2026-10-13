@@ -65,11 +65,10 @@ export const DIFFICULTY = [
   {
     id: 'd_enemy_scale_each_turn',
     name: '暴怒',
-    desc: '所有怪物在战斗中<b>每轮行动后</b>获得 <b>1</b> 层力量和 <b>1</b> 层敏捷。',
+    desc: '所有怪物在战斗中<b>每轮行动后</b>获得 <b>1</b> 层敏捷。',
     hooks: {
       enemyActed(B, e) {
         if (e.dead) return;
-        B.add(e, 'strength', 1);
         B.add(e, 'dexterity', 1);
       },
     },
@@ -91,6 +90,24 @@ export const DIFFICULTY = [
     name: '诅咒缠身',
     desc: '进入商人节点后，往自身卡组里塞进一张<b>诅咒卡</b>。',
     mods: { curseOnShop: 1 },
+  },
+  {
+    id: 'd_maxhp_down',
+    name: '脆弱躯壳',
+    desc: '初始最大生命值 <b>-7</b>。',
+    mods: { maxHp: -7 },
+  },
+  {
+    id: 'd_gold_down',
+    name: '囊中羞涩',
+    desc: '获得的金币减少 <b>30%</b>（花钱不打折）。',
+    mods: { goldMult: 0.7 },
+  },
+  {
+    id: 'd_first_energy_down',
+    name: '起步迟缓',
+    desc: '每场战斗的<b>第一回合</b>费用 <b>-1</b>。',
+    mods: { firstTurnEnergy: -1 },
   },
 ];
 

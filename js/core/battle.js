@@ -2,7 +2,7 @@
  * 战斗引擎
  * 与 UI 解耦：所有展示通过 this.view 回调，引擎只负责规则与状态。
  */
-import { G, relicMods, relicHooks, hydrate, gainMaxHp } from './state.js';
+import { gainGold, G, relicMods, relicHooks, hydrate, gainMaxHp } from './state.js';
 import { ENEMIES, actScale } from '../data/enemies.js';
 import { CARDS, makeCard } from '../data/cards.js';
 import { RELICS } from '../data/relics.js';
@@ -45,8 +45,10 @@ export const WEAK_FLAT_PER_STACK = 1;
 
 /** 易伤：每层让**每一段**受到的伤害 **+1**（固定值，不是百分比）。
  *
- * 2026-10-13 从"受到的伤害 ×1.5"改成固定值加法。为什么改：
- *   · 百分比模型下，易伤对小段攻击几乎没用（3 点伤害 ×1.5 = 4，只多 1 点），
+ * 2026-10-13 从"受到的伤害 ×1.5"改成固定值加法（桌面端）—— 手机端那份累积补丁
+ * 是在旧基线上做的，会把它退回 ×1.5，合并时按产品的定义重新落回固定值。
+ * 为什么改：
+ *   · 百分比模型下，易伤对小段攻击几乎没用（3 点 ×1.5 = 4，只多 1 点），
  *     对单发大招却极强（30 点 → 45）—— 强弱差被放大成 15 倍。
  *   · 固定值模型下，每一层对**每一段**都 +1，所以"多段攻击"和"多叠易伤"
  *     两种构筑都能吃满收益，和虚弱的 -1 也刚好对称（一个加、一个减）。
@@ -59,7 +61,7 @@ export const VULN_FLAT_PER_STACK = 1;
     目的：玩家刚进 Boss 房往往还没铺好护甲/缓冲，Boss 一记大招就能直接带走 ——
     这种"初见杀"不是技术差距，是信息差。给第一击打个折，让玩家至少有一次反应机会。
     注意是"第一次**攻击**"而不是"第一回合"：Boss 若先加 buff，那一击仍然享受减伤。 */
-export const BOSS_FIRST_ATTACK_MULT = 0.7;
+export const BOSS_FIRST_ATTACK_MULT = 0.85;
 
 export const ST = {
   strength: { pri: 90, name: '力量', icon: '⬆', desc: '攻击伤害 +N', buff: true, color: '#ff8a5c' },
@@ -67,9 +69,21 @@ export const ST = {
   vulnerable: { pri: 88, name: '易伤', icon: '✸', desc: '每层使受到的**每一段**伤害 +1，自身回合结束时 -1', color: '#ff5c8a' },
   weak: { pri: 86, name: '虚弱', icon: '↓', desc: '每层使**每一次**造成的伤害 -1（分段招式每段都扣，每段至少留 1），回合结束 -1', color: '#c07bff' },
   energy_cap: { pri: 92, name: '法力增幅', icon: '◉', desc: '每回合能量上限 +N', buff: true, color: '#8fd4ff' },
-  freeze: { pri: 97, name: '冰冻', icon: '❄', sprite: 'icon_freeze', color: '#b8f0ff', desc: '轮到它行动时消耗 <b>1</b> 层并跳过这次行动，意图保留到下一回合' },
+  // 真理：奥术法师专属。本身没有直接效果，它的作用是**在引擎里当"多段加成"的计数器**：
+  // 每层让本来就有多段的攻击/技能牌多打 1 次（见 effHits）。
+  // 能量枯竭：深层 Boss 专属。下一回合能量 -N，结算后清除（不是每回合都扣）。
+  drained: { pri: 89, name: '能量枯竭', icon: '⚡', color: '#c07bff',
+             desc: '下一回合的能量 <b>-N</b>（结算一次后消失）' },
+  truth: { pri: 90, name: '真理', icon: '◆', color: '#d8b4ff', buff: true,
+           desc: '每层使<b>多段</b>攻击/技能牌额外多打 <b>1</b> 次' },
+  // 流血：DOT，但**结算时机与中毒/灼烧不同** —— 怪物**行动之后**才结算，
+  // 且每跳造成 N 点伤害后**层数减半**（奇数取下）。见 settleBleed()。
+  // 游侠的职业 DOT。
+  bleed: { pri: 92, name: '流血', icon: '✚', color: '#ff6b7a',
+           desc: '它行动后失去 N 点生命（无视护甲），然后层数<b>减半</b>（奇数取下）' },
+  freeze: { pri: 97, name: '冰冻', icon: '❄', sprite: 'icon_freeze', color: '#b8f0ff', desc: '怪物：轮到它行动时消耗 <b>1</b> 层、受最大生命 <b>5%</b> 伤害并跳过这次行动。<b>玩家</b>：本回合能量<b>减半</b>' },
   frost: { pri: 91, name: '冰霜', icon: '❄', sprite: 'icon_frost', color: '#8ee6ff', desc: '集满后转化为 <b>1</b> 层冰冻（普通/精英 <b>3</b> 层，Boss <b>5</b> 层）。不会自然衰减' },
-  burn: { pri: 93, name: '灼烧', icon: '火', sprite: 'icon_burn', color: '#ff7a3c', desc: '轮到它行动时失去 N 点生命，然后 -1' },
+  burn: { pri: 93, name: '点燃', icon: '火', sprite: 'icon_burn', color: '#ff7a3c', desc: '轮到它行动时失去 N 点生命，然后 -1' },
   poison: { pri: 95, name: '中毒', icon: '☠', desc: '轮到它行动时失去 N 点生命，然后 -2', color: '#7ee787' },
   regen: { pri: 40, name: '再生', icon: '✚', desc: '回合结束回复 N 点生命，然后 -1', buff: true, color: '#7ee787' },
   thorns: { pri: 80, name: '荆棘', icon: '✹', desc: '被攻击时反弹 N 点伤害', buff: true, color: '#ffb04a' },
@@ -80,10 +94,15 @@ export const ST = {
   berserk_dmg: { pri: 68, name: '狂战代价', icon: '✚', desc: '每回合开始失去 N 点生命', color: '#ff5c5c' },
   extra_draw: { pri: 66, name: '洞察', icon: '❖', desc: '每回合额外抽 N 张牌', buff: true, color: '#8fd4ff' },
   poison_plus: { pri: 60, name: '淬毒', icon: '☠', desc: '施加中毒时额外 +N 层', buff: true, color: '#7ee787' },
+  bleed_plus: { pri: 61, name: '血涌', icon: '✚', desc: '施加流血时额外 +N 层', buff: true, color: '#ff8a95' },
   block_next: { pri: 50, name: '备战', icon: '⛨', desc: '下回合获得 N 点护甲', buff: true, color: '#8fa8c0' },
   frail: { pri: 76, name: '脆弱', icon: '▽', desc: '获得的护甲 -25%', color: '#c07bff' },
   artifact: { pri: 55, name: '神器', icon: '◈', desc: '免疫下 N 次减益', buff: true, color: '#ffcc52' },
 };
+
+/** 战斗内怪物数量硬上限。再多战场就挤不下意图栏了（实测 8 只是能全部看清的上限）。
+    放在 spawn() 这个唯一入口上，任何召唤路径都绕不过去。 */
+export const MAX_ENEMIES = 8;
 
 export class Battle {
   constructor(encounter, opts = {}) {
@@ -215,6 +234,13 @@ export class Battle {
 
   /* ---------------- 基础 ---------------- */
   spawn(id, summoner) {
+    // 硬上限：战场能同时显示的怪物数量有限（再多意图栏就挤到看不见了）。
+    // 放在 spawn() 这个**唯一入口**上，任何召唤路径都绕不过去。
+    // summon 效果另有一条更紧的上限（4 只），这里只是最后一道保险。
+    if (this.aliveEnemies().length >= MAX_ENEMIES) {
+      this.pushLog('场上怪物已满，召唤失败');
+      return null;
+    }
     const d = ENEMIES[id];
     // 按**当前层**缩放：同一张敌人表被 4 层复用，数值随层数走高（每层 +25% 生命、+15% 攻击）。
     // 难度选项可以在基础曲线上再加"每层额外 +hp%/+atk%"。
@@ -262,8 +288,10 @@ export class Battle {
     return n;
   }
 
-  /** 冻住一个敌人需要几层冰霜。Boss 更抗冻。 */
+  /** 冻住一个目标需要几层冰霜。
+      普通/精英 3 层、Boss 5 层、**玩家 4 层**（产品要求 —— 玩家比小怪抗冻、比 Boss 差一点）。 */
   freezeThreshold(e) {
+    if (e && e.isPlayer) return 4;
     return e && e.boss ? 5 : 3;
   }
   applyDebuff(e, k, n) {
@@ -277,6 +305,27 @@ export class Battle {
   pushLog(t) { this.log.push(t); this.view.log?.(t); }
 
   /* ---------------- 数值计算 ---------------- */
+  /** 流血结算：**怪物行动之后**才结算（中毒/灼烧是行动前）。
+      造成 N 点伤害（无视护甲），然后把层数**减半**（奇数取下）：
+      8 层 → 8、4、2、1 共 15 点；3 层 → 3、1 共 4 点。 */
+  async settleBleed(e) {
+    const n = this.get(e, 'bleed');
+    if (n <= 0 || e.dead || e.hp <= 0) return;
+    await this.loseHp(e, n, { isDot: true });
+    this.add(e, 'bleed', -Math.ceil(n / 2));
+    this.view.sync?.();
+    await this.view.step?.(200);
+  }
+
+  /** 一次多段攻击的**实际段数**：把「真理」的加段算进去。
+      只对**本来就有多段**的牌生效（base > 1）—— 单发牌不会因为真理变成多段，
+      这是职业设定："通过叠真理层数来进行多段连击"。 */
+  effHits(f, card) {
+    const base = this.num(f.hits, card) || 1;
+    if (base <= 1 || !this.mods.hitsPerTruth) return base;
+    return base + this.get(this.player, 'truth') * this.mods.hitsPerTruth;
+  }
+
   calcDamage(base, atk, def) {
     // 顺序是语义的一部分，而且现在**三项都是固定值加减**：
     //   ① 加力量  ② 减虚弱（扣完至少留 1）  ③ 加易伤（每层 +1）
@@ -325,6 +374,12 @@ export class Battle {
     }
     this.view.onDamage?.(target, real, blocked, dmg);
     await this.view.step?.();
+    // 圣骑士遗物「圣誓」：单次造成 >7 点伤害后回复 1 点生命。
+    // 用 real（实际掉血）而不是 dmg（含被挡掉的部分）—— 被完全挡住的攻击不算"造成了伤害"，
+    // 否则打高护甲怪反而变成回血机器。
+    if (real > 7 && atk === this.player && !target.isPlayer && this.mods.healOnBigHit && !this.over) {
+      await this.heal(this.player, this.mods.healOnBigHit);
+    }
     // 荆棘反弹
     if (!opts.noThorns && opts.attacker && opts.melee) {
       const th = this.get(target, 'thorns');
@@ -440,7 +495,7 @@ export class Battle {
     const { card } = ctx;
     // 目标可能已死光/未指定 —— 立刻取一个活着的，仍未定义就跳过需要目标的条目
     const pick = () => (ctx.target && !ctx.target.dead ? ctx.target : this.aliveEnemies()[0]);
-    const NEEDS_TARGET = new Set(['dmg', 'dmgBlock', 'dmgPoison', 'dmgPerEnergyMax', 'dmgPerPlayed', 'debuff']);
+    const NEEDS_TARGET = new Set(['dmg', 'dmgBlock', 'dmgPoison', 'dmgPerEnergyMax', 'dmgPerPlayed', 'detonate', 'debuff']);
     for (const f of fxList) {
       if (this.over) return;
       if (NEEDS_TARGET.has(f.t) && !pick()) continue;
@@ -448,7 +503,7 @@ export class Battle {
       const v = this.num(f.v, card);
       switch (f.t) {
         case 'dmg': {
-          const hits = this.num(f.hits, card) || 1;
+          const hits = this.effHits(f, card);
           // 条件加伤。**必须在结算的那一刻读**：卡面写了什么就得真的生效。
           // （`ifBlock` 以前只写在卡牌数据里、引擎从没读过，导致「反击」的
           //   额外伤害一次都没触发过 —— 和 `execute` 是同一类坑。）
@@ -474,7 +529,7 @@ export class Battle {
           // 将来谁写一张"对所有敌人各打 2 次"的牌会静默只打 1 次。
           // 注意这里**不传 melee**（保持现状）：群攻是否触发敌人荆棘是平衡性问题，
           // 见 docs/开发与维护指南.md 的待修清单，不要在修 bug 时顺手改掉。
-          const n = this.num(f.hits, card) || 1;
+          const n = this.effHits(f, card);
           for (let i = 0; i < n; i++) {
             if (!this.aliveEnemies().length) break;
             await this.damageAll(v, card?.name || '效果', { attacker: this.player });
@@ -488,6 +543,26 @@ export class Battle {
         case 'dmgPoison':
           await this.damage(target, this.get(target, 'poison') * (this.num(f.mult, card) || 1), card?.name, { attacker: this.player });
           break;
+        case 'dmgBleed':
+          await this.damage(target, this.get(target, 'bleed') * (this.num(f.mult, card) || 1), card?.name, { attacker: this.player });
+          break;
+        case 'detonate': {
+          // 引爆：直接结算目标身上的全部「点燃」层数（每层 v 点，默认 2 倍），然后清空。
+          // 只对**有层数**的目标生效 —— 没铺垫就白打，这是它换来高倍率的代价。
+          const mult = f.mult != null ? this.num(f.mult, card) : 2;
+          const foes = f.all ? this.aliveEnemies() : [target || this.aliveEnemies()[0]].filter(Boolean);
+          for (const t of foes) {
+            if (!t || t.dead) continue;
+            const stacks = this.get(t, 'burn');
+            if (stacks <= 0) continue;
+            await this.damage(t, stacks * mult, card?.name || '引爆', { attacker: this.player });
+            this.add(t, 'burn', -stacks);
+            this.pushLog(`引爆了 ${stacks} 层点燃（${stacks * mult} 点）`);
+            this.view.sync?.();
+            await this.view.step?.(200);
+          }
+          break;
+        }
         case 'dmgPerPlayed': {
           // 伤害 = v × 本回合已打出的牌数。这是"低费快过牌"的收尾手段。
           // 计数在 playCard() 里先加、再进 resolve，所以读到的**包含这一张自己** ——
@@ -532,12 +607,13 @@ export class Battle {
         case 'debuff': {
           let dv = v;
           if (f.k === 'poison') dv += this.get(this.player, 'poison_plus');
+          if (f.k === 'bleed') dv += this.get(this.player, 'bleed_plus');
           this.applyDebuff(target, f.k, dv); this.view.onStatus?.(target); await this.view.step?.(); break;
         }
         case 'debuffAll':
-          for (const e of this.aliveEnemies()) { this.applyDebuff(e, f.k, v + (f.k === 'poison' ? this.get(this.player, 'poison_plus') : 0)); this.view.onStatus?.(e); }
+          for (const e of this.aliveEnemies()) { this.applyDebuff(e, f.k, v + (f.k === 'poison' ? this.get(this.player, 'poison_plus') : f.k === 'bleed' ? this.get(this.player, 'bleed_plus') : 0)); this.view.onStatus?.(e); }
           await this.view.step?.(); break;
-        case 'gold': G.gold += v; this.view.onGold?.(v); await this.view.step?.(); break;
+        case 'gold': { const got = gainGold(v); this.view.onGold?.(got); await this.view.step?.(); break; }
         // 塞牌给自己（文档承诺过、但旧代码只有敌人侧实现，写进卡里会静默无效）
         case 'addCard': {
           const n = this.num(f.n, card) || 1;
@@ -655,12 +731,22 @@ export class Battle {
     await this.resolve(card.fx || [], { card, target: target || this.aliveEnemies()[0], melee: card.type === 'attack' });
 
     // 职业特性（做在起始遗物里，和遗物/难度走同一条 mod 通路）：
-    //   burnOnSkill  火焰法师 —— 打出的技能牌给受影响的敌人挂 N 层灼烧
+    //   burnOnSkill  火焰法师 —— 打出的技能牌给受影响的敌人挂 N 层点燃
     //   frostOnSkill 寒冰法师 —— 同上，挂 N 层冰霜
     // 触发条件是**技能牌**，且这张牌要对敌人生效：
     //   target 'enemy' 打击指定目标；target 'all' 命中全体（含群体 debuff 牌）。
     //   给自己加护甲/抽牌那种 target 'self' 的牌不触发。
     // 一次出牌每敌只挂一次（按牌算，不按段数算）—— 否则多段牌一发就能叠十几层。
+    // 游侠遗物「血牙」：打出的**攻击牌**给目标附加 N 层流血
+    if (!this.over && this.mods.bleedOnAttack && card.type === 'attack') {
+      const nb = this.mods.bleedOnAttack;
+      const isAoe = card.target === 'all';
+      const foes = (isAoe ? this.aliveEnemies() : [target || this.aliveEnemies()[0]]).filter(t => t && !t.dead);
+      for (const t of foes) {
+        this.applyDebuff(t, 'bleed', nb);
+        this.pushLog(`${t.name} 开始流血 +${nb}`);
+      }
+    }
     if (!this.over && card.type === 'skill'
         && (card.target === 'enemy' || card.target === 'all')) {
       const onSkill = [['burn', this.mods.burnOnSkill], ['frost', this.mods.frostOnSkill]];
@@ -693,6 +779,7 @@ export class Battle {
   }
 
   async usePotion(potion, target) {
+    this.potionUsed = true;      // 炼金师遗物：本场用过药水 → 结算时额外给钱
     this.view.onPotion?.(potion);
     await this.resolve(potion.fx || [], { card: null, target: target || this.aliveEnemies()[0] });
     this.view.sync?.();
@@ -729,9 +816,9 @@ export class Battle {
     if (!this.get(this.player, 'barricade')) this.player.block = 0;
     this.pushLog(`—— 第 ${this.turn} 回合 ——`);
 
-    // 中毒 / 灼烧：轮到行动时掉 N 点血（无视护甲），然后 -1。
-    // 两者规则完全一致，只是来源和颜色不同（灼烧由火焰法师的攻击牌挂上）。
-    // 中毒每跳 -2（衰减比灼烧快一倍），灼烧每跳 -1。
+    // 中毒 / 点燃：轮到行动时掉 N 点血（无视护甲），然后 -1。
+    // 两者规则完全一致，只是来源和颜色不同（点燃由火焰法师的攻击牌挂上）。
+    // 中毒每跳 -2（衰减比点燃快一倍），点燃每跳 -1。
     // 用 Math.min(n, decay) 而不是直接减：1 层毒减 2 会变成 -1，
     // 虽然 add() 里 `<=0 就删除` 兜住了，但显式夹紧更不容易被后来的改动破坏。
     for (const [dot, decay] of [['poison', 2], ['burn', 1]]) {
@@ -756,6 +843,24 @@ export class Battle {
     // 遗物那套 energyPerTurn 是固定值，卡牌只能用这个持久状态来加。
     this.energyMax = 3 + (m.energyPerTurn || 0) + this.get(this.player, 'energy_cap');
     if (this.turn === 1) this.energyMax += (m.firstTurnEnergy || 0);
+    // 玩家身上的**冰冻**：每层让本回合能量 -1，消耗 1 层。
+    // 刻意不是"跳过整个回合" —— 卡牌游戏里被剥夺一整回合太惩罚性，也不知道该干嘛。
+    const pfz = this.get(this.player, 'freeze');
+    if (pfz > 0) {
+      this.add(this.player, 'freeze', -1);
+      // 产品定的惩罚：**本回合能量减半（向上取整）**。
+      // 不是"跳过整个回合"（卡牌游戏里失去一整回合太惩罚性），也不是 -1（太轻）。
+      const before = this.energyMax;
+      this.energyMax = Math.ceil(this.energyMax / 2);
+      this.pushLog(`你被冻住了：本回合能量 ${before} → ${this.energyMax}`);
+    }
+    // 能量枯竭：下一回合 -N，结算后清除
+    const pdr = this.get(this.player, 'drained');
+    if (pdr > 0) {
+      this.energyMax = Math.max(0, this.energyMax - pdr);
+      delete this.player.st.drained;
+      this.pushLog(`能量枯竭：本回合能量 -${pdr}`);
+    }
     this.energy = this.energyMax + this.get(this.player, 'berserk');
 
     // 「本回合打出过几张牌」必须每回合清零 ——
@@ -841,13 +946,19 @@ export class Battle {
       if (this.over) return;
 
       // 冰冻：消耗 1 层，**整个行动跳过**（不移动位、不清意图）。
-      // 注意放在 DoT 结算之后 —— 冰冻剥夺的是它的"行动"，不是保护它免受毒/灼烧。
+      // 注意放在 DoT 结算之后 —— 冰冻剥夺的是它的"行动"，不是保护它免受毒/点燃。
       if (frozen) {
         this.add(e, 'freeze', -1);
+        // 冰层碎裂：每消耗 1 层冰冻，额外受到**最大生命 5%** 的伤害（至少 1 点）。
+        // 用 loseHp（不吃护甲）：这是"冰裂"造成的固定损耗，不是一个可以被挡住的攻击。
+        const shard = Math.max(1, Math.round(e.maxHp * 0.05));
+        await this.loseHp(e, shard, { isDot: true });
+        this.pushLog(`${e.name} 的冰层碎裂（${shard} 点）`);
         hold.add(e.uid);
-        this.pushLog(`${e.name} 被冻住了，跳过这次行动`);
+        await this.settleBleed(e);          // 流血在"它的回合结束后"结算（被跳过也算过了一回合）
         this.view.sync?.();
         await this.view.step?.(280);
+        if (e.dead || e.hp <= 0) { this.checkOver(); continue; }
         continue;
       }
 
@@ -875,6 +986,9 @@ export class Battle {
       if (def.selfDamage) await this.loseHp(e, def.selfDamage, { credit: 'none' });
       if (def.fx) await this.resolveEnemyFx(def.fx, e);
       this.tickEnd(e);
+      // 流血：**行动之后**才结算（和中毒/灼烧的"行动前"刻意错开）
+      if (!e.dead) await this.settleBleed(e);
+      if (e.dead || e.hp <= 0) { this.view.sync?.(); if (this.checkOver()) return; continue; }
       // 难度「暴怒」：每个敌人**行动之后**获得力量与敏捷（走 enemyActed 钩子）。
       // 放在 tickEnd 之后 = 这一击按旧数值结算，成长从下一轮才体现 ——
       // 否则玩家看到的意图预告会和实际打出来的伤害对不上。
@@ -911,7 +1025,10 @@ export class Battle {
   intentOf(e) {
     const mv = e.moveId || this.pickMove(e);
     const def = e.def.moves[mv];
-    const out = { intent: def.intent, name: def.name, dmg: 0, hits: def.hits || 1, blk: def.blk || 0 };
+    const out = { intent: def.intent, name: def.name, dmg: 0, hits: def.hits || 1, blk: 0 };
+    // 护甲也必须走 calcBlock —— 原来直接取 def.blk，于是怪物身上有「敏捷」时
+    // 预告显示原始值、实际却多加了敏捷层数（**预告撒谎**，和伤害那边是同一类 bug）。
+    if (def.blk) out.blk = this.calcBlock(def.blk, e);
     // 和 enemyTurn 用**完全同一套**计算：先按层缩放基础伤害，再交给 calcDamage
     // 处理力量/虚弱/易伤。以前这里是手抄一遍公式，改一处忘另一处就会"预告撒谎"。
     if (def.dmg) out.dmg = this.calcDamage(defDamage(def, e), e, this.player);
@@ -952,6 +1069,11 @@ export class Battle {
       G.stats.floors++;
       const m = relicMods();
       if (m.healAfterBattle) G.hp = Math.min(G.maxHp, G.hp + m.healAfterBattle);
+      // 炼金师遗物：本场用过药水就额外给金币
+      if (m.potionBattleGold && this.potionUsed) {
+        gainGold(m.potionBattleGold);
+        this.pushLog(`药剂回收 +${m.potionBattleGold} 金币`);
+      }
       for (const [id, hook, def] of relicHooks('battleWin')) hook(this, def);
     } else {
       G.hp = 0;

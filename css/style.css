@@ -185,6 +185,11 @@ i { color: var(--dim); font-style: normal; }
   flex: 1; min-height: 0; position: relative;
   display: flex; align-items: center; justify-content: center;
   flex-wrap: wrap; gap: 10px 8px; align-content: center;
+  /* ⚠️ 溢出时不能居中：flex 的 align-content:center 在内容比容器高时会**上下同时溢出**，
+     上排（Boss 常在这一排）连同它的意图栏一起被裁掉，而且滚不到。
+     JS 检测到溢出会把它改成 flex-start，保证意图永远从顶排开始可见；
+     overflow-y:auto 是兜底，让多出来的下排能滚到。 */
+  overflow-y: auto;
   padding: 10px 8px 26px;
   background:
     radial-gradient(70% 55% at 50% 88%, #4a352256 0%, transparent 72%),
@@ -353,7 +358,7 @@ i { color: var(--dim); font-style: normal; }
 
 /* ---- 费用配色变量 ----
    定义了两种用法：
-     1) .c-knight / .c-mage / … —— 挂在**容器**上（战斗界面根节点），里面的能量球跟着变
+     1) .c-knight,  .card.c-knight  { --cc-hi:#ffe3bd; --cc-mid:#ffc06b; --cc-lo:#966a2a; --cc-bd:#6f4e1f; --cc-fg:#2a1500; --cc-glow:#ffc06b66; }
      2) .card.c-knight / …      —— 挂在**卡牌**上，费用图标跟着变
    注意：手牌也是战斗界面的子节点，所以灰底必须显式设在 .card 上，
    否则中立牌会从战斗根节点继承到职业色。
@@ -365,11 +370,17 @@ i { color: var(--dim); font-style: normal; }
   --cc-bd: #404046; --cc-fg: #1a1a20; --cc-glow: #a8a8b860;
 }
 .c-knight,   .card.c-knight   { --cc-hi:#ffcfa1; --cc-mid:#ff9a3c; --cc-lo:#945923; --cc-bd:#6b4119; --cc-fg:#2a1500; --cc-glow:#ff9a3c66; }
-.c-mage,     .card.c-mage     { --cc-hi:#ffbfdd; --cc-mid:#ff7ab8; --cc-lo:#94476b; --cc-bd:#6b334d; --cc-fg:#2a1500; --cc-glow:#ff7ab866; }
+.c-mage,    .card.c-mage    { --cc-hi:#ffbcbc; --cc-mid:#ff5a5a; --cc-lo:#962f2f; --cc-bd:#6f2222; --cc-fg:#2a1500; --cc-glow:#ff5a5a66; }
 .c-rogue,    .card.c-rogue    { --cc-hi:#b0d6ff; --cc-mid:#5aa9ff; --cc-lo:#346294; --cc-bd:#26476b; --cc-fg:#2a1500; --cc-glow:#5aa9ff66; }
 .c-assassin, .card.c-assassin { --cc-hi:#d9b8ff; --cc-mid:#b06bff; --cc-lo:#663e94; --cc-bd:#4a2d6b; --cc-fg:#2a1500; --cc-glow:#b06bff66; }
 /* 寒冰法师：浅蓝。刻意比游侠的靛蓝更浅更青（ΔRGB≈101），小尺寸下也分得开 */
 .c-icemage,  .card.c-icemage  { --cc-hi:#dbf8ff; --cc-mid:#a5ecff; --cc-lo:#5f8994; --cc-bd:#44626b; --cc-fg:#0a2838; --cc-glow:#a5ecff66; }
+/* 圣骑士：金。和战士的浅橙刻意拉开（色差 ΔRGB≈108），小尺寸下也分得开 */
+.c-paladin, .card.c-paladin { --cc-hi:#fff3c4; --cc-mid:#ffcc00; --cc-lo:#8f7000; --cc-bd:#6a5200; --cc-fg:#2a1500; --cc-glow:#ffcc0066; }
+/* 炼金师：绿。和所有现有职业色距离都 ≥126，好区分 */
+.c-alchemist, .card.c-alchemist { --cc-hi:#d7f7dd; --cc-mid:#7ee787; --cc-lo:#4a8a52; --cc-bd:#35633b; --cc-fg:#0a2818; --cc-glow:#7ee78766; }
+/* 奥术法师：浅紫。刻意比刺客的中紫更浅（ΔRGB≈83），小尺寸下也分得开 */
+.c-arcanist, .card.c-arcanist { --cc-hi:#efe0ff; --cc-mid:#d8b4ff; --cc-lo:#7a6394; --cc-bd:#5a496b; --cc-fg:#0a2838; --cc-glow:#d8b4ff66; }
 
 .card .cost {
   position: absolute; top: -10px; left: -10px; width: 28px; height: 28px; border-radius: 50%;
@@ -574,3 +585,21 @@ i { color: var(--dim); font-style: normal; }
 }
 .enemy.frozen .name { color: #b8f0ff; }
 .enemy.frozen .plate { border-color: #a5ecff66; }
+
+/* 拥挤模式：敌人多的时候把意图/名牌/状态全部压紧，让尽可能多的意图同屏可见。
+   意图是玩家决策的全部依据，它的优先级高于立绘。 */
+.field.crowded .enemy { gap: 3px; padding: 3px 2px; min-width: 76px; }
+.field.crowded .intent { font-size: 12px; padding: 1px 6px; min-height: 19px; border-radius: 9px; gap: 2px; }
+.field.crowded .enemy .plate { padding: 2px 4px 3px; min-width: 72px; gap: 2px; }
+.field.crowded .enemy .name { font-size: 11px; }
+.field.crowded .enemy .ebar { height: 16px; }
+.field.crowded .enemy .sprite { filter: drop-shadow(0 2px 2px #0009); }
+.field.crowded .sts .st { font-size: 10px; line-height: 13px; padding: 0 3px; }
+
+/* 选职业：难度分不够时置灰并显示门槛 */
+.class-card.locked { opacity: .5; filter: grayscale(.75); border-style: dashed; cursor: not-allowed; }
+.class-card.locked .cname2 { color: #b9b2c4; }
+.class-card .locknote {
+  flex: none; align-self: center; font-size: 11px; color: #ffd27a;
+  background: #ffcc5218; border: 1px solid #ffcc5240; border-radius: 4px; padding: 3px 6px; white-space: nowrap;
+}

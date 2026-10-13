@@ -21,11 +21,11 @@ const A = (name, dmg, extra = {}) => ({ name, intent: 'attack', dmg, ...extra })
 
 /** 每层相对第 1 层的强度倍率。改这里就能调整整条难度曲线。
     hp: 1 → 1.25 → 1.5 → 1.75（每层 +25%）
-    atk: 1 → 1.15 → 1.30 → 1.45（每层 +15%）
-    攻击增幅 2026-10-12 由 +20% 下调到 +15%（产品要求"降低难度"）；
-    难度系统里另有"每层额外 +8% 攻击"的选项可以把难度加回去。 */
+    atk: 1 → 1.13 → 1.26 → 1.39（每层 +13%）
+    攻击增幅 2026-10-12 一天内被调过三次：+20% → +15% → +20% → **+13%**。
+    难度系统里另有"每层额外 +8% 攻击"的选项可以再往上加。 */
 export const ACT_HP_STEP = 0.25;
-export const ACT_ATK_STEP = 0.15;
+export const ACT_ATK_STEP = 0.13;
 export const TOTAL_ACTS = 4;
 export function actScale(act) {
   const n = Math.max(0, (act | 0) - 1);
@@ -236,50 +236,68 @@ export const ENEMIES = {
 
   /* ================= Boss ================= */
   boss_eye: {
-    name: '深渊魔眼', sprite: 'boss_demon', hp: [92, 92], act: 1, boss: true, body: 1.6,
+    name: '深渊魔眼', sprite: 'boss_demon', hp: [74, 74], act: 1, boss: true, body: 1.6,
     moves: {
       gaze: { name: '虚空凝视', intent: 'debuff', fx: [{ t: 'debuff', k: 'vulnerable', v: 2 }, { t: 'debuff', k: 'weak', v: 2 }] },
-      wave: { name: '暗影波', intent: 'attack', dmg: 9 },
+      wave: { name: '暗影波', intent: 'attack', dmg: 7 },
       charge: { name: '蓄能', intent: 'buff', fx: [{ t: 'buff', k: 'strength', v: 3 }] },
-      ray: A('湮灭射线', 22),
+      ray: A('湮灭射线', 18),
       spawn: { name: '召唤仆从', intent: 'buff', fx: [{ t: 'summon', id: 'bat', n: 2 }] },
     },
     ai: (e, t) => ['gaze', 'wave', 'charge', 'ray', 'spawn', 'wave', 'ray'][t % 7],
   },
   boss_tyrant: {
-    name: '石像暴君', sprite: 'boss_stone', hp: [135, 135], act: 2, boss: true, body: 2.0,
+    name: '石像暴君', sprite: 'boss_stone', hp: [108, 108], act: 2, boss: true, body: 2.0,
     moves: {
-      crush: A('碾压', 18),
+      crush: A('碾压', 14),
       petrify: { name: '石化诅咒', intent: 'debuff', fx: [{ t: 'debuff', k: 'weak', v: 3 }, { t: 'debuff', k: 'vulnerable', v: 3 }] },
-      armor: { name: '磐石之躯', intent: 'defend', blk: 20 },
-      quake: { name: '大地震击', intent: 'attack', dmg: 11, hits: 2 },
+      armor: { name: '磐石之躯', intent: 'defend', blk: 16 },
+      quake: { name: '大地震击', intent: 'attack', dmg: 9, hits: 2 },
     },
     ai: (e, t) => ['petrify', 'crush', 'armor', 'quake', 'crush', 'quake'][t % 6],
   },
   boss_lord: {
-    name: '深渊之主', sprite: 'boss_gargoyle', hp: [180, 180], act: 3, boss: true, body: 2.1,
+    name: '深渊之主', sprite: 'boss_gargoyle', hp: [144, 144], act: 3, boss: true, body: 2.1,
     moves: {
-      ruin: A('毁灭之爪', 26),
+      ruin: A('毁灭之爪', 21),
       void: { name: '虚空侵蚀', intent: 'debuff', fx: [{ t: 'addCard', id: 'curse_regret', to: 'discard', n: 2 }, { t: 'debuff', k: 'vulnerable', v: 3 }] },
       swarm: { name: '深渊召唤', intent: 'buff', fx: [{ t: 'summon', id: 'demonling', n: 2 }] },
-      drain: { name: '灵魂收割', intent: 'attack', dmg: 14, fx: [{ t: 'healSelf', v: 14 }] },
+      drain: { name: '灵魂收割', intent: 'attack', dmg: 11, fx: [{ t: 'healSelf', v: 14 }] },
       doom: { name: '终末宣告', intent: 'unknown', fx: [{ t: 'buff', k: 'strength', v: 4 }] },
     },
     ai: (e, t) => ['void', 'ruin', 'swarm', 'drain', 'doom', 'ruin', 'drain'][t % 7],
+  },
+  /* 第 3 层 Boss 之一：凛冬女王。
+     机制特色（产品设定）：**攻击意图与增益意图都会往玩家身上叠冰霜**。
+     玩家身上的冰霜攒到 4 层就会变成冰冻，而那会让玩家**本回合能量减半** ——
+     所以这场仗的核心是"别让它一直冻你"，而不是单纯拼伤害。
+     和「深渊之主」**平分第 3 层 Boss 的出现概率**（以后再加 Boss 会继续平分）。 */
+  boss_frostqueen: {
+    name: '凛冬女王', sprite: 'boss_frostqueen', hp: [140, 140], act: 3, boss: true, body: 1.8,
+    moves: {
+      frost_bolt: { name: '霜矢', intent: 'attack', dmg: 13, fx: [{ t: 'debuff', k: 'frost', v: 1 }] },
+      ice_lance: { name: '冰锥', intent: 'attack', dmg: 7, hits: 2, fx: [{ t: 'debuff', k: 'frost', v: 1 }] },
+      blizzard: { name: '暴风雪', intent: 'attack', dmg: 19, fx: [{ t: 'debuff', k: 'frost', v: 2 }] },
+      winter_grasp: { name: '凛冬之握', intent: 'attack_debuff', dmg: 9, fx: [{ t: 'debuff', k: 'weak', v: 3 }, { t: 'debuff', k: 'frost', v: 2 }] },
+      frozen_throne: { name: '冰封王座', intent: 'buff', blk: 16, fx: [{ t: 'buff', k: 'strength', v: 2 }, { t: 'debuff', k: 'frost', v: 2 }] },
+      absolute_zero: { name: '绝对零度', intent: 'buff', fx: [{ t: 'buff', k: 'strength', v: 3 }, { t: 'debuff', k: 'frost', v: 3 }] },
+    },
+    ai: (e, t) => ['frost_bolt', 'frozen_throne', 'ice_lance', 'winter_grasp',
+                   'blizzard', 'absolute_zero', 'frost_bolt', 'ice_lance'][t % 8],
   },
   /* 第 4 层 · 深渊之底的最终 Boss。
      基础数值就照第 4 层写（这一层会再乘 1.6 倍攻击，所以这里不能按第 3 层的量级给）。
      立绘有**专属贴图**（`boss_abyss`）：以前它借的是「深渊之主」那张图 + 色相旋转，
      两个 Boss 长得一模一样，最终决战毫无辨识度。 */
   boss_abyss: {
-    name: '深渊之眼', sprite: 'boss_abyss', hp: [210, 210], act: 4, boss: true, body: 2.2,
+    name: '深渊之眼', sprite: 'boss_abyss', hp: [168, 168], act: 4, boss: true, body: 2.2,
     moves: {
-      rend: A('撕裂虚空', 30),
+      rend: A('撕裂虚空', 24),
       mark: { name: '湮灭印记', intent: 'debuff', fx: [{ t: 'debuff', k: 'vulnerable', v: 4 }, { t: 'debuff', k: 'weak', v: 2 }] },
-      bulwark: { name: '深渊壁垒', intent: 'defend', blk: 26 },
-      onslaught: { name: '连环撕裂', intent: 'attack', dmg: 13, hits: 3 },
+      bulwark: { name: '深渊壁垒', intent: 'defend', blk: 21 },
+      onslaught: { name: '连环撕裂', intent: 'attack', dmg: 10, hits: 3 },
       brood: { name: '召唤深渊', intent: 'buff', fx: [{ t: 'summon', id: 'demonling', n: 2 }] },
-      reap: { name: '收割灵魂', intent: 'attack', dmg: 16, fx: [{ t: 'healSelf', v: 16 }] },
+      reap: { name: '收割灵魂', intent: 'attack', dmg: 13, fx: [{ t: 'healSelf', v: 16 }] },
       ascend: { name: '终极宣告', intent: 'unknown', fx: [{ t: 'buff', k: 'strength', v: 5 }] },
     },
     ai: (e, t) => ['mark', 'rend', 'brood', 'onslaught', 'reap', 'bulwark', 'ascend', 'rend'][t % 8],
@@ -310,7 +328,8 @@ export const ENCOUNTERS = {
     weak: [['demonling'], ['noble'], ['statue']],
     strong: [['warrior', 'demonling'], ['statue', 'noble'], ['warrior', 'warrior'], ['gargoyle']],
     elite: [['gargoyle'], ['lich', 'demonling'], ['spider_queen', 'gargoyle']],
-    boss: [['boss_lord']],
+    // 第 3 层的两个 Boss **平分出现概率** —— 往这个列表里加条目即可继续平分
+    boss: [['boss_lord'], ['boss_frostqueen']],
   },
   4: {
     weak: [['demonling', 'demonling'], ['noble', 'demonling'], ['statue']],

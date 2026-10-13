@@ -135,7 +135,9 @@ export function battleScene(B, { onFinish, onQuit, resumed }) {
   /** 敌人整体实际占用的高度（布局px）。offsetTop/offsetHeight 才是布局单位，
       别用 getBoundingClientRect —— 那是被 #stage 的 zoom 放大过的视觉像素。 */
   function enemyBlockHeight() {
-    const nodes = [...field.querySelectorAll('.enemy')];
+    // 只量**还活着**的怪：死了的节点在淡出动画期间仍占布局，会把高度算大，
+    // 导致尺寸被过度压缩、重排不及时
+    const nodes = [...field.querySelectorAll('.enemy:not(.dead)')];
     if (!nodes.length) return 0;
     const tops = nodes.map(n => n.offsetTop);
     const bots = nodes.map(n => n.offsetTop + n.offsetHeight);
@@ -200,6 +202,14 @@ export function battleScene(B, { onFinish, onQuit, resumed }) {
       if (next >= cap) break;
       cap = next;
     }
+
+    // 迭代到底还是装不下时：把居中对齐改成顶对齐。
+    // 否则 flex 的 align-content:center 会让内容**上下同时溢出**，上排连同意图一起被裁掉。
+    // 拥挤时再切紧凑样式，把意图/名牌/状态压紧，让更多意图同屏。
+    field.classList.toggle('crowded', alive.length >= 5);
+    void field.offsetHeight;
+    const stillOver = enemyBlockHeight() > availH + 1;
+    field.style.alignContent = stillOver ? 'flex-start' : '';
     field.style.setProperty('--spr-cap', cap + 'px');
   }
 
@@ -255,6 +265,9 @@ export function battleScene(B, { onFinish, onQuit, resumed }) {
     const ico = { attack: '⚔', attack_debuff: '⚔↓', defend: '⛨', buff: '⬆', debuff: '↓', heal: '✚', unknown: '?' }[it.intent] || '?';
     let txt = ico;
     if (it.dmg) txt = `${ico} ${it.dmg}${it.hits > 1 ? `×${it.hits}` : ''}`;
+    // 加甲意图也把数字显示出来（原来只有长按气泡里才有），
+    // 和攻击意图一个写法 —— 玩家一眼就能看到敌人这回合会挡多少。
+    else if (it.blk) txt = `${ico} ${it.blk}`;
     refs.intent.className = 'intent ' + cls;
     refs.intent.innerHTML = `<span>${txt}</span>`;
     bindTipOnce(refs.intent, () => `<div class="tname">${it.name}</div>` + intentDesc(it));
@@ -275,6 +288,22 @@ export function battleScene(B, { onFinish, onQuit, resumed }) {
     if (it.intent === 'heal') p.push('将回复生命');
     if (it.intent === 'unknown') p.push('意图不明');
     return p.join('<br>');
+  }
+
+  /** 怪物死亡：先淡出，动画结束后**真正从 DOM 移除**并重排。
+      以前只加个 .dead（opacity:0），节点仍占布局空间 —— 死了怪剩下的也不会变大，
+      而且 enemyBlockHeight 会把死节点算进去，尺寸被白白压缩。 */
+  function fadeOutEnemy(e) {
+    const refs = enemyNodes.get(e.uid);
+    if (!refs || refs._removing) return;
+    refs._removing = true;
+    refs.node.classList.add('dead');
+    setTimeout(() => {
+      refs.node.remove();
+      enemyNodes.delete(e.uid);
+      updateEnemySizing(true);     // 死了一只 → 剩下的重新分配空间
+      layoutHand();
+    }, 380);
   }
 
   function renderEnemy(e) {
@@ -603,8 +632,7 @@ export function battleScene(B, { onFinish, onQuit, resumed }) {
       });
     },
     onDeath(e) {
-      const refs = enemyNodes.get(e.uid);
-      if (refs) refs.node.classList.add('dead');
+      fadeOutEnemy(e);
       sfx.bell();
     },
     // 斩杀触发时给一次明显反馈 —— 不然玩家只看到敌人突然没了，不知道是效果生效
@@ -616,8 +644,7 @@ export function battleScene(B, { onFinish, onQuit, resumed }) {
       toast(`「${card?.name || '效果'}」直接斩杀了 <b>${e.name}</b>`, 1500);
     },
     onVanish(e) {
-      const refs = enemyNodes.get(e.uid);
-      if (refs) refs.node.classList.add('dead');
+      fadeOutEnemy(e);
       toast(`${e.name} 随之溃散`, 900);
     },
     onPotion(p) { sfx.confirm(); },
@@ -690,11 +717,12 @@ export function showHelp() {
       <b>意图</b>：敌人头顶的图标是它下回合要干的事——⚔ 伤害、⛨ 加甲、⬆ 强化、↓ 弱化。先看意图再决定攻防。<br><br>
       <b>状态</b>：<br>
       ☠ 中毒 · 轮到它行动时掉血，无视护甲，每回合 **-2**<br>
-      🔥 灼烧 · 同上，但每回合 **-1**（火焰法师的招牌）<br>
+      🔥 灼烧 · 同上，但每回合 **-1**<br>
+      🩸 流血 · 行动**之后**结算，层数**减半**（8→4→2→1，合计 15）<br>
       ✸ 易伤 · 每层使受到的**每一段**伤害 **+1**<br>
       ↓ 虚弱 · 每层使造成的**每一段**伤害 **-1**（每段至少留 1）<br>
-      ❄ 冰霜 · 集满（普通/精英 3 层、Boss 5 层）转化为 1 层冰冻<br>
-      ❄ 冰冻 · 跳过它的一次行动，意图保留到下一回合<br>
+      ❄ 冰霜 · 集满转化为 1 层冰冻（怪物 3 / 玩家 4 / Boss 5 层）<br>
+      ❄ 冰冻 · 怪物跳过整次行动；**玩家则本回合能量减半**<br>
       ⬆ 力量 · 每次攻击 +N 伤害<br>
       ✦ 敏捷 · 获得的护甲 +N<br>
       ✹ 荆棘 · 被近战攻击时反弹伤害<br><br>

@@ -51,6 +51,22 @@ createServer(async (req, res) => {
     if (LOG) console.log(`[REQ] ${new Date().toISOString().slice(11,19)} ${req.method} ${req.url} ua=${(req.headers['user-agent']||'').slice(0,60)}`);
     let p = decodeURIComponent(new URL(req.url, 'http://x').pathname);
     if (p === '/') p = '/index.html';
+    // 开发服务器上的 sw.js 换成"自杀式"版本：
+    // 真机调试时 PWA 的 Service Worker 会把旧资源缓存住，导致**验证悄悄验到旧版本**
+    // （改完代码、真机抽检却还是老数值）。这里让它一激活就清空所有缓存并注销自己，
+    // 手机走本地服务时永远拿最新代码。线上（GitHub Pages）不受影响，照旧用真 sw.js。
+    if (p === '/sw.js') {
+      const kill = `self.addEventListener('install', e => self.skipWaiting());
+self.addEventListener('activate', e => {
+  e.waitUntil((async () => {
+    for (const k of await caches.keys()) await caches.delete(k);
+    await self.registration.unregister();
+    for (const c of await self.clients.matchAll()) c.navigate(c.url);
+  })());
+});`;
+      res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Content-Length': Buffer.byteLength(kill), 'Cache-Control': 'no-store' });
+      res.end(kill); return;
+    }
     const file = join(ROOT, normalize(p).replace(/^(\.\.[/\\])+/, ''));
     if (!file.startsWith(ROOT)) { res.writeHead(403).end('forbidden'); return; }
     const st = await stat(file);
