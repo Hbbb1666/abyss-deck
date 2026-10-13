@@ -15,7 +15,7 @@ const playable = Object.entries(CARDS)
   .filter(([, c]) => c.type !== 'curse' && c.type !== 'status')
   .map(([id, c]) => ({ id, ...c }));
 
-const RAR_CN = { basic: '基础', common: '普通', uncommon: '蓝', rare: '金' };
+const RAR_CN = { basic: '基础', common: '普通', uncommon: '蓝', rare: '金', finisher: '终结' };
 const KEY_CN = {
   strength: '力量', dexterity: '敏捷', vulnerable: '易伤', weak: '虚弱', poison: '中毒',
   burn: '点燃', bleed: '流血', frost: '冰霜', freeze: '冰冻', truth: '真理', thorns: '荆棘',
@@ -69,6 +69,9 @@ L.push('> 真源：`js/data/values.js`；逐张牌的"价值/预算"审计见 [�
 L.push('>');
 L.push('> **怎么读"价值/预算"**：左边是这张牌按价值表算出来值多少点，右边是它这一档允许的额度。');
 L.push('> 两个数接近 = 配平到位；`▲` 表示超、`▼` 表示欠。"模型不计"= 它的效果无法折成点数（如"按护甲结算伤害"）。');
+L.push('>');
+L.push('> **终结牌**（每职业 1 张）单独成节：费用是 **N**（吃掉当前全部能量）、彩色流光边框、');
+L.push('> 有条件门、牌组唯一、出现权重低（约普通牌的 1/6）、参考价值 40。');
 L.push('');
 
 /* 价值表速览 */
@@ -99,8 +102,32 @@ for (const cls of CLASS_LIST) {
   L.push(`- 主打状态：${themes(mine)}`);
   L.push(`- 起始卡组：${cls.deck.map(([id, n]) => `${CARDS[id]?.name || id}×${n}`).join(' + ')}`);
   L.push('');
+
+  /* 终结牌单列一节：它的费用是 N、不走普通费用档，混在"3 费"里会让人误以为它是 3 费牌 */
+  const fins = mine.filter(c => c.finisher);
+  if (fins.length) {
+    L.push(`### ⚡ 终结牌（${fins.length} 张 · 费用 N · 牌组唯一 · 低权重）`);
+    L.push('');
+    for (const f of fins) {
+      L.push(`- **${f.name}** — 参考价值 ${valueOf(f).toFixed(1)}/${budgetOf(f)}`);
+      L.push(`  - ${describe(f)}`);
+      const condMap = {
+        finisher_bulwark: '需要 15 点以上护甲',
+        finisher_pyre: '需要某个敌人身上有 5 层以上点燃',
+        finisher_exsanguinate: '需要某个敌人身上有 8 层以上流血',
+        finisher_shatterfrost: '只能对**冰冻**中的敌人使用',
+        finisher_finaltheorem: '需要 3 层以上真理',
+        finisher_plagueend: '需要某个敌人身上有 8 层以上中毒',
+        finisher_judgment: '需要生命低于一半',
+        finisher_annihilate: '需要某个敌人身上有 5 层以上易伤',
+      };
+      L.push(`  - **使用条件**：${condMap[f.id] || '（见卡面）'}`);
+    }
+    L.push('');
+  }
+
   const byCost = {};
-  for (const c of mine) (byCost[c.cost] = byCost[c.cost] || []).push(c);
+  for (const c of mine.filter(c => !c.finisher)) (byCost[c.cost] = byCost[c.cost] || []).push(c);
   for (const cost of Object.keys(byCost).sort((a, b) => a - b)) {
     L.push(`### ${cost} 费（${byCost[cost].length} 张）`);
     L.push('');

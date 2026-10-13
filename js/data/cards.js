@@ -1354,8 +1354,9 @@ text: c => `<i>需点燃 ≥5</i><br><b>${c.dmg}</b> 伤，引爆其点燃 ×${c
   finisher_exsanguinate: {
     name: '血尽', cls: 'rogue', type: 'attack', rarity: 'finisher', cost: 3, costN: true,
     finisher: true, unique: true, target: 'enemy',
-    // 价值：伤害 20 + 全体流血 6 层（2.5×6×1.3=19.5）= 39.5；dmgBleed 是额外收益
-    art: 'spider', dmg: 20, mult: 3, poi: 6,
+    // 价值：伤害 15 + 全体流血 4 层（2.5×4×1.3=13）+ dmgBleed 12 = 40（正好参考值）。
+    // dmgBleed 是"按流血层数追加伤害"，属模型不计的额外收益，所以实际更强一点。
+    art: 'spider', dmg: 15, mult: 3, poi: 4,
     cond: B => B.aliveEnemies().some(e => B.get(e, 'bleed') >= 8),
 text: c => `<i>需流血 ≥8</i><br><b>${c.dmg}</b> 伤 +（流血×<b>${c.mult}</b>），全体 +<b>${c.poi}</b> 流血。`,
     fx: [{ t: 'dmg', v: 'dmg' }, { t: 'dmgBleed', mult: 'mult' }, { t: 'debuffAll', k: 'bleed', v: 'poi' }],
@@ -1387,8 +1388,8 @@ text: c => `<i>需真理 ≥3</i><br><b>${c.dmg}</b> 伤 ×<b>${c.hits}</b>。`,
   finisher_plagueend: {
     name: '万毒归宗', cls: 'alchemist', type: 'attack', rarity: 'finisher', cost: 3, costN: true,
     finisher: true, unique: true, target: 'enemy',
-    // 价值：伤害 25 + 全体中毒 4 层（2.5×4×1.3=13）= 38；毒爆（dmgPoison）是额外收益
-    art: 'potion_green', dmg: 25, mult: 5, poi: 4,
+    // 价值：伤害 15 + 全体中毒 4 层（13）+ dmgPoison 12 = 40（正好参考值）
+    art: 'potion_green', dmg: 15, mult: 5, poi: 4,
     cond: B => B.aliveEnemies().some(e => B.get(e, 'poison') >= 8),
 text: c => `<i>需中毒 ≥8</i><br><b>${c.dmg}</b> 伤 +（中毒×<b>${c.mult}</b>），全体 +<b>${c.poi}</b> 中毒。`,
     fx: [{ t: 'dmg', v: 'dmg' }, { t: 'dmgPoison', mult: 'mult' }, { t: 'debuffAll', k: 'poison', v: 'poi' }],
