@@ -365,5 +365,7 @@ window.__ABYSS__ = {
   clearSceneErrors: () => { try { localStorage.removeItem(ERR_KEY); } catch {} },
   // 当前战斗实例（startBattle 里挂上）—— 自动化测试要能直接结束一场战斗
   get currentBattle() { return window.__CURRENT_BATTLE__ || null; },
+  // 当前事件界面的 api（eventScene 里挂上）—— 测试要能直接调 api.damage 验"战斗外不能死"
+  get eventApi() { return window.__EVENT_API__ || null; },
 };
 

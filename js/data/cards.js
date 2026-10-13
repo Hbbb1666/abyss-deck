@@ -750,7 +750,7 @@ export const CARDS = {
 
   /* ============ 寒冰法师 ============
      构筑方向：**冰霜充能 → 冻住 → 跳过它的行动**。
-     冰霜不会自然衰减，集满（小怪 4 层 / 精英 6 层 / Boss 8 层）就变成 1 层冰冻。
+     冰霜不会自然衰减，集满（小怪 4 层 / 精英 7 层 / Boss 9 层）就变成 1 层冰冻。
      所以这个职业的核心不是"打多少伤害"，而是"让对面少行动几次"。
      一张牌能不能上冰霜，取决于它是不是**对敌人生效的技能牌**（职业特性决定的）。 */
   snowball: {
@@ -1007,13 +1007,13 @@ export const CARDS = {
      炼金师用的是**中毒**（和游侠的流血区分开）。 */
   venom_vial: {
     name: '毒瓶', cls: 'alchemist', type: 'skill', rarity: 'basic', cost: 1, target: 'enemy',
-    art: 'potion_green', dmg: 1, poi: 1, up: { dmg: 2, poi: 2 },
+    art: 'potion_green', dmg: 3, poi: 1, up: { dmg: 5, poi: 2 },
     text: c => `造成 <b>${c.dmg}</b> 点伤害，施加 <b>${c.poi}</b> 层中毒。`,
     fx: [{ t: 'dmg', v: 'dmg' }, { t: 'debuff', k: 'poison', v: 'poi' }],
   },
   acid_flask: {
     name: '酸液瓶', cls: 'alchemist', type: 'skill', rarity: 'uncommon', cost: 2, target: 'enemy',
-    art: 'potion_green', dmg: 12, poi: 1, up: { dmg: 14, poi: 2 },
+    art: 'potion_green', dmg: 13, poi: 1, up: { dmg: 16, poi: 2 },
     text: c => `造成 <b>${c.dmg}</b> 点伤害，施加 <b>${c.poi}</b> 层中毒。`,
     fx: [{ t: 'dmg', v: 'dmg' }, { t: 'debuff', k: 'poison', v: 'poi' }],
   },
@@ -1025,13 +1025,13 @@ export const CARDS = {
   },
   toxic_draught: {
     name: '剧毒药剂', cls: 'alchemist', type: 'skill', rarity: 'common', cost: 1, target: 'enemy',
-    art: 'potion_green', poi: 2, up: { poi: 3 },
+    art: 'potion_green', poi: 3, up: { poi: 4 },
     text: c => `施加 <b>${c.poi}</b> 层中毒。`,
     fx: [{ t: 'debuff', k: 'poison', v: 'poi' }],
   },
   catalyst: {
     name: '催化剂', cls: 'alchemist', type: 'skill', rarity: 'common', cost: 2, target: 'enemy',
-    art: 'coil', poi: 3, draw: 1, up: { poi: 4, draw: 2 },
+    art: 'coil', poi: 5, draw: 1, up: { poi: 7, draw: 2 },
     text: c => `施加 <b>${c.poi}</b> 层中毒，抽 <b>${c.draw}</b> 张牌。`,
     fx: [{ t: 'debuff', k: 'poison', v: 'poi' }, { t: 'draw', v: 'draw' }],
   },
@@ -1049,25 +1049,25 @@ export const CARDS = {
   },
   corrosive_gas: {
     name: '腐蚀瓦斯', cls: 'alchemist', type: 'skill', rarity: 'uncommon', cost: 2, target: 'all',
-    art: 'ghost', poi: 4, up: { poi: 5 },
+    art: 'ghost', poi: 7, up: { poi: 9 },
     text: c => `对<b>所有</b>敌人施加 <b>${c.poi}</b> 层中毒。`,
     fx: [{ t: 'debuffAll', k: 'poison', v: 'poi' }],
   },
   concentrate: {
     name: '浓缩', cls: 'alchemist', type: 'skill', rarity: 'uncommon', cost: 1, target: 'enemy',
-    art: 'potion_green', dmg: 3, poi: 1, up: { dmg: 3 },
+    art: 'potion_green', dmg: 4, poi: 1, up: { dmg: 6 },
     text: c => `造成 <b>${c.dmg}</b> 点伤害，施加 <b>${c.poi}</b> 层中毒。`,
     fx: [{ t: 'dmg', v: 'dmg' }, { t: 'debuff', k: 'poison', v: 'poi' }],
   },
   plague_flask: {
     name: '瘟疫之瓶', cls: 'alchemist', type: 'skill', rarity: 'uncommon', cost: 2, target: 'enemy',
-    art: 'potion_green', poi: 6, up: { poi: 7 },
+    art: 'potion_green', poi: 9, up: { poi: 11 },
     text: c => `施加 <b>${c.poi}</b> 层中毒。`,
     fx: [{ t: 'debuff', k: 'poison', v: 'poi' }],
   },
   acid_rain: {
     name: '酸雨', cls: 'alchemist', type: 'skill', rarity: 'uncommon', cost: 2, target: 'all',
-    art: 'potion_blue', dmg: 9, poi: 1, up: { dmg: 12 },
+    art: 'potion_blue', dmg: 10, poi: 1, up: { dmg: 13 },
     text: c => `对<b>所有</b>敌人造成 <b>${c.dmg}</b> 点伤害，施加 <b>${c.poi}</b> 层中毒。`,
     fx: [{ t: 'dmgAll', v: 'dmg' }, { t: 'debuffAll', k: 'poison', v: 'poi' }],
   },
@@ -1091,7 +1091,7 @@ export const CARDS = {
   },
   virulent_toxin: {
     name: '剧毒之息', cls: 'alchemist', type: 'skill', rarity: 'rare', cost: 3, target: 'all',
-    art: 'ghost', poi: 9, up: { poi: 11 },
+    art: 'ghost', poi: 14, up: { poi: 17 },
     text: c => `对<b>所有</b>敌人施加 <b>${c.poi}</b> 层中毒。`,
     fx: [{ t: 'debuffAll', k: 'poison', v: 'poi' }],
   },
@@ -1409,7 +1409,7 @@ text: c => `<i>需冰冻中</i><br><b>${c.dmg}</b> 伤，+<b>${c.fro}</b> 冰霜
     name: '万毒归宗', cls: 'alchemist', type: 'attack', rarity: 'finisher', cost: 3, costN: true,
     finisher: true, unique: true, target: 'enemy',
     // 价值：伤害 15 + 全体中毒 4 层（13）+ dmgPoison 12 = 40（正好参考值）
-    art: 'potion_green', dmg: 15, mult: 5, poi: 4,
+    art: 'potion_green', dmg: 15, mult: 5, poi: 6,
     cond: B => B.aliveEnemies().some(e => B.get(e, 'poison') >= 8),
 text: c => `<i>需中毒 ≥8</i><br><b>${c.dmg}</b> 伤 +（中毒×<b>${c.mult}</b>），全体 +<b>${c.poi}</b> 中毒。`,
     fx: [{ t: 'dmg', v: 'dmg' }, { t: 'dmgPoison', mult: 'mult' }, { t: 'debuffAll', k: 'poison', v: 'poi' }],

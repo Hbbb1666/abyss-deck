@@ -341,7 +341,23 @@ export function eventScene({ onDone, onFight, ev: givenEv, intro } = {}) {
   const api = {
     rng: () => G.rng(),
     heal: n => { const b = G.hp; G.hp = Math.min(G.maxHp, G.hp + n); log.push(`回复了 <b>${G.hp - b}</b> 点生命`); },
-    damage: n => { G.hp = Math.max(0, G.hp - n); log.push(`失去了 <b>${n}</b> 点生命`); },
+    /* 事件扣血。
+       ⚠️ 2026-10-13 修 bug：这里原来是 `G.hp = Math.max(0, G.hp - n)` ——
+       **允许扣到 0，但不结束本局**（本局结束只由战斗的 endBattle 触发）。
+       后果：在事件里"献祭生命 / 硬闯 / 拓印铭文"把血扣光之后，
+       `over` 仍是 null、存档照写 → 回主菜单还有「继续游戏」→ **以 0 血回到局内**。
+
+       现在的口径与「营火·血契」一致（那里早就写了"至少留 1 点，别让献祭把自己变成尸体"）：
+       **战斗外不能死**，最低留 1 点。日志改成记录**实际**扣掉的量 ——
+       以前哪怕你只有 3 点血、代价写 12，也会显示"失去了 12 点生命"（数字撒谎）。 */
+    damage: n => {
+      const before = G.hp;
+      G.hp = Math.max(1, G.hp - n);
+      const lost = before - G.hp;
+      log.push(lost < n
+        ? `失去了 <b>${lost}</b> 点生命<span class="dim">（代价 ${n}，生命不足以支付，保底留 1）</span>`
+        : `失去了 <b>${lost}</b> 点生命`);
+    },
     maxHp: n => { gainMaxHp(n); log.push(n > 0 ? `最大生命 <b>+${n}</b>（当前生命同步 +${n}）` : `最大生命 <b>${n}</b>`); },
     gold: n => { const g = gainGold(n); log.push(n >= 0 ? `获得 <b>${g}</b> 金币` : `失去 <b>${-g}</b> 金币`); },
     addRelic: id => { const r = id || rollRelic(['common', 'uncommon', 'rare', 'boss']); if (!r) return; addRelic(r); log.push(`获得遗物「<b>${RELICS[r].name}</b>」`); },
@@ -395,6 +411,9 @@ export function eventScene({ onDone, onFight, ev: givenEv, intro } = {}) {
     upgradeBasics: () => { let n = 0; for (const e of G.deck) if ((e.id === 'strike' || e.id === 'defend') && CARDS[e.id].up && !e.up) { e.up = true; n++; } log.push(n ? `升级了 <b>${n}</b> 张基础牌` : '<span class="dim">没有可升级的基础牌</span>'); },
     fightElite: () => { onFight(); },
   };
+  /* 把事件 api 暴露给测试/排查用（`api.damage` 就是当年"0 血续玩"那个 bug 的现场，
+     见下面 damage 的注释）。没有它，测试只能靠模拟点击，测不到这条扣血逻辑。 */
+  try { if (typeof window !== 'undefined') window.__EVENT_API__ = api; } catch {}
 
   const finishOpt = () => {
     done = true;
@@ -404,7 +423,14 @@ export function eventScene({ onDone, onFight, ev: givenEv, intro } = {}) {
     save();
     evStrip.refresh();      // 事件会改血量/上限/金币，必须刷新
     cont.classList.remove('disabled');
-    if (G.hp <= 0) { toast('你倒下了…'); }
+    /* 安全网：战斗外不该出现 0 血（`api.damage` 已经保底留 1）。
+       万一将来有人加了别的扣血途径忘了保底，这里把它拉回 1 并留下痕迹 ——
+       绝不留下一个"未结束却是 0 血"的存档（那正是"回主菜单还能以 0 血续玩"的成因）。 */
+    if (G.hp <= 0) {
+      console.warn('[abyss] 事件结束后生命 ≤0，已补到 1（战斗外不允许死亡）');
+      G.hp = 1;
+      save();
+    }
   };
 
   for (const o of ev.options) {

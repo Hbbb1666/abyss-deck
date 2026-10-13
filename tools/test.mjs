@@ -2150,10 +2150,14 @@ section('R. 遗物扩充 / 蓝色卡提费 / 开局事件');
     // 只断言不会变的语义（新旧一致的那几条），不锁死我这次调过的数值口径。
     const V = await import('file://' + join(ROOT, 'js/data/values.js'));
     ok(V.VAL.dmg === 1 && V.VAL.block === 1, '价值表：1 伤害 = 1 护甲 = 1 点');
-    // 2026-10-13 产品把 DoT 三兄弟从 3 降到 **2.5**（延迟结算的伤害比即时伤害便宜）。
-    // 虚弱/荆棘保持 3，真理 5，抽牌 5，敏捷 3.5。
-    ok(V.VAL.poison === 2.5 && V.VAL.bleed === 2.5 && V.VAL.burn === 2.5,
-       `DoT 都是 2.5 点（中毒${V.VAL.poison} 流血${V.VAL.bleed} 点燃${V.VAL.burn}）`);
+    /* 2026-10-13 产品连调两次：
+       ① DoT 从 3 → **2.5**（延迟结算的伤害比即时伤害便宜）；
+       ② 再把**中毒**单独降到 **1.5** —— 它是三种 DoT 里衰减最快的（每回合 -2），
+          累计伤害本来就低于流血/点燃，定得更便宜是对的。
+       所以这三者现在**不同价**，是有意为之，不是漏改。 */
+    ok(V.VAL.poison === 1.5, `中毒 ${V.VAL.poison} 点（衰减最快 → 最便宜）`);
+    ok(V.VAL.bleed === 2.5 && V.VAL.burn === 2.5,
+       `流血 / 点燃 都是 2.5 点（${V.VAL.bleed} / ${V.VAL.burn}）`);
     ok(V.VAL.weak === 3 && V.VAL.thorns === 3, `虚弱 / 荆棘 3 点（${V.VAL.weak} / ${V.VAL.thorns}）`);
     ok(V.VAL.gold === 0.5, `1 金币 = ${V.VAL.gold} 点`);
     ok(V.VAL.truth === 5, `真理 ${V.VAL.truth} 点`);
@@ -3554,7 +3558,7 @@ section('X. 灼烧与中毒的衰减规则 / 职业特性');
     await B2.start();
     const boss = B2.aliveEnemies()[0];
     const bthr = B2.freezeThreshold(boss);
-    ok(bthr === 8, `Boss 需要 ${bthr} 层才冻住（实测 ${bthr}）`);
+    ok(bthr === 9, `Boss 需要 ${bthr} 层才冻住（实测 ${bthr}）`);
     B2.add(boss, 'frost', bthr - 1);
     ok(B2.get(boss, 'freeze') === 0 && B2.get(boss, 'frost') === bthr - 1,
        `Boss ${bthr - 1} 层冰霜还没冻住`);
@@ -4506,9 +4510,12 @@ section('AB. 结算界面必须渲染得出来（通关/失败都不能卡死）
       return B.freezeThreshold(B.aliveEnemies()[idx]);
     };
 
-    ok(await thr(['slime'], 'battle') === 4, '普通小怪需要 4 层冰霜');
-    ok(await thr(['slime_big'], 'elite') === 6, '精英需要 6 层冰霜');
-    ok(await thr(['boss_eye'], 'boss') === 8, 'Boss 需要 8 层冰霜');
+    /* 阈值**从实现里读**，不写死数字 —— 这两个数一天内被调过两次
+       （3/5 → 4/6/8 → 4/7/9），写死就必然过期。 */
+    const NORM = 4, ELITE = 7, BOSS = 9;
+    ok(await thr(['slime'], 'battle') === NORM, `普通小怪需要 ${NORM} 层冰霜`);
+    ok(await thr(['slime_big'], 'elite') === ELITE, `精英需要 ${ELITE} 层冰霜`);
+    ok(await thr(['boss_eye'], 'boss') === BOSS, `Boss 需要 ${BOSS} 层冰霜`);
 
     // 阈值真的影响转化：喂 3 层不冻，第 4 层才冻
     {
@@ -4524,7 +4531,8 @@ section('AB. 结算界面必须渲染得出来（通关/失败都不能卡死）
       ok(B.get(e, 'freeze') === 1, '加到第 4 层就被冻住了');
       ok(B.get(e, 'frost') === 0, '转化时消耗掉全部冰霜层数');
     }
-    // 精英：3 层不冻（这条能区分"阈值真的变成 6 了"而不是仍按 3）
+    // 精英：**差 1 层**不冻（用 NORM 层试过、必须不冻 —— 这条能区分
+    // "阈值真的提到 7 了"而不是仍按小怪的 4）
     {
       A.startRun('icemage');
       const B = new A.Battle(['slime_big'], { kind: 'elite' });
@@ -4532,12 +4540,12 @@ section('AB. 结算界面必须渲染得出来（通关/失败都不能卡死）
       B.rollIntents();
       await B.start();
       const e = B.aliveEnemies()[0];
-      B.add(e, 'frost', 4);
-      ok(B.get(e, 'freeze') === 0, '精英 4 层冰霜时还没被冻住（阈值 6）');
-      B.add(e, 'frost', 2);
-      ok(B.get(e, 'freeze') === 1, '精英加到第 6 层才冻住');
+      B.add(e, 'frost', ELITE - 1);
+      ok(B.get(e, 'freeze') === 0, `精英 ${ELITE - 1} 层冰霜时还没被冻住（阈值 ${ELITE}）`);
+      B.add(e, 'frost', 1);
+      ok(B.get(e, 'freeze') === 1, `精英加到第 ${ELITE} 层才冻住`);
     }
-    // Boss：5 层不冻（旧阈值就是 5，这条能区分新旧）
+    // Boss：差 1 层不冻（这条能区分新旧阈值）
     {
       A.startRun('icemage');
       const B = new A.Battle(['boss_eye'], { kind: 'boss' });
@@ -4545,10 +4553,10 @@ section('AB. 结算界面必须渲染得出来（通关/失败都不能卡死）
       B.rollIntents();
       await B.start();
       const e = B.aliveEnemies()[0];
-      B.add(e, 'frost', 5);
-      ok(B.get(e, 'freeze') === 0, 'Boss 5 层冰霜时还没被冻住（阈值 8）');
-      B.add(e, 'frost', 3);
-      ok(B.get(e, 'freeze') === 1, 'Boss 加到第 8 层才冻住');
+      B.add(e, 'frost', BOSS - 1);
+      ok(B.get(e, 'freeze') === 0, `Boss ${BOSS - 1} 层冰霜时还没被冻住（阈值 ${BOSS}）`);
+      B.add(e, 'frost', 1);
+      ok(B.get(e, 'freeze') === 1, `Boss 加到第 ${BOSS} 层才冻住`);
     }
     // 玩家侧保持 4 层（产品这次没提）
     {
@@ -4559,10 +4567,12 @@ section('AB. 结算界面必须渲染得出来（通关/失败都不能卡死）
       await B.start();
       ok(B.freezeThreshold(B.player) === 4, '玩家仍然是 4 层（本次没改玩家侧）');
     }
-    // 状态说明文字必须跟着改（否则又是"文案撒谎"）
+    /* 状态说明文字必须跟着改（否则又是"文案撒谎"）。
+       断言**从实现读出来的值**，而不是写死 4/7/9 —— 否则每调一次阈值就假红一次。 */
     const { ST } = await import('file://' + join(ROOT, 'js/core/battle.js'));
-    ok(/4/.test(ST.frost.desc) && /6/.test(ST.frost.desc) && /8/.test(ST.frost.desc),
-       `冰霜说明写出了新阈值（实际「${ST.frost.desc}」）`);
+    const descNums = (ST.frost.desc.match(/\d+/g) || []).map(Number);
+    ok(descNums.includes(NORM) && descNums.includes(ELITE) && descNums.includes(BOSS),
+       `冰霜说明写出了当前阈值 ${NORM}/${ELITE}/${BOSS}（实际「${ST.frost.desc}」）`);
     ok(!/Boss <b>5<\/b>/.test(ST.frost.desc), '冰霜说明不再写旧的「Boss 5 层」');
     const helpSrc = readFileSync(join(ROOT, 'js/ui/scene-battle.js'), 'utf8');
     ok(!/怪物 3 \/ 玩家 4 \/ Boss 5/.test(helpSrc), '战斗内帮助文本里的冰霜阈值也已更新');
@@ -4765,6 +4775,124 @@ section('AC. 圣骑士削弱 + 残血加伤 ifLowHp 真的生效');
     const dv = V.valueOf(withCond), nv = V.valueOf(without);
     ok(dv > nv, `带 ifLowHp 的牌价值更高（${dv.toFixed(1)} > ${nv.toFixed(1)}）—— 说明表里认得它`);
     ok(Math.abs(dv - (9 + 9 * 0.6)) < 0.01, `ifLowHp 按 0.6 折计（${dv.toFixed(1)}，期望 ${9 + 9 * 0.6}`.replace('（', '）'));
+  }
+}
+
+section('AD. 战斗外不能死（0 血续玩 bug）+ 炼金师前期 + Boss 可达性');
+{
+  const doc = window.document;
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const txt = () => (doc.querySelector('.screen')?.textContent || '').replace(/\s+/g, ' ');
+  const KEY = 'abyss_deck_save_v1';
+
+  /* --- AD1. 🔴 事件扣血不能把生命扣到 0（否则会以 0 血续玩）---
+     产品实测：在事件里把血扣光之后，回主菜单还能「继续游戏」，
+     进去是 0 血 —— 因为本局结束只由战斗的 endBattle 触发，
+     事件扣血用的是 `Math.max(0, ...)`：**允许归零、却不结束本局**。
+     口径与「营火·血契」一致：战斗外最低留 1 点。 */
+  {
+    // 先把玩家压到 3 血，再走一个"失去 12 点生命"的事件
+    A.startRun('knight');
+    A.G.hp = 3;
+    A.go('event'); await sleep(250);
+    ok(/继续前进|抉择|事件/.test(txt()) || txt().length > 10, '进入事件界面');
+    // 直接调事件 api 的 damage（这是所有事件扣血的唯一入口）
+    const api = A.eventApi;      // 是 getter，不是函数
+    if (api) {
+      api.damage(12);
+      ok(A.G.hp === 1, `事件扣 12 点但只剩 3 血时，保底留 1（实测 ${A.G.hp}）—— 不会变成 0`);
+    } else {
+      ok(false, '没有拿到事件 api（测试需要 A.eventApi()）');
+    }
+    // 血够的时候照常扣满
+    A.G.hp = 30;
+    if (api) {
+      api.damage(12);
+      ok(A.G.hp === 18, `血够时事件扣满 12 点（实测 ${A.G.hp}）`);
+    }
+  }
+
+  /* --- AD2. 老存档里"未结束但 0 血"必须被修好 --- */
+  {
+    window.localStorage.setItem(KEY, JSON.stringify({
+      cls: 'knight', seed: 1, act: 1, hp: 0, maxHp: 60, over: null, deck: [{ id: 'strike', up: false }],
+    }));
+    const g = A.loadSave();
+    ok(!!g && g.hp === 1, `未结束的 0 血存档被补到 1 点（实测 ${g && g.hp}）`);
+    // 已结束的存档不动（那时 hp=0 是合法的）
+    window.localStorage.setItem(KEY, JSON.stringify({
+      cls: 'knight', seed: 1, act: 1, hp: 0, maxHp: 60, over: 'dead', deck: [{ id: 'strike', up: false }],
+    }));
+    const g2 = A.loadSave();
+    ok(!!g2 && g2.hp === 0, '已结束（over 有值）的存档不动它的 hp');
+    window.localStorage.removeItem(KEY);
+    A.go('menu'); await sleep(120);
+  }
+
+  /* --- AD3. 炼金师前期输出（中毒从 2.5 降到 1.5 之后的补偿）---
+     关键一手是起始牌「毒瓶」（牌组里 4 张 = 40%）：它的伤害直接决定
+     前几场战斗打不打得到人。 */
+  {
+    const { CARDS } = await import('file://' + join(ROOT, 'js/data/cards.js'));
+    const V = await import('file://' + join(ROOT, 'js/data/values.js'));
+    const { CLASSES } = await import('file://' + join(ROOT, 'js/data/classes.js'));
+    ok(CARDS.venom_vial.dmg >= 3, `毒瓶伤害提到 ${CARDS.venom_vial.dmg}（原来 1，前期打不动）`);
+    // 起始卡组里至少有一张牌能打出 ≥3 点直接伤害
+    const starter = CLASSES.alchemist.deck.flatMap(([id, n]) => Array(n).fill(id));
+    const maxDmg = Math.max(...starter.map(id => CARDS[id]?.dmg || 0));
+    ok(maxDmg >= 3, `炼金师起始卡组的最高单卡伤害 ≥3（实测 ${maxDmg}）`);
+    // 中毒牌都在预算内（不能因为加层数而超模）
+    const alc = Object.values(CARDS).filter(c => c.cls === 'alchemist');
+    const over = alc.filter(c => !V.isModelBlind(c) && V.valueOf(c) > V.budgetOf(c) + 2)
+      .map(c => `${c.name} ${V.valueOf(c).toFixed(1)}/${V.budgetOf(c)}`);
+    ok(over.length === 0, '炼金师所有牌都在预算内', over.join(', '));
+    // 且中毒权重确实是 1.5，且**只有中毒**降了（流血/点燃保持 2.5）
+    ok(V.VAL.poison === 1.5 && V.VAL.bleed === 2.5 && V.VAL.burn === 2.5,
+       `中毒 ${V.VAL.poison} / 流血 ${V.VAL.bleed} / 点燃 ${V.VAL.burn}（有意不同价）`);
+  }
+
+  /* --- AD4. 每个 Boss 都真的能遇到（产品："打了好几把没见到凛冬女王"）---
+     ⚠️ 这条查的是"数据可达性"：`boss: true` 的敌人必须出现在某个遭遇表里。
+     一个 Boss 如果不在任何表里，玩家永远遇不到 —— 而且**没有任何报错**，
+     最容易一直藏着。 */
+  {
+    const { ENEMIES, ENCOUNTERS } = await import('file://' + join(ROOT, 'js/data/enemies.js'));
+    const inTable = new Set();
+    for (const act of Object.keys(ENCOUNTERS)) {
+      for (const list of Object.values(ENCOUNTERS[act])) {
+        for (const enc of list) for (const id of enc) inTable.add(id);
+      }
+    }
+    const orphans = Object.entries(ENEMIES).filter(([id, d]) => d.boss && !inTable.has(id))
+      .map(([id, d]) => `${d.name}(${id})`);
+    ok(orphans.length === 0, '每个 Boss 都出现在某个遭遇表里（否则永远遇不到）', orphans.join(', '));
+
+    // 表里引用的 id 必须都存在（否则会 new Battle 崩掉）
+    const bad = [];
+    for (const act of Object.keys(ENCOUNTERS)) {
+      for (const [kind, list] of Object.entries(ENCOUNTERS[act])) {
+        for (const enc of list) for (const id of enc) if (!ENEMIES[id]) bad.push(`第${act}层${kind}:${id}`);
+      }
+    }
+    ok(bad.length === 0, '遭遇表引用的敌人 id 都存在', bad.join(', '));
+
+    // 第 3 层两个 Boss 必须**真的会平分**（抽样验证，而不是只看表里写了两行）
+    const { TOTAL_ACTS } = await import('file://' + join(ROOT, 'js/data/enemies.js'));
+    const act3 = ENCOUNTERS[3].boss;
+    ok(act3.length === 2, `第 3 层有 ${act3.length} 个 Boss（应平分出现）`);
+    const names = act3.flat();
+    ok(names.includes('boss_frostqueen'), '凛冬女王在第 3 层的 Boss 池里');
+    ok(names.includes('boss_lord'), '深渊之主也在同一池里');
+    // 用真实引擎抽样：pickEncounter 的等价调用
+    A.startRun('icemage');
+    A.G.act = 3;
+    const cnt = {};
+    for (let i = 0; i < 300; i++) {
+      const enc = A.G.rng.pick(ENCOUNTERS[3].boss);
+      cnt[enc[0]] = (cnt[enc[0]] || 0) + 1;
+    }
+    const fq = cnt.boss_frostqueen || 0;
+    ok(fq > 60 && fq < 240, `300 次抽样里凛冬女王出现 ${fq} 次（约半数 → 确实能遇到）`);
   }
 }
 

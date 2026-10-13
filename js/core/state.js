@@ -356,6 +356,16 @@ export function loadSave() {
     s.act = typeof s.act === 'number' ? s.act : 1;
     s.over = s.over || null;
     s.startedAt = s.startedAt || Date.now();
+    /* 修复"0 血还能续玩"的**老存档**。
+       本局没结束（over 为空）却只剩 0 血，在过去是能产生的（事件扣血允许归零、
+       又不结束本局，见 scene-rooms.js 的 api.damage）。现在源头已经堵住（最低留 1），
+       但玩家手里可能已经存着这样一个档 —— 读回来时补到 1 点，
+       恢复成"当初本该有的状态"，而不是把人放进一场必死的局。
+       注意 `over` 有值（通关/陨落）时不动它：那时 hp=0 是合法的。 */
+    if (!s.over && s.hp <= 0) {
+      console.warn('[存档修补] 本局未结束却是 0 血，已补到 1 点（旧版事件扣血的遗留）');
+      s.hp = 1;
+    }
     // 牌组为空会让整个玩法失去意义（打不出任何牌）——退回该职业的起始卡组。
     // 用 startingDeck() 而不是自己拼 classes.js 里的 deck 数组：那个函数已经
     // 处理了"发牌"的细节，自己拼等于把同一套逻辑再写一遍（迟早对不上）。

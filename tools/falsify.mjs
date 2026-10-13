@@ -7,7 +7,7 @@ import { readFileSync, writeFileSync, copyFileSync, existsSync } from 'node:fs';
 const R = 'D:/网盘文件/OneDrive/文档/deepseek-harness/default-workspace/abyss-deck/js';
 const [what] = process.argv.slice(2);
 
-const FILES = { state: R + '/core/state.js', main: R + '/main.js', battle: R + '/core/battle.js', cards: R + '/data/cards.js' };
+const FILES = { state: R + '/core/state.js', main: R + '/main.js', battle: R + '/core/battle.js', cards: R + '/data/cards.js', rooms: R + '/ui/scene-rooms.js' };
 const BAK = {};
 for (const k of Object.keys(FILES)) BAK[k] = `C:/Users/Aaron-PC/AppData/Local/Temp/falsify-${k}.bak`;
 
@@ -64,4 +64,24 @@ else if (what === 'stats') {
   s = s.replace(a, "art: 'hammer', dmg: 14, heal: 4, up: { dmg: 16, heal: 6 },");
   writeFileSync(p, s, 'utf8');
   console.log('已把审判伤害改回偏高的 14');
-} else console.log('用法: stats | guard | lowhp | paldmg | restore');
+} else if (what === 'evdeath') {
+  backup('rooms');
+  const p = R + '/ui/scene-rooms.js';
+  let s = readFileSync(p, 'utf8');
+  const a = `    damage: n => {
+      const before = G.hp;
+      G.hp = Math.max(1, G.hp - n);`;
+  if (!s.includes(a)) throw new Error('没找到事件 damage');
+  s = s.replace(a, `    damage: n => {
+      const before = G.hp;
+      G.hp = Math.max(0, G.hp - n);   // TEMP 复原旧写法（允许扣到 0）`);
+  // 同时去掉 finishOpt 里的安全网，才是真正的旧行为
+  const b = `    if (G.hp <= 0) {
+      console.warn('[abyss] 事件结束后生命 ≤0，已补到 1（战斗外不允许死亡）');
+      G.hp = 1;
+      save();
+    }`;
+  if (s.includes(b)) s = s.replace(b, '    /* TEMP 去掉安全网 */');
+  writeFileSync(p, s, 'utf8');
+  console.log('已复原"事件扣血允许归零"（0 血续玩 bug）');
+} else console.log('用法: stats | guard | lowhp | paldmg | evdeath | restore');
