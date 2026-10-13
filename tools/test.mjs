@@ -3539,24 +3539,29 @@ section('X. 灼烧与中毒的衰减规则 / 职业特性');
     await B.enemyTurn();
     ok(B.get(e, 'frost') === frostBefore, `冰霜不会自然衰减（${frostBefore} → ${B.get(e, 'frost')}）`);
 
-    // 3) 集满 3 层 → 消耗全部冰霜，变成 1 层冰冻
-    B.add(e, 'frost', 2);                       // 1 + 2 = 3
-    ok(B.get(e, 'frost') === 0, `集满 3 层后冰霜清零（实测 ${B.get(e, 'frost')}）`);
+    /* 3) 集满 → 消耗全部冰霜，变成 1 层冰冻。
+       ⚠️ 阈值 2026-10-13 提高（小怪 3 → **4**），这条断言原来写的是 3 层。
+       改成**从 freezeThreshold 读**，以后产品再调阈值这里不会再过期。 */
+    const thr = B.freezeThreshold(e);
+    B.add(e, 'frost', thr);
+    ok(B.get(e, 'frost') === 0, `集满 ${thr} 层后冰霜清零（实测 ${B.get(e, 'frost')}）`);
     ok(B.get(e, 'freeze') === 1, `转化成 1 层冰冻（实测 ${B.get(e, 'freeze')}）`);
 
-    // 4) Boss 需要 5 层
+    // 4) 阈值随目标而异：小怪 4 / 精英 6 / Boss 8（都在 AB 段有独立断言，这里只留个交叉检查）
     const B2 = new A.Battle(['boss_eye'], { kind: 'boss' });
     B2.view = { ...noopView };
     B2.rollIntents();
     await B2.start();
     const boss = B2.aliveEnemies()[0];
-    ok(B2.freezeThreshold(boss) === 5, `Boss 需要 5 层才冻住（实测 ${B2.freezeThreshold(boss)}）`);
-    B2.add(boss, 'frost', 4);
-    ok(B2.get(boss, 'freeze') === 0 && B2.get(boss, 'frost') === 4, 'Boss 4 层冰霜还没冻住');
+    const bthr = B2.freezeThreshold(boss);
+    ok(bthr === 8, `Boss 需要 ${bthr} 层才冻住（实测 ${bthr}）`);
+    B2.add(boss, 'frost', bthr - 1);
+    ok(B2.get(boss, 'freeze') === 0 && B2.get(boss, 'frost') === bthr - 1,
+       `Boss ${bthr - 1} 层冰霜还没冻住`);
     B2.add(boss, 'frost', 1);
-    ok(B2.get(boss, 'freeze') === 1, 'Boss 到 5 层才冻住');
+    ok(B2.get(boss, 'freeze') === 1, `Boss 到 ${bthr} 层才冻住`);
     const norm = B.aliveEnemies()[0];
-    ok(B.freezeThreshold(norm) === 3, `普通怪 3 层（实测 ${B.freezeThreshold(norm)}）`);
+    ok(B.freezeThreshold(norm) === 4, `普通怪 4 层（实测 ${B.freezeThreshold(norm)}）`);
   }
 
   /* --- X6c. 冰冻：跳过它的整个行动，且意图保留到下一回合 --- */
@@ -3723,7 +3728,7 @@ section('X. 灼烧与中毒的衰减规则 / 职业特性');
     B.rollIntents();
     await B.start();
     ok(B.freezeThreshold(B.player) === 4, `玩家冰冻阈值 4 层（实测 ${B.freezeThreshold(B.player)}）`);
-    ok(B.freezeThreshold(B.aliveEnemies()[0]) === 3, '普通怪仍然是 3 层');
+    ok(B.freezeThreshold(B.aliveEnemies()[0]) === 4, '普通怪 4 层（2026-10-13 由 3 提高）');
     // 攒够 4 层冰霜 → 1 层冰冻
     B.add(B.player, 'frost', 3);
     ok(B.get(B.player, 'freeze') === 0, '3 层冰霜还没冻住');
@@ -4429,6 +4434,138 @@ section('AA. 终结牌：N 费用 / 条件门 / 限定目标 / 牌组唯一');
       .filter(x => x.u > 28);
     ok(long.length === 0, '终结牌的卡面文案都在 28 单位内（真机可读性预算）',
        long.map(x => `${x.f.name} ${x.u.toFixed(1)}`).join(', '));
+  }
+}
+
+section('AB. 结算界面必须渲染得出来（通关/失败都不能卡死）+ 冰冻阈值');
+{
+  /* --- AB1. 结算界面：`go('end')` 不能抛错，且真的把界面挂上去 ---
+     2026-10-13 产品报的 bug："寒冰法师通关后最终 Boss 结算界面卡死"。
+     真因是 `endScene` 里 `sc`/`picks` 两个 `const` 写在**用它们的模板字符串之后** ——
+     `const` 有暂时性死区，模板是立即求值的，于是
+     `ReferenceError: Cannot access 'sc' before initialization` 在渲染时抛出：
+     `go('end')` 抛错 → 新界面根本没挂上 → **玩家卡在上一屏**。
+
+     ⚠️ 这条断言是**补的洞**：在这之前整个测试套件**没有任何一条**走结算界面
+     （只有"结算回调被触发"这类引擎侧断言），所以这个崩溃可以一路绿灯发到线上。
+     新增这类断言的方法：**真的 go 一次那个场景，并断言界面元素存在**。 */
+  {
+    const doc = window.document;
+    const screenText = () => (doc.querySelector('.screen')?.textContent || '');
+
+    // ① 通关路径
+    A.startRun('icemage');
+    A.G.act = 4;
+    A.G.stats.floors = 30;
+    A.G.picks = ['d_hp_per_act', 'b_gold40'];
+    let threw = null;
+    try { A.go('end', 'win'); } catch (e) { threw = e; }
+    await new Promise(r => setTimeout(r, 200));
+    ok(!threw, `通关结算界面渲染不抛错（${threw ? threw.constructor.name + ': ' + threw.message : '无异常'}）`);
+    ok(!!doc.querySelector('.end-title'), '通关结算界面真的挂上去了（有标题）');
+    ok(screenText().includes('通 关'), '标题写的是「通 关」');
+    ok(screenText().includes('本局难度分'), '结算界面显示本局难度分（这是当初加那两行 const 的目的）');
+    ok(/本局难度分：\s*\+5/.test(screenText()) || screenText().includes('+5'),
+       `难度分算对了（+9 −4 = 5）`);
+    ok(screenText().includes('已选 2 条'), '显示选了几条');
+    ok([...doc.querySelectorAll('.btn')].some(b => (b.textContent || '').includes('再来一局')),
+       '有「再来一局」按钮（玩家有路可走，不是死屏）');
+
+    // ② 失败路径（同一个函数，但走 else 分支）
+    A.startRun('knight');
+    A.G.picks = [];
+    threw = null;
+    try { A.go('end', 'lose'); } catch (e) { threw = e; }
+    await new Promise(r => setTimeout(r, 200));
+    ok(!threw, '失败结算界面渲染不抛错');
+    ok(screenText().includes('陨 落'), '标题写的是「陨 落」');
+    ok(screenText().includes('标准难度'), '没选条目时显示「标准难度」');
+
+    // ③ 点「再来一局」必须真的能走（不是只有个按钮）
+    const retry = [...doc.querySelectorAll('.btn')].find(b => (b.textContent || '').includes('再来一局'));
+    retry.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    await new Promise(r => setTimeout(r, 300));
+    ok(!screenText().includes('陨 落'), '点「再来一局」真的离开了结算界面');
+    A.go('menu'); await new Promise(r => setTimeout(r, 120));
+  }
+
+  /* --- AB2. 冰冻阈值：小怪 4 / 精英 6 / Boss 8 / 玩家 4 ---
+     2026-10-13 产品提高（原来普通/精英都是 3、Boss 5）。
+     注意"精英"按**战斗类型**判定 —— 数据里 `guard_elite` 缺 `elite` 标记、
+     `gargoyle` 又带着标记却出现在普通表里，所以逐只怪物看标记是错的（见 battle.js 注释）。 */
+  {
+    const mk = id => ({ ...CARDS[id], uid: 't#' + id });
+    const noop = { step: async () => {}, sync() {}, log() {} };
+
+    const thr = async (enc, kind, idx = 0) => {
+      A.startRun('icemage');
+      const B = new A.Battle(enc, { kind });
+      B.view = { ...noop };
+      B.rollIntents();
+      await B.start();
+      return B.freezeThreshold(B.aliveEnemies()[idx]);
+    };
+
+    ok(await thr(['slime'], 'battle') === 4, '普通小怪需要 4 层冰霜');
+    ok(await thr(['slime_big'], 'elite') === 6, '精英需要 6 层冰霜');
+    ok(await thr(['boss_eye'], 'boss') === 8, 'Boss 需要 8 层冰霜');
+
+    // 阈值真的影响转化：喂 3 层不冻，第 4 层才冻
+    {
+      A.startRun('icemage');
+      const B = new A.Battle(['slime'], { kind: 'battle' });
+      B.view = { ...noop };
+      B.rollIntents();
+      await B.start();
+      const e = B.aliveEnemies()[0];
+      B.add(e, 'frost', 3);
+      ok(B.get(e, 'freeze') === 0, '小怪 3 层冰霜时还没被冻住（阈值 4）');
+      B.add(e, 'frost', 1);
+      ok(B.get(e, 'freeze') === 1, '加到第 4 层就被冻住了');
+      ok(B.get(e, 'frost') === 0, '转化时消耗掉全部冰霜层数');
+    }
+    // 精英：3 层不冻（这条能区分"阈值真的变成 6 了"而不是仍按 3）
+    {
+      A.startRun('icemage');
+      const B = new A.Battle(['slime_big'], { kind: 'elite' });
+      B.view = { ...noop };
+      B.rollIntents();
+      await B.start();
+      const e = B.aliveEnemies()[0];
+      B.add(e, 'frost', 4);
+      ok(B.get(e, 'freeze') === 0, '精英 4 层冰霜时还没被冻住（阈值 6）');
+      B.add(e, 'frost', 2);
+      ok(B.get(e, 'freeze') === 1, '精英加到第 6 层才冻住');
+    }
+    // Boss：5 层不冻（旧阈值就是 5，这条能区分新旧）
+    {
+      A.startRun('icemage');
+      const B = new A.Battle(['boss_eye'], { kind: 'boss' });
+      B.view = { ...noop };
+      B.rollIntents();
+      await B.start();
+      const e = B.aliveEnemies()[0];
+      B.add(e, 'frost', 5);
+      ok(B.get(e, 'freeze') === 0, 'Boss 5 层冰霜时还没被冻住（阈值 8）');
+      B.add(e, 'frost', 3);
+      ok(B.get(e, 'freeze') === 1, 'Boss 加到第 8 层才冻住');
+    }
+    // 玩家侧保持 4 层（产品这次没提）
+    {
+      A.startRun('icemage');
+      const B = new A.Battle(['slime'], { kind: 'battle' });
+      B.view = { ...noop };
+      B.rollIntents();
+      await B.start();
+      ok(B.freezeThreshold(B.player) === 4, '玩家仍然是 4 层（本次没改玩家侧）');
+    }
+    // 状态说明文字必须跟着改（否则又是"文案撒谎"）
+    const { ST } = await import('file://' + join(ROOT, 'js/core/battle.js'));
+    ok(/4/.test(ST.frost.desc) && /6/.test(ST.frost.desc) && /8/.test(ST.frost.desc),
+       `冰霜说明写出了新阈值（实际「${ST.frost.desc}」）`);
+    ok(!/Boss <b>5<\/b>/.test(ST.frost.desc), '冰霜说明不再写旧的「Boss 5 层」');
+    const helpSrc = readFileSync(join(ROOT, 'js/ui/scene-battle.js'), 'utf8');
+    ok(!/怪物 3 \/ 玩家 4 \/ Boss 5/.test(helpSrc), '战斗内帮助文本里的冰霜阈值也已更新');
   }
 }
 

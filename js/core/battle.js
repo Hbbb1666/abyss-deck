@@ -97,7 +97,7 @@ export const ST = {
   bleed: { pri: 92, name: '流血', icon: '✚', color: '#ff6b7a',
            desc: '它行动后失去 N 点生命（无视护甲），然后层数<b>减半</b>（奇数取下）' },
   freeze: { pri: 97, name: '冰冻', icon: '❄', sprite: 'icon_freeze', color: '#b8f0ff', desc: '怪物：轮到它行动时消耗 <b>1</b> 层、受最大生命 <b>5%</b> 伤害并跳过这次行动。<b>玩家</b>：本回合能量<b>减半</b>' },
-  frost: { pri: 91, name: '冰霜', icon: '❄', sprite: 'icon_frost', color: '#8ee6ff', desc: '集满后转化为 <b>1</b> 层冰冻（普通/精英 <b>3</b> 层，Boss <b>5</b> 层）。不会自然衰减' },
+  frost: { pri: 91, name: '冰霜', icon: '❄', sprite: 'icon_frost', color: '#8ee6ff', desc: '集满后转化为 <b>1</b> 层冰冻（小怪 <b>4</b> 层、精英 <b>6</b> 层、Boss <b>8</b> 层）。不会自然衰减' },
   burn: { pri: 93, name: '点燃', icon: '火', sprite: 'icon_burn', color: '#ff7a3c', desc: '轮到它行动时失去 N 点生命，然后 -1' },
   poison: { pri: 95, name: '中毒', icon: '☠', desc: '轮到它行动时失去 N 点生命，然后 -2', color: '#7ee787' },
   regen: { pri: 40, name: '再生', icon: '✚', desc: '回合结束回复 N 点生命，然后 -1', buff: true, color: '#7ee787' },
@@ -297,7 +297,8 @@ export class Battle {
     e.st[k] = (e.st[k] || 0) + n;
     if (e.st[k] <= 0) delete e.st[k];
     // 冰霜集满 → 消耗**全部**层数，转化成 1 层冰冻。
-    // Boss 需要 5 层，普通/精英 3 层。多出来的层数直接丢弃（"消耗所有层数"）。
+    // 阈值随目标而异：小怪 4 / 精英 6 / Boss 8（见 freezeThreshold）。
+    // 多出来的层数直接丢弃（"消耗所有层数"）。
     if (k === 'frost' && e.st.frost >= this.freezeThreshold(e)) {
       delete e.st.frost;
       this.add(e, 'freeze', 1);
@@ -307,10 +308,24 @@ export class Battle {
   }
 
   /** 冻住一个目标需要几层冰霜。
-      普通/精英 3 层、Boss 5 层、**玩家 4 层**（产品要求 —— 玩家比小怪抗冻、比 Boss 差一点）。 */
+   *
+   *  2026-10-13 产品提高（原来普通/精英都是 3、Boss 5）：
+   *    · 小怪 **4** 层
+   *    · 精英 **6** 层
+   *    · Boss **8** 层
+   *    · 玩家仍 4 层（产品这次没提玩家侧，保持原值）
+   *
+   *  ⚠️ "是不是精英"用的是**战斗类型**（`this.kind === 'elite'`），不是怪物自己的
+   *  `e.elite` 标记。原因是这两者在本项目里**并不一致**（真实数据冲突，不是我的假设）：
+   *    · `guard_elite`（精英守卫）出现在第 2 层的 `elite` 表里，但 def 上**没有** `elite: true`
+   *    · `gargoyle`（石像鬼）带着 `elite: true`，却又出现在第 3/4 层的 `strong`（普通）表里
+   *  战斗类型才是权威信号 —— 奖励界面、`G.stats.elites`、地图节点全都按它判定。
+   *  用 `e.elite` 会让精英守卫（精英关）按小怪算、石像鬼（普通关）按精英算，两边都错。 */
   freezeThreshold(e) {
     if (e && e.isPlayer) return 4;
-    return e && e.boss ? 5 : 3;
+    if (e && e.boss) return 8;
+    if (this.kind === 'elite') return 6;
+    return 4;
   }
   applyDebuff(e, k, n) {
     if (n > 0 && this.get(e, 'artifact') > 0) {

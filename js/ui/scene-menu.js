@@ -190,6 +190,19 @@ export function classScene({ picks = [], onPick, onBack }) {
 export function endScene(result, { onMenu, onRetry }) {
   const win = result === 'win';
   const root = el('div', { class: 'screen end-screen' });
+
+  /* ⚠️ 这两行**必须在** root.append 之前 —— JS 的 `const` 有暂时性死区（TDZ），
+     而下面那个模板字符串是**立即求值**的。以前它们写在 append 之后，于是
+     `ReferenceError: Cannot access 'sc' before initialization` 会在渲染时抛出：
+     `go('end')` 抛错 → 新界面根本没被挂上去 → **玩家卡在上一屏，通关结算界面出不来**
+     （2026-10-13 产品实测报的"最终 Boss 通关后卡死"就是这个）。
+     教训：模板字符串里的变量一定要先声明；把 `const` 写在用它之后，
+     读起来像"先渲染再补充"，实际是**先崩溃**。 */
+  const sc = scoreOf(G.picks || []);
+  const picks = (G.picks && G.picks.length)
+    ? `<span class="dim"> · 已选 ${G.picks.length} 条</span>`
+    : `<span class="dim"> · 标准难度（未选任何条目）</span>`;
+
   root.append(
     el('div', { class: 'end-title ' + (win ? 'win' : 'lose'), text: win ? '通 关' : '陨 落' }),
     el('div', { class: 'dim small', text: win ? '你击败了深渊之主，牌局结束了。' : '你的牌局到此为止。' }),
@@ -203,12 +216,6 @@ export function endScene(result, { onMenu, onRetry }) {
         本局难度分：<b class="gold">${sc > 0 ? '+' : ''}${sc}</b> <span class="dim">（${scoreLabel(sc)}）</span>${picks}`,
     }),
   );
-  // 结算界面必须显示本局难度分 —— 以前只在难度选择页和开局 toast 里出现，
-  // 通关后反而看不到（玩家选了难度却不知道自己打了多少分）。
-  const sc = scoreOf(G.picks || []);
-  const picks = (G.picks && G.picks.length)
-    ? `<span class="dim"> · 已选 ${G.picks.length} 条</span>`
-    : `<span class="dim"> · 标准难度（未选任何条目）</span>`;
   const col = el('div', { class: 'col gap8', style: { width: '100%', maxWidth: '280px' } });
   col.append(el('button', { class: 'btn primary block', html: '↻ 再来一局', onClick: () => { sfx.confirm(); onRetry(); } }));
   col.append(el('button', { class: 'btn ghost block', html: '返回主菜单', onClick: () => { sfx.back(); onMenu(); } }));
