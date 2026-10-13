@@ -57,6 +57,21 @@ export const WEAK_FLAT_PER_STACK = 1;
  * 衰减仍然是"轮到它自己的回合结束时 -1"（见 tickEnd），层数 == 还能生效几轮。 */
 export const VULN_FLAT_PER_STACK = 1;
 
+/** 脆弱：每层让受到的**每一段**伤害 **+7%**（比例放大），最多叠加到 9 层。
+ *
+ * 2026-10-13 重新定义。它以前是"**自己获得的护甲** -25%"（作用于产出），
+ * 现在改成"**受到的伤害** +7%/层"（作用于承伤），和易伤同属"放大伤害"这一类。
+ *
+ * 为什么和易伤并存而不是合并 —— 两者**乘区不同**，所以对不同牌型强弱相反：
+ *   · 易伤是**固定 +1/层/段** → 对**多段小伤害**收益极高（3 段 4 点 ×2 层 = +6）
+ *   · 脆弱是**比例 +7%/层** → 对**单发大伤害**收益极高（30 点 ×9 层 = +18.9）
+ * 于是"叠易伤"和"叠脆弱"是两条不同的构筑方向，而不是同一个东西的两个名字。
+ *
+ * 上限 9 层是**硬上限**（产品给定）：9 × 7% = +63%，再往上会失控。
+ * 衰减规则与易伤/虚弱一致 —— 轮到它自己的回合结束时 -1（见 tickEnd）。 */
+export const FRAIL_PCT = 7;
+export const FRAIL_MAX_STACKS = 9;
+
 /** Boss 的**第一次攻击**打几折。0.7 = 减伤 30%。
     目的：玩家刚进 Boss 房往往还没铺好护甲/缓冲，Boss 一记大招就能直接带走 ——
     这种"初见杀"不是技术差距，是信息差。给第一击打个折，让玩家至少有一次反应机会。
@@ -68,7 +83,7 @@ export const ST = {
   dexterity: { pri: 85, name: '敏捷', icon: '✦', desc: '获得的护甲 +N', buff: true, color: '#6ee7a8' },
   vulnerable: { pri: 88, name: '易伤', icon: '✸', desc: '每层使受到的**每一段**伤害 +1，自身回合结束时 -1', color: '#ff5c8a' },
   weak: { pri: 86, name: '虚弱', icon: '↓', desc: '每层使**每一次**造成的伤害 -1（分段招式每段都扣，每段至少留 1），回合结束 -1', color: '#c07bff' },
-  energy_cap: { pri: 92, name: '法力增幅', icon: '◉', desc: '每回合能量上限 +N', buff: true, color: '#8fd4ff' },
+  energy_cap: { pri: 92, name: '能量饱和', icon: '◉', desc: '每回合能量上限 +N', buff: true, color: '#8fd4ff' },
   // 真理：奥术法师专属。本身没有直接效果，它的作用是**在引擎里当"多段加成"的计数器**：
   // 每层让本来就有多段的攻击/技能牌多打 1 次（见 effHits）。
   // 能量枯竭：深层 Boss 专属。下一回合能量 -N，结算后清除（不是每回合都扣）。
@@ -87,17 +102,20 @@ export const ST = {
   poison: { pri: 95, name: '中毒', icon: '☠', desc: '轮到它行动时失去 N 点生命，然后 -2', color: '#7ee787' },
   regen: { pri: 40, name: '再生', icon: '✚', desc: '回合结束回复 N 点生命，然后 -1', buff: true, color: '#7ee787' },
   thorns: { pri: 80, name: '荆棘', icon: '✹', desc: '被攻击时反弹 N 点伤害', buff: true, color: '#ffb04a' },
-  ritual: { pri: 78, name: '仪式', icon: '☯', desc: '每回合开始获得 N 层力量', buff: true, color: '#ff8a5c' },
-  undying: { pri: 74, name: '不屈', icon: '⛨', desc: '每回合开始获得 N 点护甲', buff: true, color: '#8fa8c0' },
+  // 强化（原「仪式」）：每回合开始获得 N 层力量，滚雪球型。
+  ritual: { pri: 78, name: '强化', icon: '☯', desc: '每回合开始获得 N 层力量', buff: true, color: '#ff8a5c' },
   barricade: { pri: 72, name: '壁垒', icon: '▣', desc: '护甲不再于回合结束时消失', buff: true, color: '#ffcc52' },
-  berserk: { pri: 70, name: '狂战', icon: '⚡', desc: '每回合开始获得 N 点能量', buff: true, color: '#ff5c5c' },
-  berserk_dmg: { pri: 68, name: '狂战代价', icon: '✚', desc: '每回合开始失去 N 点生命', color: '#ff5c5c' },
   extra_draw: { pri: 66, name: '洞察', icon: '❖', desc: '每回合额外抽 N 张牌', buff: true, color: '#8fd4ff' },
   poison_plus: { pri: 60, name: '淬毒', icon: '☠', desc: '施加中毒时额外 +N 层', buff: true, color: '#7ee787' },
   bleed_plus: { pri: 61, name: '血涌', icon: '✚', desc: '施加流血时额外 +N 层', buff: true, color: '#ff8a95' },
   block_next: { pri: 50, name: '备战', icon: '⛨', desc: '下回合获得 N 点护甲', buff: true, color: '#8fa8c0' },
-  frail: { pri: 76, name: '脆弱', icon: '▽', desc: '获得的护甲 -25%', color: '#c07bff' },
-  artifact: { pri: 55, name: '神器', icon: '◈', desc: '免疫下 N 次减益', buff: true, color: '#ffcc52' },
+  // 脆弱（2026-10-13 重新定义）：原来作用于"自己获得的护甲 -25%"，
+  // 现在改成**受伤放大**——每层让受到的**每一段**伤害 +7%，最多 9 层，轮到它自己回合结束时 -1。
+  // 注意它和易伤是**两种不同的放大**：易伤是固定 +1，脆弱是按比例 ×(1+0.07N)，
+  // 所以脆弱对**大伤害**更狠、易伤对**小段数**更狠，两者刻意不重合。
+  frail: { pri: 76, name: '脆弱', icon: '▽', color: '#c07bff',
+           desc: `每层使受到的**每一段**伤害 +${FRAIL_PCT}%，最多 ${FRAIL_MAX_STACKS} 层，自身回合结束时 -1` },
+  artifact: { pri: 55, name: '抵挡', icon: '◈', desc: '免疫下 N 次减益', buff: true, color: '#ffcc52' },
 };
 
 /** 战斗内怪物数量硬上限。再多战场就挤不下意图栏了（实测 8 只是能全部看清的上限）。
@@ -345,6 +363,14 @@ export class Battle {
       const vul = this.get(def, 'vulnerable');
       if (vul > 0) d += VULN_FLAT_PER_STACK * vul;
     }
+    // 脆弱：每层 +7%（比例放大），上限 9 层。放在易伤**之后**、Boss 首击倍率**之前**。
+    // 顺序有讲究：易伤是加法、脆弱是乘法，先加后乘等价于"先把每一段垫高，再整体放大"，
+    // 反过来（先乘后加）会让 9 层脆弱把易伤那几点也一起放大，数值口径就飘了。
+    // 同样保留 `d > 0` 守卫：0 点伤害不该被比例放大成 0.07 这种非整数。
+    if (d > 0) {
+      const fr = Math.min(this.get(def, 'frail'), FRAIL_MAX_STACKS);
+      if (fr > 0) d = Math.floor(d * (1 + FRAIL_PCT * fr / 100));
+    }
     // Boss 的第一次攻击减伤。放在**最后**乘，语义就是"这一击最终打七折"。
     // intentOf() 与 enemyTurn() 共用这个函数，所以预告和实际永远一致。
     if (d > 0 && atk && atk.boss && !atk.attacked) {
@@ -355,8 +381,10 @@ export class Battle {
     return Math.max(0, d);
   }
   calcBlock(base, e) {
+    // 脆弱**不再**影响护甲（2026-10-13 重定义为"受伤 +7%/层"）。
+    // 以前这里是 `if (frail) b = Math.floor(b * 0.75)` —— 如果留着，
+    // 脆弱就会同时削弱产出和放大承伤，等于一个状态干两件事、强度翻倍。
     let b = base + this.get(e, 'dexterity');
-    if (this.get(e, 'frail') > 0) b = Math.floor(b * 0.75);
     return Math.max(0, b);
   }
 
@@ -829,16 +857,16 @@ export class Battle {
       await this.view.step?.(180);
       if (this.over || this.player.hp <= 0) return;
     }
-    // 狂战代价
-    const bd = this.get(this.player, 'berserk_dmg');
-    if (bd > 0) { await this.loseHp(this.player, bd); if (this.over || this.player.hp <= 0) return; }
-    // 不屈 / 仪式 / 备战
-    if (this.get(this.player, 'undying') > 0) await this.gainBlock(this.player, this.get(this.player, 'undying'));
+    // 备战（下回合护甲）/ 强化（每回合力量）
+    // 注意「不屈」已经删除（2026-10-13）：它的效果"每回合开始获得 N 点护甲"
+    // 与「敏捷」（每次获得护甲 +N）实质重复，产品决定只留敏捷。
+    // 原来用不屈的 5 张牌都改成敏捷了 —— 敏捷是"每次产甲都加"，
+    // 比"每回合开头一次性加"更贴合护盾流，牌也因此变强了一点（见重排说明）。
     if (this.get(this.player, 'block_next') > 0) { await this.gainBlock(this.player, this.get(this.player, 'block_next')); delete this.player.st.block_next; }
     if (this.get(this.player, 'ritual') > 0) this.add(this.player, 'strength', this.get(this.player, 'ritual'));
 
     // 能量
-    // 能量上限 = 基础 3 + 遗物/难度修正 + **法力增幅**层数。
+    // 能量上限 = 基础 3 + 遗物/难度修正 + **能量饱和**层数。
     // 法师的核心机制：这是唯一能让"费用上限"永久变高的途径 ——
     // 遗物那套 energyPerTurn 是固定值，卡牌只能用这个持久状态来加。
     this.energyMax = 3 + (m.energyPerTurn || 0) + this.get(this.player, 'energy_cap');
@@ -861,7 +889,7 @@ export class Battle {
       delete this.player.st.drained;
       this.pushLog(`能量枯竭：本回合能量 -${pdr}`);
     }
-    this.energy = this.energyMax + this.get(this.player, 'berserk');
+    this.energy = this.energyMax;
 
     // 「本回合打出过几张牌」必须每回合清零 ——
     // 之前只在构造时初始化，一整场战斗都在累加（虽然暂时没有卡读它，

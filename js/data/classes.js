@@ -10,8 +10,8 @@ export const CLASSES = {
   mage: {
     id: 'mage', name: '火焰法师', sprite: 'hero_mage',
     unlockScore: 9, hp: 53, gold: 99, relic: 'mana_crystal',
-    tagline: '烈焰法术 · 法力增幅',
-    desc: '掌控烈焰的施法者。先点燃「法力增幅」抬高每回合能量上限，之后每一发都烧得更旺。',
+    tagline: '烈焰法术 · 能量饱和',
+    desc: '掌控烈焰的施法者。先点燃「能量饱和」抬高每回合能量上限，之后每一发都烧得更旺。',
     deck: [['fire_bolt', 4], ['defend', 4], ['fireball', 1], ['ice_shard', 1]],
   },
   rogue: {

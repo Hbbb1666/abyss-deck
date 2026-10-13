@@ -1148,8 +1148,10 @@ section('I. 弃牌代价（「飞刀」）');
     await B.playCard(dagger, B.aliveEnemies()[0]);
     ok(B.discard.includes(dagger), '打出的「飞刀」进了弃牌堆');
     ok(B.discard.includes(spare), '「飞刀」确实弃掉了玩家选中的那张');
-    // 净变化：打出 −1、飞刀自带抽 1 张 +1、弃牌 −1 → 3-1+1-1 = 2
-    ok(B.hand.length === 2, `手牌按「打出1 / 抽1 / 弃1」净减 1（实际 ${B.hand.length}）`);
+    // 净变化：打出 −1、弃牌 −1 → 3-1-1 = 1
+    // （2026-10-13 起「飞刀」不再自带抽牌：抽牌在价值表里值 5 点，1 费普通档装不下。
+    //   这条断言以前写的是"抽1"版的 3-1+1-1=2 —— 改了卡就该改断言，否则它会一直红。）
+    ok(B.hand.length === 1, `手牌按「打出1 / 弃1」净减 2（实际 ${B.hand.length}）`);
   }
 
   /* --- I5. 手牌为空时不能卡死 --- */
@@ -1933,10 +1935,41 @@ section('Q. 虚弱固定扣减 / 斩杀 / 毒死即结算');
     await B.gainBlock(e, raw);
     ok(e.block - before === B.intentOf(e).blk,
        `实际加甲(${e.block - before}) 与预告(${B.intentOf(e).blk}) 一致 —— 预告不撒谎`);
-    // 虚弱护甲（frail）也要一起算进去
+    /* 脆弱（frail）2026-10-13 被**重新定义**：以前是"自己获得的护甲 -25%"，
+       现在改成"受到的伤害每层 +7%（上限 9 层）"。
+       所以这里反过来断言：脆弱**不再**影响护甲。
+       （留着旧断言会误导后来人以为脆弱还管护甲 —— 这正是"改了行为没改断言"。） */
     B.add(e, 'frail', 1);
-    ok(B.intentOf(e).blk === Math.floor((raw + 4) * 0.75),
-       `有 frail 时预告也打折（${B.intentOf(e).blk}）`);
+    ok(B.intentOf(e).blk === raw + 4,
+       `脆弱不再影响护甲（有 1 层脆弱时预告仍是 ${B.intentOf(e).blk}，期望 ${raw + 4}）`);
+
+    // 新的归处：脆弱让**受到的伤害**变高，且和易伤是两种不同乘区
+    {
+      const F = mk();
+      await F.start();
+      const fe = F.aliveEnemies()[0];
+      const plain = F.calcDamage(20, F.player, fe);
+      F.add(fe, 'frail', 9);
+      const frail9 = F.calcDamage(20, F.player, fe);
+      ok(plain === 20 && frail9 === Math.floor(20 * (1 + 0.07 * 9)),
+         `9 层脆弱让 20 点伤害变 ${frail9}（+63%）`);
+      // 上限 9 层：叠到 20 层和 9 层一样
+      F.add(fe, 'frail', 11);
+      ok(F.get(fe, 'frail') === 20 && F.calcDamage(20, F.player, fe) === frail9,
+         `脆弱超过 9 层不再增加（${F.get(fe, 'frail')} 层时伤害仍是 ${F.calcDamage(20, F.player, fe)}）`);
+      // 比例放大对小伤害的影响极小，而固定值易伤反而更强 —— 两者刻意不重合
+      F.get(fe); // noop
+      const E = mk();
+      await E.start();
+      const ee = E.aliveEnemies()[0];
+      E.add(ee, 'frail', 9);
+      const smallFrail = E.calcDamage(3, E.player, ee);      // 3 × 1.63 = 4.89 → 4
+      E.add(ee, 'frail', -9);
+      E.add(ee, 'vulnerable', 2);
+      const smallVuln = E.calcDamage(3, E.player, ee);        // 3 + 2 = 5
+      ok(smallFrail === 4 && smallVuln === 5,
+         `小段伤害上易伤(2层→${smallVuln})比脆弱(9层→${smallFrail})更有效 —— 两种放大不重合`);
+    }
   }
 
   /* --- Q3. 斩杀：伤害打不死、但打完低于阈值 → 处决 --- */
@@ -2095,91 +2128,63 @@ section('R. 遗物扩充 / 蓝色卡提费 / 开局事件');
     ok(bad.length === 0, '没有"纯加强版"遗物（超过同类普通遗物就必须带代价）', bad.join(', '));
   }
 
-  /* --- R4. 蓝色（罕见）卡：单卡不得明显强于同费同类普通牌 --- */
+  /* --- R4. 价值表：任何牌都不得超过自己那一档的预算 ---
+     ⚠️ 价值表现在是 **`js/data/values.js`（唯一真源）**，这里 import 它。
+     2026-10-13 之前测试里另抄了一份权重（draw 2 / poi 4 / str 5 / undying 5 …），
+     两边一改就漂移：卡牌按新表配平、测试却按旧表判，门禁报的"超模"全是假的。
+     产品这次把权重定死（中毒/流血/虚弱/点燃 3、力量 4、真理 5、抽牌 5、敏捷 3.5 …），
+     所以正好借这次把它收敂成单一来源。 */
   {
-    // 与 tools 里那份价值模型一致：只用来做"相对比较"，不看绝对值
-    // 权重与 js/data 的价值表保持一致（产品口径：DoT 4、虚弱 4、其余效果 buff 5）
-    const W = { dmg: 1.0, block: 1.0, draw: 2.0, energy: 3.0, str: 5.0, vul: 5.0, weak: 4.0,
-                poi: 4.0, burn: 4.0, thn: 5.0, heal: 1.0, undying: 5.0, frost: 5.0 };
-    const ALL = 1.3;
-    /* 卡的"价值"是个粗略代理，只用来做相对比较（同职业/同类型/同费用谁更强）。
-       注意：这里必须是**一条完整的 else-if 链** —— 中间插进一个裸 if 会把链截断，
-       后面所有分支都会变成"挂在那个 if 下面"，条件不成立时被静默跳过。
-       （我加新效果时就踩过这个：block/draw/heal/strength 全被跳过，
-       于是门禁开始乱报。） */
-    const val = c => {
-      let v = 0;
-      const n = k => (typeof c[k] === 'number' ? c[k] : 0);
-      for (const f of (c.fx || [])) {
-        if (f.t === 'dmg') v += n('dmg') * (c.hits || 1) * W.dmg;
-        else if (f.t === 'dmgAll') v += n('dmg') * (c.hits || 1) * W.dmg * ALL;
-        else if (f.t === 'dmgBlock') v += 8 * W.dmg;
-        else if (f.t === 'dmgPoison') v += 12 * W.dmg;
-        else if (f.t === 'dmgPerHand') v += 8 * W.dmg;                    // 按 8 张手牌估
-        else if (f.t === 'dmgPerEnergyMax') v += 3 * n('per') * W.dmg;    // 按基础 3 能量估
-        else if (f.t === 'dmgPerPlayed') v += 4 * n('per') * W.dmg;       // 按一回合打出 4 张估
-        else if (f.t === 'block') v += n('blk') * W.block;
-        else if (f.t === 'blockFromBlock') v += 5 * n('mult') * W.block;   // 必须计入 mult：原来 ×1/×2 同分
-        else if (f.t === 'draw') v += n('draw') * W.draw;
-        else if (f.t === 'energy') v += n('nrg') * W.energy;
-        else if (f.t === 'heal') v += n('heal') * W.heal;
-        else if (f.t === 'gold') v += n('gain') * 0.12;
-        else if (f.t === 'discard') v += n('v') * -0.8;
-        else if (f.t === 'loseHp') v += n('selfdmg') * -0.9;
-        else if (f.t === 'buff' && f.k === 'strength') v += n('str') * W.str;
-        else if (f.t === 'buff' && f.k === 'thorns') v += n('thn') * W.thn;
-        else if (f.t === 'buff' && f.k === 'undying') v += n('blk') * W.undying;
-        else if (f.t === 'buff' && f.k === 'energy_cap') v += n('cap') * 5.0;
-        else if (f.t === 'buff' && f.k === 'ritual') v += n('str') * W.str;
-        else if (f.t === 'buff' && f.k === 'berserk') v += n('v') * W.energy * 1.6;
-        else if (f.t === 'buff' && f.k === 'block_next') v += n('next') * W.block;
-        else if (f.t === 'buff' && f.k === 'barricade') v += 6.0;
-        else if (f.t === 'buff' && f.k === 'extra_draw') v += n('draw') * W.draw * 0.5;
-        else if (f.t === 'buff' && f.k === 'poison_plus') v += n('poi') * W.poi * 0.5;
-        else if (f.t === 'debuff' && f.k === 'vulnerable') v += n('vul') * W.vul;
-        else if (f.t === 'debuff' && f.k === 'weak') v += n('weak') * W.weak;
-        else if (f.t === 'debuff' && f.k === 'poison') v += n('poi') * W.poi;
-        // 点燃（burn）以前没有分支 —— 火焰法师的牌被系统性低估，门禁就会误报别的牌超模
-        else if (f.t === 'debuff' && f.k === 'burn') v += n('poi') * W.burn;
-        else if (f.t === 'debuffAll' && f.k === 'weak') v += n('weak') * W.weak * ALL;
-        else if (f.t === 'debuffAll' && f.k === 'poison') v += n('poi') * W.poi * ALL;
-        else if (f.t === 'debuffAll' && f.k === 'burn') v += n('poi') * W.burn * ALL;
-        else if (f.t === 'debuffAll' && f.k === 'vulnerable') v += n('vul') * W.vul * ALL;
-        else if (f.t === 'debuff' && f.k === 'frost') v += n('fro') * 2.5;
-        else if (f.t === 'debuffAll' && f.k === 'frost') v += n('fro') * 2.5 * ALL;
-      }
-      // 下面两个是**整张卡**的属性，必须放在 fx 循环外面 ——
-      // 放进去会按 fx 条数重复计算（有 exec 的卡每多一条效果就多加一次分）。
-      if (c.exhaust) v -= 1.5;
-      // 斩杀是有条件的：只有打完落在血量阈值内才触发。给太多分会让门禁误伤
-      // （10 伤 + 20~35% 斩杀 ≈ 11.5，而不是 13）。
-      if (c.exec) v += 1.5;
-      // ifFrozen：和斩杀一样是**有条件**的加伤，按 0.6 倍记
-      if ((c.fx || []).some(f => f.ifFrozen != null)) v += n('bonus') * 0.6;
-      return v;
-    };
-    /* 改成守**价值表**本身的不变量：任何牌都不得超过自己那一档的预算。
-       原来这条比较的是"蓝卡 vs 同费同类的普通牌"，但价值表落地之后：
-         · 蓝卡预算本来就在普通牌之上（1费 +1 / 2费 +2 / 3费 +4），高出来是**设计**
-         · 而"同费同类的普通牌"可能是一张效用牌（比如 2 费只值 6 分的抽牌技），
-           拿它当参照就成了苹果比橘子 —— 焦灼诅咒 14/14 明明正好卡在预算上，
-           却因为旁边一张 6 分的效用牌被判超模。
-       现在直接比预算，才是真正要守的那条线。 */
-    const BUDGET = { '1-basic': 5, '1-common': 5, '1-uncommon': 6, '1-rare': 7,
-                     '2-common': 12, '2-uncommon': 14, '2-rare': 16,
-                     '3-common': 19, '3-uncommon': 23, '3-rare': 26 };
-    // 这几类效果的价值模型算不准（开关型 / 每回合型 / 条件型），不参与预算判定
-    const MODEL_BLIND = ['dmgBlock', 'dmgPoison', 'dmgPerHand', 'dmgPerEnergyMax',
-                         'dmgPerPlayed', 'blockFromBlock', 'detonate'];
+    const { valueOf, budgetOf, isModelBlind } = await import('file://' + join(ROOT, 'js/data/values.js'));
     const all = Object.entries(CARDS)
       .filter(([, c]) => c.type !== 'curse' && c.type !== 'status')
-      .filter(([, c]) => !(c.fx || []).some(f => MODEL_BLIND.includes(f.t)))
-      .map(([id, c]) => ({ id, ...c, v: val(c) }))
-      .map(c => ({ ...c, bud: BUDGET[`${Math.max(1, c.cost)}-${c.rarity === 'basic' ? 'common' : c.rarity}`] || 5 }));
-    const offenders = all.filter(c => c.bud && c.v - c.bud > 2)
+      .filter(([, c]) => !isModelBlind(c))
+      .map(([id, c]) => ({ id, ...c, v: valueOf(c), bud: budgetOf(c) }));
+    const offenders = all.filter(c => c.v - c.bud > 2)
       .map(c => `${c.name}(${c.cost}费${c.rarity} ${c.v.toFixed(1)}/${c.bud} ▲+${(c.v - c.bud).toFixed(1)})`);
     ok(offenders.length === 0,
        `没有牌超过自己的价值表预算 2 点以上（共评 ${all.length} 张）`, offenders.slice(0, 8).join(', '));
+
+    // 这条是**防止价值表被静默改小**用的：产品给定的几个关键权重必须原样在表里。
+    // 只断言不会变的语义（新旧一致的那几条），不锁死我这次调过的数值口径。
+    const V = await import('file://' + join(ROOT, 'js/data/values.js'));
+    ok(V.VAL.dmg === 1 && V.VAL.block === 1, '价值表：1 伤害 = 1 护甲 = 1 点');
+    ok(V.VAL.poison === 3 && V.VAL.bleed === 3 && V.VAL.weak === 3 && V.VAL.burn === 3,
+       `DoT/虚弱/点燃 都是 3 点（中毒${V.VAL.poison} 流血${V.VAL.bleed} 虚弱${V.VAL.weak} 点燃${V.VAL.burn}）`);
+    ok(V.VAL.truth === 5, `真理 ${V.VAL.truth} 点`);
+    ok(V.VAL.draw === 5, `抽牌 ${V.VAL.draw} 点（产品口径）`);
+    ok(V.VAL.dexterity === 3.5, `敏捷 ${V.VAL.dexterity} 点`);
+    ok(V.BY_CLASS.strength.base === 4 && V.BY_CLASS.strength.arcanist === 6,
+       '力量：通用 4 点，奥术法师 6 点（多段会被逐段加成）');
+    ok(V.BY_CLASS.vulnerable.base === 4 && V.BY_CLASS.vulnerable.arcanist === 5
+       && V.BY_CLASS.vulnerable.assassin === 3.5,
+       '易伤：通用 4 / 奥术法师 5 / 暗影刺客 3.5');
+    ok(V.BY_CLASS.regen.paladin === 3.5, '再生：圣骑士 3.5 点');
+    ok(V.ALL_MULT === 1.3, '全体效果 ×1.3');
+    // 冰霜的硬约束：只允许出现在 ≥2 费的寒冰法师牌上
+    ok(V.FROST_MIN_COST === 2, `冰霜最低费用 ${V.FROST_MIN_COST}`);
+    const frostTooCheap = all.filter(c => c.cls === 'icemage' && c.cost < V.FROST_MIN_COST
+      && (c.fx || []).some(f => f.k === 'frost'));
+    ok(frostTooCheap.length === 0,
+       `没有 <${V.FROST_MIN_COST} 费的寒冰法师牌带冰霜`, frostTooCheap.map(c => c.name).join(', '));
+    // 已删除的状态不该再被任何牌引用
+    const dead = all.filter(c => (c.fx || []).some(f => ['undying', 'berserk', 'berserk_dmg'].includes(f.k)));
+    ok(dead.length === 0, '没有牌再引用已删除的状态（undying / berserk / berserk_dmg）',
+       dead.map(c => c.name).join(', '));
+    // 状态**改名**也要被盯住：改名是"行为没变、文案变了"的一类改动，
+    // 漏改一处（比如 ST 表改了、帮助文本没改）玩家就会看到两个名字。
+    // 这条同时也是"改回去会被发现"的保险。
+    const { ST: STT } = await import('file://' + join(ROOT, 'js/core/battle.js'));
+    ok(STT.energy_cap.name === '能量饱和', `energy_cap 已更名为「能量饱和」（实际「${STT.energy_cap.name}」）`);
+    ok(STT.ritual.name === '强化', `ritual 已更名为「强化」（实际「${STT.ritual.name}」）`);
+    ok(STT.artifact.name === '抵挡', `artifact 已更名为「抵挡」（实际「${STT.artifact.name}」）`);
+    // 已删除的状态必须从 ST 表里彻底消失
+    ok(!('undying' in STT) && !('berserk' in STT) && !('berserk_dmg' in STT),
+       `已删除的状态不在 ST 表里（undying/berserk/berserk_dmg）`);
+    // 文案不能还留着旧名字
+    const helpSrc2 = readFileSync(join(ROOT, 'js/ui/scene-battle.js'), 'utf8');
+    ok(!/法力增幅/.test(helpSrc2), '战斗内帮助文本不再出现旧名「法力增幅」');
+    ok(!/神器/.test(helpSrc2), '战斗内帮助文本不再出现旧名「神器」');
     // 提费确实生效
     ok(CARDS.shield_wall.cost === 3, `盾墙已提费到 ${CARDS.shield_wall.cost}`);
     ok(CARDS.ice_barrier.cost === 3, `熔岩壁垒已提费到 ${CARDS.ice_barrier.cost}`);
@@ -3310,8 +3315,8 @@ section('W. 四职业定位与新机制');
     const blockCards = kn.filter(c => has(c, 'block') || has(c, 'blockFromBlock') || has(c, 'dmgBlock'));
     ok(blockCards.length >= 10,
        `骑士的护盾牌够多（${blockCards.length}/${kn.length} 张产甲/用甲）`, '');
-    ok(kn.some(c => has(c, 'buff', 'barricade')) && kn.some(c => has(c, 'buff', 'undying')),
-       '骑士有「护甲不消失」和「每回合白嫖护甲」两条护盾主轴');
+    ok(kn.some(c => has(c, 'buff', 'barricade')) && kn.some(c => has(c, 'buff', 'dexterity')),
+       '骑士有「护甲不消失」和「敏捷」两条护盾主轴（原「不屈 undying」已删除，其牌改为敏捷）');
 
     // 法师：费用上限 + 高额法术
     const mg = pool('mage');
@@ -3328,8 +3333,13 @@ section('W. 四职业定位与新机制');
     const cheap = rg.filter(c => c.cost <= 1);
     ok(cheap.length / rg.length >= 0.7,
        `游侠以低费为主（${cheap.length}/${rg.length} 张 ≤1 费）`);
+    /* ⚠️ 这条阈值**被抽牌的新定价改小了**（原 ≥7）：抽牌从 2 点涨到 **5 点**之后，
+       1 费档（5 点）再也装不下"伤害/护甲 + 抽 1 张"，所以游侠的过牌牌被迫收敛
+       到 2 费及以上（2 费普通 12 点才放得下）。这不是卡变弱，是**抽牌变贵**的必然结果。
+       当前 4 张仍然保住了"过牌"这条轴；若产品想恢复"低费过牌"的强度，
+       需要单独讨论（比如给游侠抽牌一个职业折扣），不能靠偷偷调低权重。 */
     const drawers = rg.filter(c => has(c, 'draw'));
-    ok(drawers.length >= 7, `游侠的过牌够多（${drawers.length} 张带抽牌）`);
+    ok(drawers.length >= 4, `游侠的过牌够多（${drawers.length} 张带抽牌）`);
     ok(rg.filter(c => c.cost === 0).length >= 4, `游侠有 ${rg.filter(c => c.cost === 0).length} 张 0 费牌`);
 
     // 暗影刺客：叠易伤 + 叠攻击 + 一击必杀
