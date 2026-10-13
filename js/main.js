@@ -20,12 +20,92 @@ let rendering = false;
 let mounted = null;          // 当前挂在 #app 里的场景节点（切场景时用它摘监听器）
 
 /* ================= 路由 ================= */
+
+/* 渲染期崩溃的记录（诊断用）。
+   为什么需要：`go()` 的实现是 **先 `clear(app)` 再 `append(node)`** ——
+   只要场景构造或挂载抛错，旧界面已经删了、新界面没挂上，玩家看到的就是
+   **白屏/卡死**（2026-10-13 产品在真机上遇到的"Boss 结算卡死"就是这个症状）。
+   把错误记在 localStorage 里，下次真机复现时能直接取到真因，而不用靠猜。 */
+const ERR_KEY = 'abyss_deck_errors_v1';
+function recordSceneError(name, err) {
+  try {
+    const list = JSON.parse(localStorage.getItem(ERR_KEY) || '[]');
+    list.push({
+      at: new Date().toISOString(), scene: name,
+      msg: String(err && err.message || err),
+      stack: String(err && err.stack || '').split('\n').slice(0, 6).join('\n'),
+    });
+    localStorage.setItem(ERR_KEY, JSON.stringify(list.slice(-10)));   // 只留最近 10 条
+  } catch { /* 记录失败不能反过来影响玩家 */ }
+  try { console.error(`[abyss] 场景「${name}」渲染失败：`, err); } catch {}
+}
+
+/** 渲染失败时的兜底界面 —— 绝不能让玩家卡在死屏上。
+    直接给出可走的出口（回主菜单 / 继续游戏），并把错误摘要显示出来，
+    这样玩家截图就能当证据。 */
+function crashScene(name, err) {
+  const root = el('div', { class: 'screen center' });
+  root.append(
+    el('div', { class: 'end-title lose', style: { fontSize: '22px' }, text: '出错了' }),
+    el('div', {
+      class: 'small dim', style: { maxWidth: '320px', margin: '12px 0', lineHeight: '1.9', textAlign: 'center' },
+      html: `场景「<b>${name}</b>」没能渲染出来。<br>进度已经保存，可以安全地回到主菜单或继续游戏。`,
+    }),
+    el('div', {
+      class: 'tiny dim', style: { maxWidth: '320px', margin: '0 0 14px', lineHeight: '1.6', textAlign: 'center', wordBreak: 'break-all' },
+      text: String(err && err.message || err),
+    }),
+  );
+  const col = el('div', { class: 'col gap8', style: { width: '100%', maxWidth: '260px' } });
+  col.append(el('button', { class: 'btn primary block', text: '返回主菜单', onClick: () => { try { sfx.back(); } catch {} go('menu'); } }));
+  col.append(el('button', { class: 'btn ghost block', text: '继续游戏', onClick: () => { try { sfx.confirm(); } catch {} resumeRun(); } }));
+  root.append(col);
+  return root;
+}
+
 function go(name, ...args) {
   if (rendering) return;
   rendering = true;
   try {
     let node;
-    switch (name) {
+    try {
+      node = buildScene(name, args);
+    } catch (err) {
+      // 场景**构造**就抛错（例如模板字符串读了未初始化的变量、数据缺失）
+      recordSceneError(name, err);
+      node = crashScene(name, err);
+    }
+    if (!node || !node.nodeType) {
+      // 场景函数返回了非节点（比如某条路径 `return;`）—— 同样不能让玩家白屏
+      const err = new Error(`场景「${name}」没有返回可挂载的节点`);
+      recordSceneError(name, err);
+      node = crashScene(name, err);
+    }
+    // 先摘掉上一个场景注册的 window/document 监听器，再拆 DOM。
+    // 顺序很重要：反过来的话，监听器会短暂指着已经不在文档里的节点。
+    // ⚠️ 这一段也在 try 里：`clear` 已经把旧界面删了，这里再抛错就是白屏 ——
+    // 所以任何失败都退回兜底界面。
+    try {
+      disposeScene(mounted);
+      clear(app);
+      app.append(node);
+    } catch (err) {
+      recordSceneError(name + ':mount', err);
+      try { clear(app); app.append(crashScene(name, err)); } catch {}
+    }
+    mounted = app.firstChild || node;
+    // 卡面描述长短不一，渲染后统一做一次文字适配（放不下的自动缩字号）
+    requestAnimationFrame(() => { try { fitAllCards(app); } catch {} });
+    if (name !== 'menu' && name !== 'class' && name !== 'end') save();
+  } finally {
+    rendering = false;
+  }
+}
+
+/** 场景构造（从 go 里拆出来，只为让"构造失败"能被单独 try 住） */
+function buildScene(name, args) {
+  let node;
+  switch (name) {
       case 'menu': node = menuScene({ onNew: beginNewRun, onContinue: resumeRun }); break;
       /* 流程（桌面端 + 手机端合并后的最终顺序）：
            点开始 → 问「新手 / 老手」→
@@ -53,19 +133,8 @@ function go(name, ...args) {
       case 'treasure': node = treasureScene({ onDone: afterRoom }); break;
       case 'end': node = endScene(args[0], { onMenu: () => go('menu'), onRetry: beginNewRun }); break;
       default: node = el('div', { class: 'screen center' }, el('div', { text: '未知场景: ' + name }));
-    }
-    // 先摘掉上一个场景注册的 window/document 监听器，再拆 DOM。
-    // 顺序很重要：反过来的话，监听器会短暂指着已经不在文档里的节点。
-    disposeScene(mounted);
-    clear(app);
-    app.append(node);
-    mounted = node;
-    // 卡面描述长短不一，渲染后统一做一次文字适配（放不下的自动缩字号）
-    requestAnimationFrame(() => fitAllCards(app));
-    if (name !== 'menu' && name !== 'class' && name !== 'end') save();
-  } finally {
-    rendering = false;
   }
+  return node;
 }
 
 /* ================= 开局 ================= */
@@ -168,6 +237,12 @@ function startBattle(kind, type) {
   setPending({ scene: 'battle', kind, type });
   const enc = pickEncounter(kind);
   const B = new Battle(enc, { kind: type });
+  // 把当前战斗暴露出来（只给测试/排查用）。
+  // 为什么需要：`battleScene` 把战斗实例关在自己的闭包里，外部（自动化测试、
+  // 真机排查）**拿不到它**，只能靠模拟点击慢慢磨 —— 想验证"打死 Boss 之后
+  // 会不会卡"就必须能直接结束这场战斗。之前只能靠 jsdom 自己造一个 Battle，
+  // 那跑的不是真实那条路径（漏掉了 battleScene 的 onEnd → onFinish 链路）。
+  window.__CURRENT_BATTLE__ = B;
   go('battle', B);
 }
 
@@ -285,5 +360,10 @@ window.__ABYSS__ = {
   //（它有自己独立的 `G`，与运行时那个不是同一个），断言会静默失效/空绿。
   rollCardChoices, rollRelic, rollPotion,
   FINISHER_WEIGHT, CLASS_CARD_WEIGHT,
+  // 渲染期崩溃的记录（诊断用）。真机上再遇到"卡死"时，靠这个取真因，不用猜。
+  sceneErrors: () => { try { return JSON.parse(localStorage.getItem(ERR_KEY) || '[]'); } catch { return []; } },
+  clearSceneErrors: () => { try { localStorage.removeItem(ERR_KEY); } catch {} },
+  // 当前战斗实例（startBattle 里挂上）—— 自动化测试要能直接结束一场战斗
+  get currentBattle() { return window.__CURRENT_BATTLE__ || null; },
 };
 

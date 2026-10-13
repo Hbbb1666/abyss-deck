@@ -558,6 +558,13 @@ export class Battle {
           if (f.ifFrozen != null && target && this.get(target, 'freeze') > 0) {
             hit += this.num(f.ifFrozen, card);
           }
+          /* 残血加伤（`ifLowHp`）：生命**低于一半**时再加一份。
+             这条以前**只写在卡牌数据里、引擎从没读过** —— 「殉道」的卡面写着
+             "若你生命低于一半，改为造成双倍"，实际永远只打基础伤害（卡面撒谎）。
+             判定用 `hp * 2 < maxHp`（严格低于一半），和卡面文案一致。 */
+          if (f.ifLowHp != null && this.player.hp * 2 < this.player.maxHp) {
+            hit += this.num(f.ifLowHp, card);
+          }
           for (let i = 0; i < hits; i++) {
             const t = target && !target.dead ? target : this.aliveEnemies()[0];
             if (!t) break;

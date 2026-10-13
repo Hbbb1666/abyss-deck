@@ -326,6 +326,44 @@ export function loadSave() {
         dropped.relics.join(',') || '无', '/ 卡牌:', dropped.cards.join(',') || '无');
     }
 
+    /* ---------------------------------------------------------------
+       🔴 字段兜底（2026-10-13 加）—— 这是"结算界面卡死"的真凶。
+
+       老存档（或任何一次字段改名/新增之前的存档）里可能**缺字段**，
+       而读档之后到处直接读它们，第一个撞上的地方就抛 TypeError，
+       把整个场景渲染打断 → 玩家看到的是**卡死/白屏**（因为 go() 是
+       先 clear 再 append，抛错时旧界面已经删了）。
+
+       产品实测的那次：「第 1 层 Boss 打完后结算卡死」——
+       `rewardScene` 第一件事就是 `G.stats.bosses++`，而老存档没有 `stats`，
+       于是 `Cannot read properties of undefined (reading 'bosses')`。
+
+       以前只有 relics/deck 做了清洗（因为它们是"引用了已删除的数据"），
+       但**结构性字段缺失**同样致命、而且更难发现（只有走到那一步才炸）。
+       这里一次性把所有必需字段补齐，比在二十几个读取点各加 `?.` 可靠。 */
+    s.stats = { kills: 0, elites: 0, bosses: 0, floors: 0, cardsPlayed: 0, dmgDealt: 0, dmgTaken: 0, turns: 0, ...(s.stats || {}) };
+    s.visited = s.visited || {};
+    s.path = Array.isArray(s.path) ? s.path : [];
+    s.potions = Array.isArray(s.potions) ? s.potions : [];
+    s.relics = Array.isArray(s.relics) ? s.relics : [];
+    s.deck = Array.isArray(s.deck) ? s.deck : [];
+    s.picks = Array.isArray(s.picks) ? s.picks : [];
+    s.gold = typeof s.gold === 'number' ? s.gold : 99;
+    s.potionSlots = typeof s.potionSlots === 'number' ? s.potionSlots : 3;
+    s.hp = typeof s.hp === 'number' ? s.hp : 50;
+    s.maxHp = typeof s.maxHp === 'number' ? s.maxHp : 50;
+    s.baseMaxHp = typeof s.baseMaxHp === 'number' ? s.baseMaxHp : s.maxHp;
+    s.act = typeof s.act === 'number' ? s.act : 1;
+    s.over = s.over || null;
+    s.startedAt = s.startedAt || Date.now();
+    // 牌组为空会让整个玩法失去意义（打不出任何牌）——退回该职业的起始卡组。
+    // 用 startingDeck() 而不是自己拼 classes.js 里的 deck 数组：那个函数已经
+    // 处理了"发牌"的细节，自己拼等于把同一套逻辑再写一遍（迟早对不上）。
+    if (!s.deck.length && CLASSES[s.cls]) {
+      s.deck = startingDeck(s.cls);
+      console.warn('[存档修补] 牌组为空，已重置为该职业的起始卡组');
+    }
+
     G = s;
     return G;
   } catch { return null; }

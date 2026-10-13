@@ -4567,6 +4567,205 @@ section('AB. 结算界面必须渲染得出来（通关/失败都不能卡死）
     const helpSrc = readFileSync(join(ROOT, 'js/ui/scene-battle.js'), 'utf8');
     ok(!/怪物 3 \/ 玩家 4 \/ Boss 5/.test(helpSrc), '战斗内帮助文本里的冰霜阈值也已更新');
   }
+  /* --- AB3. 老存档缺字段时不能崩（**这是"结算卡死"的真凶**）---
+     2026-10-13 产品报"第 1 层 Boss 打完后结算卡死"。
+     真因：老存档里**没有 `stats` 字段**，而 `rewardScene` 第一件事就是
+     `G.stats.bosses++` → `Cannot read properties of undefined (reading 'bosses')`
+     → `go('reward')` 抛错 → 玩家卡死（旧界面已被 clear、新界面没挂上）。
+
+     以前只有 relics/deck 做了清洗（那是"引用了已删除的数据"），
+     **结构性字段缺失**没管过 —— 它更隐蔽：只有走到那一步才炸。 */
+  {
+    const doc = window.document;      // 本段自己的引用（AB 段各小节作用域独立）
+    const KEY = 'abyss_deck_save_v1';
+    const readBack = obj => {
+      window.localStorage.setItem(KEY, JSON.stringify(obj));
+      return A.loadSave();
+    };
+
+    // ① 最狠的一种：**只有一个 cls**，其余字段全缺（模拟早期版本的存档）
+    const bare = readBack({ cls: 'knight', seed: 12345 });
+    ok(!!bare, '只有 cls 的老存档也能读出来（不崩）');
+    ok(bare && bare.stats && typeof bare.stats.bosses === 'number',
+       `stats 被补齐（bosses=${bare && bare.stats && bare.stats.bosses}）`);
+    ok(bare && Array.isArray(bare.deck) && bare.deck.length > 0,
+       `牌组为空时退回该职业起始卡组（${bare && bare.deck && bare.deck.length} 张）`);
+    ok(bare && typeof bare.gold === 'number' && typeof bare.hp === 'number',
+       '金币/生命等数值字段也有默认值');
+
+    // ② 缺 stats 的存档走到「Boss 奖励」这一步必须能渲染（这才是真凶现场）
+    window.localStorage.setItem(KEY, JSON.stringify({ cls: 'knight', seed: 999, act: 1, deck: [{ id: 'strike', up: false }], map: null }));
+    const g2 = A.loadSave();
+    ok(!!g2, '缺 stats 的存档读出来了');
+    A.G.act = 1;
+    A.G.map = A.G.map || { nodes: [], boss: null, byRow: [] };
+    let threw = null;
+    try { A.go('reward', 'boss'); } catch (e) { threw = e; }
+    await new Promise(r => setTimeout(r, 150));
+    ok(!threw, `缺 stats 的存档进 Boss 奖励界面不抛错（${threw ? threw.message : '无异常'}）—— 这就是卡死的现场`);
+    ok((doc.querySelector('.screen')?.textContent || '').includes('击败首领'),
+       '奖励界面真的渲染出来了');
+    ok(A.G.stats.bosses >= 1, `bosses 计数能正常自增（${A.G.stats.bosses}）`);
+
+    // ③ 结算界面同样不能崩（endScene 也读 G.stats）
+    window.localStorage.setItem(KEY, JSON.stringify({ cls: 'mage', seed: 7, act: 4, deck: [{ id: 'strike', up: false }] }));
+    const g3 = A.loadSave();
+    ok(!!g3, '缺 stats 的存档（第 4 层）读出来了');
+    threw = null;
+    try { A.go('end', 'win'); } catch (e) { threw = e; }
+    await new Promise(r => setTimeout(r, 150));
+    ok(!threw, '缺 stats 时结算界面也不抛错');
+    ok(!!doc.querySelector('.end-title'), '结算界面渲染出来了');
+    ok(A.sceneErrors().length === 0 || A.sceneErrors().every(e => !e.scene.startsWith('end')),
+       '没有结算场景的崩溃记录');
+
+    // ④ 顺带锁住：兜底不能把**已有数据**覆盖成默认值
+    A.startRun('knight');
+    A.G.gold = 777; A.G.stats.kills = 42; A.G.picks = ['d_hp_per_act'];
+    A.save();
+    const g4 = A.loadSave();
+    ok(g4.gold === 777 && g4.stats.kills === 42 && g4.picks.length === 1,
+       '已有数据不会被兜底覆盖（金币 777 / 击杀 42 / picks 1 条）');
+    window.localStorage.removeItem(KEY);
+    A.go('menu'); await new Promise(r => setTimeout(r, 120));
+  }
+
+  /* --- AB4. 场景渲染崩溃必须有兜底界面（不能白屏卡死）---
+     `go()` 的实现是**先 clear(app) 再 append(node)** —— 只要中间抛错，
+     旧界面已删、新界面没挂，玩家看到的就是白屏/卡死。
+     这条确保任何构造期异常都会被接住并给出可走的出口。 */
+  {
+    const doc2 = window.document;
+    A.startRun('knight');
+    A.clearSceneErrors();
+    const savedStats = A.G.stats;
+    A.G.stats = null;                       // 人为制造构造期崩溃（endScene 读它）
+    let threw = null;
+    try { A.go('end', 'win'); } catch (e) { threw = e; }
+    await new Promise(r => setTimeout(r, 150));
+    ok(!threw, '场景构造抛错时 go() **不再向外抛**（玩家不会被炸到死屏）');
+    const t = (doc2.querySelector('.screen')?.textContent || '');
+    ok(t.includes('出错了'), '显示了兜底界面「出错了」');
+    ok([...doc2.querySelectorAll('.btn')].some(b => (b.textContent || '').includes('返回主菜单')),
+       '兜底界面给出「返回主菜单」出口');
+    const errs = A.sceneErrors();
+    ok(errs.length > 0 && errs[errs.length - 1].scene === 'end',
+       `崩溃被记录（${errs.length} 条，最后一条场景=${errs[errs.length - 1] && errs[errs.length - 1].scene}）`);
+    // 出口真的能走
+    const back = [...doc2.querySelectorAll('.btn')].find(b => (b.textContent || '').includes('返回主菜单'));
+    back.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    await new Promise(r => setTimeout(r, 200));
+    ok(!(doc2.querySelector('.screen')?.textContent || '').includes('出错了'),
+       '点「返回主菜单」真的离开了兜底界面');
+    A.G.stats = savedStats;
+    A.clearSceneErrors();
+    A.go('menu'); await new Promise(r => setTimeout(r, 120));
+  }
+}
+
+section('AC. 圣骑士削弱 + 残血加伤 ifLowHp 真的生效');
+{
+  const noopV = { step: async () => {}, sync() {}, log() {}, onDamage() {}, onHeal() {}, onBlock() {},
+    onStatus() {}, onDraw() {}, onPlay() {}, onExhaust() {}, onEnergy() {}, onGold() {},
+    onTurnStart() {}, onEnemyAct() {}, onSummon() {}, onDeath() {}, onEnd() {}, onPotion() {}, onExecute() {} };
+  const mk = id => ({ ...CARDS[id], uid: 'ac#' + id });
+  // ⚠️ `CARDS` 在 B 段是块级作用域，AB/AC 这些后面新增的段要自己取一次。
+  const { CARDS } = await import('file://' + join(ROOT, 'js/data/cards.js'));
+
+  /* --- AC1. 圣骑士蓝/金卡伤害已下调，且都在预算内 ---
+     产品反馈："圣骑士蓝卡金卡略显超模"。 */
+  {
+    const V = await import('file://' + join(ROOT, 'js/data/values.js'));
+    const want = { judgement: 9, martyr: 9, divine_smite: 10, sacred_flame: 10, holy_avenger: 18 };
+    for (const [id, dmg] of Object.entries(want)) {
+      ok(CARDS[id].dmg === dmg, `${CARDS[id].name} 伤害已下调到 ${dmg}（实测 ${CARDS[id].dmg}）`);
+    }
+    // 削弱的牌必须**不再超预算**（含 ifLowHp 之后的价值）
+    const hurt = ['judgement', 'martyr', 'divine_smite', 'sacred_flame', 'holy_avenger'];
+    const bad = hurt.filter(id => V.valueOf(CARDS[id]) > V.budgetOf(CARDS[id]) + 2)
+      .map(id => `${CARDS[id].name} ${V.valueOf(CARDS[id]).toFixed(1)}/${V.budgetOf(CARDS[id])}`);
+    ok(bad.length === 0, '削弱后的圣骑士伤害牌都在预算内', bad.join(', '));
+    /* 整体上，他的蓝卡伤害不该明显高于同费用同类型的其它职业。
+       ⚠️ 口径必须一致：要比**总伤害**（dmg × hits），不能只比 `dmg` 字段 ——
+       其它职业有大量"低伤多段"牌（秘法齐射 5×3、刃雨 10 全体…），
+       只比单段值会把它们算得很低，这条断言就变成苹果比橘子。
+       也要排除群体牌（它们本来就该低伤）。 */
+    const single = c => c.dmg && !(c.fx || []).some(f => f.t === 'dmgAll' || f.t === 'dmgPerHand' || f.t === 'dmgBlock');
+    const total = c => c.dmg * (c.hits || 1);
+    const mine = Object.values(CARDS).filter(c => c.cls === 'paladin' && c.rarity === 'uncommon'
+      && c.cost === 2 && single(c));
+    const others = Object.values(CARDS).filter(c => c.cls !== 'paladin' && c.rarity === 'uncommon'
+      && c.cost === 2 && single(c));
+    const avg = a => a.reduce((s, c) => s + total(c), 0) / a.length;
+    ok(avg(mine) <= avg(others),
+       `圣骑士 2 费蓝单体总伤害均值(${avg(mine).toFixed(1)}) 不高于其它职业(${avg(others).toFixed(1)})`);
+    // 遗留的死字段必须清掉（它既不在 fx 里、文案也没提）
+    ok(CARDS.martyr.selfdmg === undefined, '殉道的遗留字段 selfdmg 已删除');
+  }
+
+  /* --- AC2. `ifLowHp` 真的生效（以前引擎从没读过，卡面撒谎）---
+     「殉道」卡面："造成 N 点伤害。若你生命低于一半，改为造成双倍。" */
+  {
+    const mkB = async (hp, maxHp) => {
+      A.startRun('paladin');
+      const B = new A.Battle(['golem'], { kind: 'battle' });
+      B.view = { ...noopV };
+      B.rollIntents();
+      await B.start();
+      B.player.hp = hp; B.player.maxHp = maxHp;
+      return B;
+    };
+    const martyr = mk('martyr');
+
+    // ① 满血：只有基础伤害
+    let B = await mkB(60, 60);
+    let e = B.aliveEnemies()[0];
+    e.hp = e.maxHp = 500;
+    B.energy = 99; B.hand = [martyr];
+    await B.playCard(martyr, e);
+    let dealt = 500 - e.hp;
+    ok(dealt === martyr.dmg, `满血时「殉道」打基础伤害 ${martyr.dmg}（实测 ${dealt}）`);
+
+    // ② 残血（低于一半）：双倍
+    B = await mkB(20, 60);
+    e = B.aliveEnemies()[0];
+    e.hp = e.maxHp = 500;
+    B.energy = 99; B.hand = [mk('martyr')];
+    await B.playCard(B.hand[0], e);
+    dealt = 500 - e.hp;
+    ok(dealt === martyr.dmg * 2, `残血时「殉道」打双倍 ${martyr.dmg * 2}（实测 ${dealt}）—— 这条以前是坏的`);
+
+    // ③ 边界：**正好一半**不算残血（卡面写"低于一半"，用严格小于）
+    B = await mkB(30, 60);
+    e = B.aliveEnemies()[0];
+    e.hp = e.maxHp = 500;
+    B.energy = 99; B.hand = [mk('martyr')];
+    await B.playCard(B.hand[0], e);
+    dealt = 500 - e.hp;
+    ok(dealt === martyr.dmg, `正好一半生命时不算残血（打 ${dealt}，期望 ${martyr.dmg}）`);
+
+    // ④ 别的牌没有 ifLowHp，不能被一起加倍
+    B = await mkB(10, 60);
+    e = B.aliveEnemies()[0];
+    e.hp = e.maxHp = 500;
+    const strike = mk('strike');
+    B.energy = 99; B.hand = [strike];
+    await B.playCard(strike, e);
+    dealt = 500 - e.hp;
+    ok(dealt === strike.dmg, `残血不会让没有该词条的牌变强（打击 ${strike.dmg}，实测 ${dealt}）`);
+  }
+
+  /* --- AC3. 价值表必须认得 ifLowHp（否则同一类漏计价会再来一次）--- */
+  {
+    const V = await import('file://' + join(ROOT, 'js/data/values.js'));
+    const withCond = { id: 'x', cls: 'paladin', cost: 2, rarity: 'uncommon', dmg: 9,
+      fx: [{ t: 'dmg', v: 'dmg', ifLowHp: 'dmg' }] };
+    const without = { id: 'y', cls: 'paladin', cost: 2, rarity: 'uncommon', dmg: 9,
+      fx: [{ t: 'dmg', v: 'dmg' }] };
+    const dv = V.valueOf(withCond), nv = V.valueOf(without);
+    ok(dv > nv, `带 ifLowHp 的牌价值更高（${dv.toFixed(1)} > ${nv.toFixed(1)}）—— 说明表里认得它`);
+    ok(Math.abs(dv - (9 + 9 * 0.6)) < 0.01, `ifLowHp 按 0.6 折计（${dv.toFixed(1)}，期望 ${9 + 9 * 0.6}`.replace('（', '）'));
+  }
 }
 
 /* ================= 汇总 ================= */

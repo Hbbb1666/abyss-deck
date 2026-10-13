@@ -221,9 +221,16 @@ export function valueOf(card) {
   if (card.exhaust) v -= 1.5;
   // 斩杀有条件：只有打完落在血量阈值内才触发，给太多分会让门禁误伤
   if (card.exec) v += 1.5;
-  // ifFrozen / ifVulnerable / ifBlock 等条件加伤按 0.6 折
+  // ifFrozen / ifVulnerable / ifBlock / ifLowHp 等条件加伤按 0.6 折
+  // ⚠️ `ifLowHp` 长期**漏在这条链之外**：卡牌数据里写了它（殉道："血量低于一半时双倍"），
+  // 价值表却不认 → 那张牌的真实上限被系统性低估（门禁报 15/15，实际能打 30）。
   if ((card.fx || []).some(f => f.ifFrozen != null)) v += n('bonus') * 0.6;
   if ((card.fx || []).some(f => f.ifVulnerable != null)) v += n('bonus') * 0.6;
   if ((card.fx || []).some(f => f.ifBlock != null)) v += n('bonus') * 0.6;
+  if ((card.fx || []).some(f => f.ifLowHp != null)) {
+    // 条件加伤的额度写在该 fx 的 `v` 字段指向的卡牌字段上（例如 v:'dmg' → 再加一份 dmg）
+    const f = (card.fx || []).find(x => x.ifLowHp != null);
+    if (f) v += n(f.ifLowHp) * 0.6;
+  }
   return v;
 }

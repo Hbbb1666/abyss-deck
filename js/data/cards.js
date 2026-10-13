@@ -1168,8 +1168,11 @@ export const CARDS = {
     fx: [{ t: 'block', v: 'blk' }, { t: 'heal', v: 'heal' }],
   },
   judgement: {
+    // 2026-10-13 削弱：伤害 11 → **9**（产品："圣骑士蓝卡金卡略显超模"）。
+    // 保持"伤害 + 回复"的身份不变，只把伤害压下来 —— 他的强是强在**续航叠加**，
+    // 所以砍伤害比砍回复更对症。
     name: '审判', cls: 'paladin', type: 'attack', rarity: 'uncommon', cost: 2, target: 'enemy',
-    art: 'hammer', dmg: 11, heal: 4, up: { dmg: 13, heal: 6 },
+    art: 'hammer', dmg: 9, heal: 4, up: { dmg: 11, heal: 6 },
     text: c => `造成 <b>${c.dmg}</b> 点伤害，回复 <b>${c.heal}</b> 点生命。`,
     fx: [{ t: 'dmg', v: 'dmg' }, { t: 'heal', v: 'heal' }],
   },
@@ -1180,8 +1183,16 @@ export const CARDS = {
     fx: [{ t: 'heal', v: 'heal' }],
   },
   martyr: {
+    // 2026-10-13 两处修 + 一处削弱：
+    //  ① **`ifLowHp` 以前引擎从没读过** —— 卡面写着"生命低于一半改为双倍"，
+    //     实际永远只打基础伤害（卡面撒谎）。现在引擎真的会读（见 battle.js）。
+    //  ② 删掉遗留字段 `selfdmg: 5`：它既不在 fx 里、文案也没提，是重构剩下的死数据
+    //     （我一开始就是被它误导，以为这张牌有自伤代价）。
+    //  ③ 伤害 15 → **9**：现在"残血双倍"真的生效了（9 → 18），
+    //     但**平常**明显弱于原来的 15 —— 总体是削弱，符合"蓝卡略显超模"。
+    //     价值 = 9 + 0.6×9 = 14.4 / 15 ✅
     name: '殉道', cls: 'paladin', type: 'attack', rarity: 'uncommon', cost: 2, target: 'enemy',
-    art: 'sword_broad', dmg: 15, selfdmg: 5, up: { dmg: 19, selfdmg: 4 },
+    art: 'sword_broad', dmg: 9, up: { dmg: 12 },
     text: c => `造成 <b>${c.dmg}</b> 点伤害。若你生命低于一半，改为造成 <b>双倍</b>。`,
     fx: [{ t: 'dmg', v: 'dmg', ifLowHp: 'dmg' }],
   },
@@ -1192,8 +1203,9 @@ export const CARDS = {
     fx: [{ t: 'block', v: 'blk' }, { t: 'buff', k: 'thorns', v: 'thn' }],
   },
   divine_smite: {
+    // 2026-10-13 削弱：伤害 12 → **10**（同「审判」，砍伤害保留回复）
     name: '神圣制裁', cls: 'paladin', type: 'attack', rarity: 'uncommon', cost: 2, target: 'enemy',
-    art: 'torch', dmg: 12, heal: 3, up: { dmg: 14 },
+    art: 'torch', dmg: 10, heal: 3, up: { dmg: 12 },
     text: c => `造成 <b>${c.dmg}</b> 点伤害，回复 <b>${c.heal}</b> 点生命。`,
     fx: [{ t: 'dmg', v: 'dmg' }, { t: 'heal', v: 'heal' }],
   },
@@ -1204,8 +1216,9 @@ export const CARDS = {
     fx: [{ t: 'block', v: 'blk' }, { t: 'buff', k: 'block_next', v: 'next' }],
   },
   sacred_flame: {
+    // 2026-10-13 削弱：全体伤害 11 → **10**（2 费蓝的群体档，原来是全场最高）
     name: '圣焰', cls: 'paladin', type: 'attack', rarity: 'uncommon', cost: 2, target: 'all',
-    art: 'portal', dmg: 11, up: { dmg: 15 },
+    art: 'portal', dmg: 10, up: { dmg: 13 },
     text: c => `对<b>所有</b>敌人造成 <b>${c.dmg}</b> 点伤害。`,
     fx: [{ t: 'dmgAll', v: 'dmg' }],
   },
@@ -1222,8 +1235,9 @@ export const CARDS = {
     fx: [{ t: 'heal', v: 'heal' }, { t: 'block', v: 'blk' }],
   },
   holy_avenger: {
+    // 2026-10-13 削弱：伤害 20 → **18**（3 费金，打击 + 回复的组合股）
     name: '神圣复仇者', cls: 'paladin', type: 'attack', rarity: 'rare', cost: 3, target: 'enemy',
-    art: 'sword_broad', dmg: 20, heal: 6, up: { dmg: 26, heal: 9 },
+    art: 'sword_broad', dmg: 18, heal: 6, up: { dmg: 23, heal: 9 },
     text: c => `造成 <b>${c.dmg}</b> 点伤害，回复 <b>${c.heal}</b> 点生命。`,
     fx: [{ t: 'dmg', v: 'dmg' }, { t: 'heal', v: 'heal' }],
   },
