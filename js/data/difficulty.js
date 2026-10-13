@@ -193,8 +193,13 @@ export const pickById = id => BY_ID.get(id);
 export const isDifficulty = id => DIFFICULTY.some(x => x.id === id);
 export const isBoon = id => BOONS.some(x => x.id === id);
 
-/** 一次最多能选几条 */
-export const MAX_PICKS = 10;
+/** 一次最多能选几条。
+ *
+ *  2026-10-13 产品改为**无限制**（原来是 10 条）。
+ *  实际可选项一共只有 `DIFFICULTY + BOONS` 条，所以"无限制"就是"能全选"。
+ *  保留这个常量而不是删掉：`validatePicks` 与界面都读它，
+ *  删了要改好几处；将来想加回限制也只需要改这一个数字。 */
+export const MAX_PICKS = Infinity;
 
 /**
  * 一组选择的总分。0 分代表标准难度。

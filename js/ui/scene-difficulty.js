@@ -39,7 +39,7 @@ export function difficultyScene({ picks = [], onStart, onBack }) {
   /* ---------- 顶部说明 ---------- */
   body.append(el('div', {
     class: 'tiny dim', style: { padding: '10px 2px 6px', lineHeight: '1.8' },
-    html: `难度规则每条 <b style="color:#ff8a8a">+${DIFF_POINTS}</b> 分，增益每条 <b style="color:#7ee787">${BOON_POINTS}</b> 分；<b>最多选 ${MAX_PICKS} 条</b>。<br>不选任何条目就是 <b>0 分标准难度</b>。<br><b class="gold">难度分决定你能选哪些职业</b>（骑士永远可选）。<br>` +
+    html: `难度规则每条 <b style="color:#ff8a8a">+${DIFF_POINTS}</b> 分，增益每条 <b style="color:#7ee787">${BOON_POINTS}</b> 分。<br>不选任何条目就是 <b>0 分标准难度</b>。<br><b class="gold">难度分决定你能选哪些职业</b>（骑士永远可选）。<br>` +
       (meta.bestWinScore ? `你通关过的最高分：<b class="gold">${meta.bestWinScore}</b>` : ''),
   }));
 
@@ -76,6 +76,9 @@ export function difficultyScene({ picks = [], onStart, onBack }) {
     btn.addEventListener('click', () => {
       if (picked.has(item.id)) { picked.delete(item.id); sfx.back(); }
       else {
+        // MAX_PICKS 现在是 Infinity（产品改为无限制），所以这个分支平时不会触发。
+        // 刻意**留着**它：界面是唯一真正拦人的地方（validatePicks 只在测试里用），
+        // 将来把 MAX_PICKS 调回有限值时，这里就是唯一的执行点 —— 删掉就再也拦不住。
         if (picked.size >= MAX_PICKS) { sfx.error(); toast(`最多只能选 ${MAX_PICKS} 条`, 1600); return; }
         picked.add(item.id); sfx.confirm();
       }

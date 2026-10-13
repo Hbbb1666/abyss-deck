@@ -830,8 +830,23 @@ export class Battle {
     // 用 card.type === 'power' 判断，因为"能力"是卡牌类型，与效果怎么实现无关。
     if (card.type === 'power') for (const [, hook] of relicHooks('powerPlayed')) hook(this, card);
 
-    if (card.exhaust) { this.exhaustPile.push(card); this.view.onExhaust?.(card); }
-    else this.discard.push(card);
+    /* 出牌之后的去处。
+       ⚠️ 2026-10-13 产品改动：**能力牌（type 'power'）每场战斗只能生效一次**，
+       打出后直接进「消耗堆」，本场不会再被抽到。
+       原因：能力牌原来是进弃牌堆的，于是「壁垒」这类牌会被**反复抽到并重复生效**
+       （实测：打完壁垒又能再抽一张壁垒）。改成一次性之后，想同时吃多张能力牌的效果，
+       只能往卡组里塞更多张 —— 这正是产品要的构筑取舍。
+
+       为什么复用 `exhaustPile` 而不是新建一个"已生效区"：
+       · `exhaustPile` 的语义已经是"**本场战斗**移除，战斗结束回到卡组"
+         （每场战斗构造时 `this.exhaustPile = []`，牌组始终是 `G.deck` 的拷贝）
+       · 它已经有存档序列化、界面计数、"点开看是哪几张"——新建一个区这些全都要重写一遍
+       所以"消耗"这个词在这里依然准确：这张牌本场已经消耗掉了。 */
+    if (card.exhaust || card.type === 'power') {
+      this.exhaustPile.push(card);
+      this.view.onExhaust?.(card);
+      if (card.type === 'power') this.pushLog(`「${card.name}」已生效，本场不会再抽到`);
+    } else this.discard.push(card);
     this.view.onEnergy?.();
     this.view.sync?.();
     this.view.afterAction?.();     // 让界面立刻存一次档（别被节流吃掉）

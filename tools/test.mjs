@@ -2889,7 +2889,8 @@ section('W. 难度系统：解锁 / 全部 20 条生效 / 计分');
     ok(bad.length === 0, '每条难度/增益都有 id/name/desc 与至少一个效果', bad.join(', '));
     ok(new Set(all.map(x => x.id)).size === all.length, '没有重复 id');
     ok(DIFF_POINTS === 9 && BOON_POINTS === -4, `分值口径：难度 +${DIFF_POINTS}、增益 ${BOON_POINTS}`);
-    ok(MAX_PICKS === 10, `最多选 ${MAX_PICKS} 条`);
+    // 2026-10-13 产品把上限改成**无限制**（原 10 条）
+    ok(MAX_PICKS === Infinity, `选择条数**无上限**（MAX_PICKS=${MAX_PICKS}）`);
   }
 
   /* --- W2. 计分 --- */
@@ -2901,14 +2902,17 @@ section('W. 难度系统：解锁 / 全部 20 条生效 / 计分');
     ok(scoreOf(['__不存在__']) === 0, '未知 id 记 0 分（老存档里有被删掉的条目也不能崩）');
     const sp = splitPicks(['d_boss_hp', 'b_gold40']);
     ok(sp.difficulty.length === 1 && sp.boons.length === 1, 'splitPicks 能正确分类');
-    ok(validatePicks([...DIFFICULTY, ...BOONS].slice(0, 11).map(x => x.id)).length > 0,
-       `超过 ${MAX_PICKS} 条时 validatePicks 报错`);
-    ok(validatePicks([]).length === 0, '空选择合法');
-    // 全部 20 条超过上限 10 → 必须被判为非法（这是"最多 10 条"的守门）
+    /* 上限改无限制之后，**全部条目一起选**必须合法 ——
+       这正是"无限制"要保证的事。以前这里是反过来的（断言全选会被拦下）。 */
     const allPicks = [...new Set([...DIFFICULTY, ...BOONS].map(x => x.id))];
-    ok(allPicks.length === DIFFICULTY.length + BOONS.length && validatePicks(allPicks).length > 0,
-       `全部 20 条超过上限 ${MAX_PICKS}，validatePicks 会拦下`);
-    ok(validatePicks(allPicks.slice(0, 10)).length === 0, '恰好 10 条是合法的');
+    ok(allPicks.length === DIFFICULTY.length + BOONS.length,
+       `共 ${allPicks.length} 条可选（难度 ${DIFFICULTY.length} + 增益 ${BOONS.length}）`);
+    ok(validatePicks(allPicks).length === 0,
+       `全部 ${allPicks.length} 条一起选也合法（无上限）`,
+       validatePicks(allPicks).join(' | '));
+    // 但"重复选"仍然要拦 —— 无上限不等于无校验
+    ok(validatePicks([allPicks[0], allPicks[0]]).length > 0, '重复选同一条仍然非法');
+    ok(validatePicks(['__不存在__']).length > 0, '未知 id 仍然非法');
     ok(scoreLabel(0) === '标准', '0 分显示"标准"');
   }
 
@@ -4326,6 +4330,94 @@ section('AA. 终结牌：N 费用 / 条件门 / 限定目标 / 牌组唯一');
     ok(finRate < commonRate / 3,
        `终结牌出现率(${(finRate * 100).toFixed(2)}%) 明显低于普通牌(${(commonRate * 100).toFixed(2)}%)`);
     ok(A.CLASS_CARD_WEIGHT > 0, '职业权重仍生效');
+  }
+
+  /* --- AA8. 能力牌每场战斗只能生效一次 ---
+     2026-10-13 产品改动：能力牌（type 'power'）打出后进「消耗堆」，本场不再被抽到。
+     原来它进弃牌堆 → 洗牌后又被抽到、重复生效（实测「壁垒」能被反复抽到）。
+     改动后想同时吃多张能力牌的效果，只能往卡组里塞更多张。 */
+  {
+    A.startRun('knight');
+    // ⚠️ 骑士起始卡组里**没有**壁垒，所以要先把它放进牌组 ——
+    // 否则下面那条"下一场还能摸到"会被"牌组里本来就没有"给误判成通过/失败。
+    A.G.deck = A.G.deck.concat([{ id: 'barricade', up: false }]);
+    const B = new A.Battle(['slime'], { kind: 'battle' });
+    B.view = { ...noopV };          // 本段（AA）的空视图叫 noopV
+    B.rollIntents();
+    await B.start();
+    const pw = mk('barricade');                // 壁垒：type 'power'（本段的 makeCard 别名是 mk）
+    ok(pw.type === 'power', '「壁垒」是能力牌');
+    B.hand = [pw]; B.energy = 99;
+    await B.playCard(pw, B.aliveEnemies()[0]);
+    ok(B.exhaustPile.includes(pw), '能力牌打出后进**消耗堆**（本场不再抽到）');
+    ok(!B.discard.includes(pw), '能力牌**不会**进弃牌堆（否则洗牌后会被再抽到）');
+    // 效果仍然生效（不能因为换了个堆就把效果弄丢）
+    ok(B.get(B.player, 'barricade') === 1 || !!B.player.st.barricade, '「壁垒」的效果仍然生效');
+    // 非能力牌仍然进弃牌堆（别把规则扩大到攻击/技能牌）
+    const atk = mk('strike');
+    B.hand = [atk]; B.energy = 99;
+    await B.playCard(atk, B.aliveEnemies()[0]);
+    ok(B.discard.includes(atk) && !B.exhaustPile.includes(atk),
+       '普通攻击牌仍然进弃牌堆（规则只针对能力牌）');
+    // 技能牌也一样（只有 `exhaust: true` 的技能才进消耗堆）
+    const sk = mk('defend');
+    B.hand = [sk]; B.energy = 99;
+    await B.playCard(sk, B.aliveEnemies()[0]);
+    ok(B.discard.includes(sk) && !B.exhaustPile.includes(sk), '技能牌仍然进弃牌堆');
+
+    /* 关键语义：「本场战斗移除」= 下一场战斗它回到牌组。
+       这是"暂时移除"的实现基础 —— exhaustPile 每场重建，G.deck 不被改写。 */
+    const deckLenBefore = A.G.deck.length;
+    const B2 = new A.Battle(['slime'], { kind: 'battle' });
+    B2.view = { ...noopV };
+    B2.rollIntents();
+    await B2.start();
+    ok(B2.exhaustPile.length === 0, '新一场战斗的消耗堆是空的（上一场的移除不会累积）');
+    ok(A.G.deck.length === deckLenBefore, '牌组本身没有被改写（能力牌还在卡组里）');
+    const inNewBattle = [...B2.draw, ...B2.hand].some(c => c.id === 'barricade');
+    ok(A.G.deck.some(c => c.id === 'barricade'), '牌组里仍有这张能力牌（下一场还能摸到）');
+  }
+
+  /* --- AA9. 奥术法师终结牌：条件 7 层真理 + 6 段 --- */
+  {
+    A.startRun('arcanist');
+    const B = new A.Battle(['golem'], { kind: 'battle' });
+    B.view = { ...noopV };
+    B.rollIntents();
+    await B.start();
+    const f = mk('finisher_finaltheorem');
+    B.energy = 99; B.hand = [f];
+    ok(f.hits === 6, `终极定理是 6 段（实测 ${f.hits}）`);
+    B.add(B.player, 'truth', 6);
+    ok(!B.canPlay(f), '6 层真理时**不能**打（条件已提到 7 层）');
+    B.add(B.player, 'truth', 1);
+    ok(B.get(B.player, 'truth') === 7 && B.canPlay(f), '7 层真理时可以打');
+    // 真理还会继续加段：7 层 → 6+7 = 13 段
+    // ⚠️ 这里**不能**清空 player.st —— 一清真理就掉回 0 层，条件门立刻不成立、
+    // 牌根本打不出去（我第一次就多写了一行 `B.player.st = {}`，结果"掉 0 血"）。
+    const e = B.aliveEnemies()[0];
+    e.hp = 9999; e.maxHp = 9999;
+    await B.playCard(f, e);
+    const dealt = 9999 - e.hp;
+    ok(dealt === f.dmg * 13, `7 层真理下实际打 13 段（掉 ${dealt}，期望 ${f.dmg}×13 = ${f.dmg * 13}）`);
+    ok(B.energy === 0, '终结牌仍是吃掉全部能量');
+  }
+
+  /* --- AA10. 终结牌的目标值：条件苛刻的可以显式提高，但不能默默超 --- */
+  {
+    const V2 = await import('file://' + join(ROOT, 'js/data/values.js'));
+    ok(V2.FINISHER_VALUE === 40, '终结牌参考值仍是 40');
+    ok(V2.budgetOf({ finisher: true }) === 40, '没写 finisherTarget 的终结牌用参考值 40');
+    const ft = mk('finisher_finaltheorem');
+    ok(V2.budgetOf(ft) === 48, `终极定理显式声明目标值 48（实测 ${V2.budgetOf(ft)}）`);
+    const v = V2.valueOf(ft);
+    ok(Math.abs(v - 48) < 0.01, `终极定理价值 ${v.toFixed(1)} 与目标值一致`);
+    // 只允许**这一张**这么做：其余终结牌必须仍在参考值附近（防"整类被放宽"）
+    const others = Object.values(CARDS).filter(c => c.finisher && c.id !== 'finisher_finaltheorem');
+    const drifted = others.filter(c => V2.valueOf(c) > V2.budgetOf(c) + 2).map(c => c.name);
+    ok(drifted.length === 0, '其余终结牌都还在参考值 +2 以内', drifted.join(', '));
+    const declared = others.filter(c => c.finisherTarget != null).map(c => c.name);
+    ok(declared.length === 0, '只有终极定理显式声明了不同的目标值', declared.join(', '));
   }
 
   /* --- AA7. 文案短到放得下（终结牌文案略长也不许爆卡面）--- */

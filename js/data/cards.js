@@ -1378,9 +1378,15 @@ text: c => `<i>需冰冻中</i><br><b>${c.dmg}</b> 伤，+<b>${c.fro}</b> 冰霜
   finisher_finaltheorem: {
     name: '终极定理', cls: 'arcanist', type: 'attack', rarity: 'finisher', cost: 3, costN: true,
     finisher: true, unique: true, target: 'enemy',
-    art: 'arcane_orb', dmg: 8, hits: 5,
-    cond: B => B.get(B.player, 'truth') >= 3,
-text: c => `<i>需真理 ≥3</i><br><b>${c.dmg}</b> 伤 ×<b>${c.hits}</b>。`,
+    // 2026-10-13 产品改动：条件从 3 层真理提到 **7 层**（原来太容易满足，
+    // 奥术师堆到 3 层真理几乎是顺手的事），同时**增加一段**伤害段数（5 → 6 段）。
+    // 价值 8 × 6 = 48，所以显式写下 `finisherTarget: 48` ——
+    // 条件苛刻了 4 层（≈20 点真理投入）换来更高的爆发，这个目标值是产品要的，
+    // 而不是我偷偷放宽整类终结牌的判定（见 values.js 的注释）。
+    // 注意真理还会让段数继续增加：7 层真理下实际是 6+7 = 13 段。
+    art: 'arcane_orb', dmg: 8, hits: 6, finisherTarget: 48,
+    cond: B => B.get(B.player, 'truth') >= 7,
+    text: c => `<i>需真理 ≥7</i><br><b>${c.dmg}</b> 伤 ×<b>${c.hits}</b>。`,
     fx: [{ t: 'dmg', v: 'dmg', hits: 'hits' }],
   },
 

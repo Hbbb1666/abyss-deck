@@ -103,12 +103,18 @@ export const BUDGET = {
  *
  * 终结牌的**费用是 N**（吃掉你当时**全部**能量），所以它不能按普通牌那样
  * 比"几费档的预算" —— 它真正贵的不是 3 点能量，而是"这一回合你别的什么都打不了"。
- * 产品给的参考值是 40，就用它当这一类的预算线。 */
+ * 产品给的参考值是 40，就用它当这一类的预算线。
+ *
+ * ⚠️ 这是**参考值不是硬上限**：价值模型算不出"吃掉全部能量"的代价，
+ * 也算不出条件有多难达成，而这两件事恰恰是终结牌强度的主要来源。
+ * 所以个别条件特别苛刻的牌会显式写上自己的 `finisherTarget`（见 cards.js），
+ * 把"这张牌应该值多少"摆在数据里，而不是悄悄放宽整类的判定。 */
 export const FINISHER_VALUE = 40;
 
 /** 取某张牌的预算（费用按 1 起算，费用 0 的牌按 1 费算） */
 export function budgetOf(card) {
-  if (card.finisher) return FINISHER_VALUE;
+  // 终结牌：用自己的目标值（条件越苛刻，目标值越高），没写就用参考值 40
+  if (card.finisher) return card.finisherTarget ?? FINISHER_VALUE;
   const cost = Math.max(1, Math.min(3, card.cost | 0));
   const rar = card.rarity === 'basic' ? 'common' : card.rarity;
   return BUDGET[`${cost}-${rar}`] ?? 5;
