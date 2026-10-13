@@ -68,10 +68,15 @@ export function cardEl(card, opts = {}) {
     isClass(card.cls) ? 'c-' + card.cls : '',
     card.upgraded ? 'up' : '',
     card.unplayable ? 'unplayable' : '',
+    // 终结牌：`r-finisher` 已经由上面的 `'r-' + rarity` 带出来了（rarity 就是 'finisher'），
+    // 这里只加"条件没满足"的变暗标记。判据同引擎的 canPlay（见 battle.js）——
+    // 界面和引擎必须用同一把尺子，否则会出现"看起来能打、点下去没反应"。
+    card.finisher && opts.battle && !opts.battle.canPlay(card) ? 'gated' : '',
     opts.extraClass || '',
   ].filter(Boolean).join(' ');
 
-  const costTxt = card.unplayable ? '—' : (card.cost === 0 ? '0' : card.cost);
+  // 费用显示：终结牌的费用是 **N**（吃掉当前全部能量），不能显示成 3
+  const costTxt = card.unplayable ? '—' : (card.costN ? 'N' : (card.cost === 0 ? '0' : card.cost));
   // 0 费不再单独用绿色：费用图标一律按职业上色（中立牌保持金色）
   const costCls = '';
 

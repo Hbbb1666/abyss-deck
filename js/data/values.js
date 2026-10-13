@@ -26,13 +26,16 @@ export const VAL = {
   dmg: 1,
   block: 1,
   heal: 1,            // 回血：1 点生命 = 1 点（和护甲同价）
+  gold: 0.5,          // **1 金币 = 0.5 点**（产品口径，2026-10-13；原为 0.12）
   energy: 3,          // 能量很贵：1 能量 ≈ 3 点价值
   draw: 5,            // 抽 1 张牌 = 5 点（产品口径）
   // ---- 减益（按层）----
-  poison: 3,
-  bleed: 3,
+  // 2026-10-13：DoT 三兄弟从 3 降到 **2.5** —— 它们是"延迟结算"的伤害
+  //（要等对方行动才掉血、还会自然衰减），价值低于即时伤害才合理。
+  poison: 2.5,
+  bleed: 2.5,
+  burn: 2.5,          // 点燃
   weak: 3,
-  burn: 3,            // 点燃
   truth: 5,           // 真理：每层让多段牌多打一次，很强
   dexterity: 3.5,     // 敏捷：每次获得护甲 +N
   thorns: 3,          // 荆棘：反弹
@@ -84,15 +87,28 @@ export const PER_STACK = {
  */
 export const SPECIAL = new Set(['drained', 'freeze']);
 
-/** 每一档（费用 × 稀有度）的预算。'1-basic' 沿用普通档 —— 基础牌就是普通强度。 */
+/** 每一档（费用 × 稀有度）的预算。'1-basic' 沿用普通档 —— 基础牌就是普通强度。
+ *
+ * 2026-10-13 产品调整：**二费卡上限 +1、三费卡上限 +2**。
+ * 理由：1 费档（5~7 点）能塞下的东西太少，而 3 费档原来相对 2 费只高 7 点，
+ * 与"多花 1 费"的代价不成比例 —— 提费换来的强度不够，玩家就不愿意打高费牌。
+ * 调整后 2 费 / 3 费的性价比更平滑（12→13、19→21、26→28）。 */
 export const BUDGET = {
   '1-basic': 5, '1-common': 5, '1-uncommon': 6, '1-rare': 7,
-  '2-common': 12, '2-uncommon': 14, '2-rare': 16,
-  '3-common': 19, '3-uncommon': 23, '3-rare': 26,
+  '2-common': 13, '2-uncommon': 15, '2-rare': 17,
+  '3-common': 21, '3-uncommon': 25, '3-rare': 28,
 };
+
+/** 「终结牌」的价值上限。
+ *
+ * 终结牌的**费用是 N**（吃掉你当时**全部**能量），所以它不能按普通牌那样
+ * 比"几费档的预算" —— 它真正贵的不是 3 点能量，而是"这一回合你别的什么都打不了"。
+ * 产品给的参考值是 40，就用它当这一类的预算线。 */
+export const FINISHER_VALUE = 40;
 
 /** 取某张牌的预算（费用按 1 起算，费用 0 的牌按 1 费算） */
 export function budgetOf(card) {
+  if (card.finisher) return FINISHER_VALUE;
   const cost = Math.max(1, Math.min(3, card.cost | 0));
   const rar = card.rarity === 'basic' ? 'common' : card.rarity;
   return BUDGET[`${cost}-${rar}`] ?? 5;
@@ -156,7 +172,7 @@ export function valueOf(card) {
     else if (f.t === 'draw') v += n('draw') * VAL.draw;
     else if (f.t === 'energy') v += n('nrg') * VAL.energy;
     else if (f.t === 'heal') v += n('heal') * VAL.heal;
-    else if (f.t === 'gold') v += fv(f) * 0.12;
+    else if (f.t === 'gold') v += fv(f) * VAL.gold;
     else if (f.t === 'discard') v += fv(f) * -0.8;                    // 弃牌是代价
     else if (f.t === 'loseHp') v += fv(f) * -0.9;                     // 自伤是代价
     // ---- 增益 ----

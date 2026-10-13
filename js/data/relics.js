@@ -21,7 +21,10 @@
 export const RELICS = {
   burning_blood: {
     name: '燃烧之血', sprite: 'potion_red', rarity: 'starter',
-    desc: '战斗结束后回复 <b>6</b> 点生命。', mods: { healAfterBattle: 6 },
+    // 2026-10-13 削弱：6 → **4**（产品要求）。
+    // 骑士是"永远可选"的新手职业，同时也是护盾流 —— 6 点战后回血让他在第 1 层
+    // 几乎不掉血，整层没有"要不要打这一场"的取舍。4 点仍能缓过来，但要开始算了。
+    desc: '战斗结束后回复 <b>4</b> 点生命。', mods: { healAfterBattle: 4 },
   },
   mana_crystal: {
     name: '燃火水晶', sprite: 'potion_blue', rarity: 'starter',
@@ -42,8 +45,11 @@ export const RELICS = {
   },
   alchemy_pouch: {
     name: '炼金口袋', sprite: 'potion_green', rarity: 'starter',
-    desc: '药水槽 <b>+2</b>；战斗中每使用过 1 瓶药水，战斗结束时额外获得 <b>20</b> 金币。',
-    mods: { potionSlots: 2, potionBattleGold: 20 },
+    // 2026-10-13 削弱：每瓶 20 → **10**（产品要求）。
+    // 注意这里真的是**按瓶数**结算的（喝 3 瓶给 30）—— 以前引擎只记了个布尔，
+    // 喝 1 瓶和喝 5 瓶给一样的钱，描述与行为不一致，这次一并修掉了。
+    desc: '药水槽 <b>+2</b>；战斗中每使用 <b>1</b> 瓶药水，战斗结束时额外获得 <b>10</b> 金币。',
+    mods: { potionSlots: 2, potionBattleGold: 10 },
   },
   frost_core: {
     name: '寒霜核心', sprite: 'key_blue', rarity: 'starter',

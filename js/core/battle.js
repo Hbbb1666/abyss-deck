@@ -715,12 +715,37 @@ export class Battle {
   }
 
   /* ---------------- 出牌 ---------------- */
+  /** 这张牌现在能不能打。
+   *  除了能量，还要过两道额外关（都是**终结牌**用的）：
+   *    · `cond(B)`        —— 条件门（例："场上有敌人处于冰冻"）
+   *    · `targetFilter`   —— 这张牌只允许打在某类目标上（例：只能打冻结目标）
+   *  两个都放在 canPlay 里，是为了让**界面和引擎用同一把尺子**：
+   *  界面置灰的依据就是这里，不然会出现"看起来能打、点下去没反应"。 */
   canPlay(c) {
     if (this.over || c.unplayable) return false;
     const cost = this.cardCost(c);
-    return this.energy >= cost;
+    if (this.energy < cost) return false;
+    if (c.cond && !c.cond(this)) return false;
+    // 有目标限制时，必须存在至少一个合法目标
+    if (c.targetFilter && !this.validTargets(c).length) return false;
+    return true;
   }
-  cardCost(c) { return Math.max(0, c.cost ?? 0); }
+
+  /** 这张牌当前**可以选**的目标（没有 targetFilter 时就是所有活着的敌人）。
+   *  `target: 'self'` 的牌没有敌人目标概念，返回空数组。 */
+  validTargets(c) {
+    if (!c || c.target === 'self') return [];
+    return this.aliveEnemies().filter(e => !c.targetFilter || c.targetFilter(e, this));
+  }
+
+  /** 这张牌要花多少能量。
+   *  **终结牌（`costN`）花掉你当前的全部能量** —— 这正是它的设计：它是"这一回合的
+   *  一切"，所以费用写成 N。不能简单地把它当 3 费：能量饱和叠起来之后它会更贵，
+   *  而玩家为此放弃的是那一回合**所有**别的出牌机会。 */
+  cardCost(c) {
+    if (c.costN) return Math.max(0, this.energy);
+    return Math.max(0, c.cost ?? 0);
+  }
 
   /** 从手牌里丢掉一张（「飞刀」之类的弃牌代价）。
       优先让界面弹选牌器；界面没接这个回调、或玩家取消/没有可弃的牌时，
@@ -749,6 +774,14 @@ export class Battle {
     if (!this.canPlay(card)) return false;
     const i = this.hand.indexOf(card);
     if (i < 0) return false;
+    // 有目标限制时，把目标夹到**合法目标**上 —— 界面在单选情况下会把
+    // aliveEnemies()[0] 直接传进来，那可能是不可选的那只（例如要求"冻结目标"，
+    // 而第一只没被冻）。夹一下才能保证"能打出来"和"打到谁"是同一套判据。
+    if (card.targetFilter) {
+      const ok = this.validTargets(card);
+      if (!ok.length) return false;
+      if (!target || !ok.includes(target)) target = ok[0];
+    }
     this.energy -= this.cardCost(card);
     this.hand.splice(i, 1);
     this.cardsPlayedThisTurn++;
@@ -807,7 +840,11 @@ export class Battle {
   }
 
   async usePotion(potion, target) {
-    this.potionUsed = true;      // 炼金师遗物：本场用过药水 → 结算时额外给钱
+    // 炼金师遗物：本场用药的**瓶数**（结算时按瓶数给钱）。
+    // 以前这里只记一个布尔 `potionUsed`，而遗物描述写的是"每使用过 1 瓶药水…"
+    // —— 喝 1 瓶和喝 5 瓶给的是一样的钱，文案与行为不一致（2026-10-13 修）。
+    this.potionUsed = true;
+    this.potionUsedCount = (this.potionUsedCount || 0) + 1;
     this.view.onPotion?.(potion);
     await this.resolve(potion.fx || [], { card: null, target: target || this.aliveEnemies()[0] });
     this.view.sync?.();
@@ -1097,10 +1134,12 @@ export class Battle {
       G.stats.floors++;
       const m = relicMods();
       if (m.healAfterBattle) G.hp = Math.min(G.maxHp, G.hp + m.healAfterBattle);
-      // 炼金师遗物：本场用过药水就额外给金币
+      // 炼金师遗物：本场用过药水就额外给金币 —— **按瓶数算**。
+      // 文案说的是"每使用 1 瓶额外获得 N 金币"，所以要乘瓶数（见 usePotion）。
       if (m.potionBattleGold && this.potionUsed) {
-        gainGold(m.potionBattleGold);
-        this.pushLog(`药剂回收 +${m.potionBattleGold} 金币`);
+        const n = this.potionUsedCount || 1;
+        gainGold(m.potionBattleGold * n);
+        this.pushLog(`药剂回收 +${m.potionBattleGold * n} 金币（${n} 瓶）`);
       }
       for (const [id, hook, def] of relicHooks('battleWin')) hook(this, def);
     } else {

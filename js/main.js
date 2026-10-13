@@ -1,5 +1,5 @@
 import { el, clear, sleep, toast, fitStage, disposeScene } from './core/util.js';
-import { gainGold, G, newRun, save, hasSave, loadSave, clearSave, loadMeta, saveMeta, bumpMeta, addRelic, gainMaxHp, relicMods, relicHooks } from './core/state.js';
+import { gainGold, G, newRun, save, hasSave, loadSave, clearSave, loadMeta, saveMeta, bumpMeta, addRelic, gainMaxHp, relicMods, relicHooks, rollCardChoices, rollRelic, rollPotion, FINISHER_WEIGHT, CLASS_CARD_WEIGHT } from './core/state.js';
 import { generateMap, MAP_ROWS } from './core/map.js';
 import { Battle } from './core/battle.js';
 import { ENCOUNTERS, TOTAL_ACTS } from './data/enemies.js';
@@ -280,5 +280,10 @@ window.__ABYSS__ = {
   save, loadSave, clearSave, hasSave, loadMeta, saveMeta, bumpMeta, gainGold,
   // gainGold 走统一的乘区（难度「金币减少」），测试要能验真实到账数额
   relicHooks, splitPicks, pickById,
+  // 奖励池掷骰：测试要验"终结牌权重低 + 牌组唯一"。
+  // ⚠️ 必须从这里暴露 —— 测试若 `import('js/core/state.js')` 会拿到**另一份模块实例**
+  //（它有自己独立的 `G`，与运行时那个不是同一个），断言会静默失效/空绿。
+  rollCardChoices, rollRelic, rollPotion,
+  FINISHER_WEIGHT, CLASS_CARD_WEIGHT,
 };
 

@@ -2,7 +2,13 @@
 export const CLASSES = {
   knight: {
     id: 'knight', name: '铁誓骑士', sprite: 'hero_knight',
-    unlockScore: 0, hp: 64, gold: 99, relic: 'burning_blood',
+    // `alwaysUnlocked` —— 骑士**永远可选**，与难度分无关。
+    //
+    // 为什么不能只写 `unlockScore: 0`：增益每条 −4 分，**拉满 10 条就是 −40 分**。
+    // 解锁判定是 `need > score`，于是 0 > −40 成立，骑士也被锁住 ——
+    // 8 个职业全锁，玩家卡在职业页**根本进不去游戏**（2026-10-13 实测确认）。
+    // 产品口径：铁誓骑士无需难度分，**即使增益拉满也能玩**。
+    unlockScore: 0, alwaysUnlocked: true, hp: 64, gold: 99, relic: 'burning_blood',
     tagline: '护盾流 · 高容错',
     desc: '把护甲堆到敌人打不穿。用护甲换伤害，每一回合都给自己留足余地。',
     deck: [['strike', 5], ['defend', 4], ['heavy_blow', 1]],
@@ -23,21 +29,24 @@ export const CLASSES = {
   },
   icemage: {
     id: 'icemage', name: '寒冰法师', sprite: 'hero_icemage',
-    unlockScore: 27, hp: 55, gold: 99, relic: 'frost_core',
+    // 2026-10-13 门槛整体下调（除 9 分档外一律 −9）：27 → 18
+    unlockScore: 18, hp: 55, gold: 99, relic: 'frost_core',
     tagline: '冰霜 · 冻结控场',
     desc: '不打爆发，打的是让敌人「这一回合别动」。冰霜叠满就冻住它，Boss 需要叠得更厚。',
     deck: [['snowball', 4], ['defend', 4], ['frost_bolt', 1], ['ice_wall', 1]],
   },
   arcanist: {
     id: 'arcanist', name: '奥术法师', sprite: 'hero_arcanist',
-    unlockScore: 36, hp: 54, gold: 99, relic: 'truth_core',
+    // 36 → 27（高于 9 分的一律 −9）
+    unlockScore: 27, hp: 54, gold: 99, relic: 'truth_core',
     tagline: '真理 · 多段连击',
     desc: '叠「真理」层数，让每一段攻击都多打一次。不靠过牌，靠一击连成一串。',
     deck: [['arcane_bolt', 4], ['defend', 4], ['mana_dart', 1], ['runeward', 1]],
   },
   alchemist: {
     id: 'alchemist', name: '炼金师', sprite: 'hero_alchemist',
-    unlockScore: 18, hp: 60, gold: 150, relic: 'alchemy_pouch',
+    // 18 → 9（高于 9 分的一律 −9）；初始金币 150 → **140**（产品要求，2026-10-13）
+    unlockScore: 9, hp: 60, gold: 140, relic: 'alchemy_pouch',
     tagline: '药剂 · 毒伤发育',
     desc: '靠药剂攒家底，靠毒素磨死对手。药水槽比别人多两个，用掉的药水还能换钱。',
     deck: [['venom_vial', 4], ['defend', 4], ['toxic_draught', 1], ['fume_ward', 1]],
@@ -51,7 +60,8 @@ export const CLASSES = {
   },
   assassin: {
     id: 'assassin', name: '暗影刺客', sprite: 'hero_assassin',
-    unlockScore: 36, hp: 56, gold: 99, relic: 'shadow_mark',
+    // 36 → 27（高于 9 分的一律 −9）
+    unlockScore: 27, hp: 56, gold: 99, relic: 'shadow_mark',
     tagline: '叠易伤 · 一击必杀',
     desc: '前几回合都在铺垫：把易伤叠厚、力量叠高。铺完之后，一次攻击就能决定胜负。',
     deck: [['strike', 4], ['defend', 4], ['shadow_stab', 2]],

@@ -1148,10 +1148,11 @@ section('I. 弃牌代价（「飞刀」）');
     await B.playCard(dagger, B.aliveEnemies()[0]);
     ok(B.discard.includes(dagger), '打出的「飞刀」进了弃牌堆');
     ok(B.discard.includes(spare), '「飞刀」确实弃掉了玩家选中的那张');
-    // 净变化：打出 −1、弃牌 −1 → 3-1-1 = 1
-    // （2026-10-13 起「飞刀」不再自带抽牌：抽牌在价值表里值 5 点，1 费普通档装不下。
-    //   这条断言以前写的是"抽1"版的 3-1+1-1=2 —— 改了卡就该改断言，否则它会一直红。）
-    ok(B.hand.length === 1, `手牌按「打出1 / 弃1」净减 2（实际 ${B.hand.length}）`);
+    // 净变化：打出 −1、飞刀自带抽 1 张 +1、弃牌 −1 → 3-1+1-1 = 2
+    // （2026-10-13 抽牌涨价时我一度把飞刀的抽牌去掉、这条断言跟着改成 1；
+    //   后来为了保住游侠的"低费过牌"身份又把抽牌加了回来 —— 断言也随之改回。
+    //   这就是"改了牌就必须改断言"，两边不同步就会一直红。）
+    ok(B.hand.length === 2, `手牌按「打出1 / 抽1 / 弃1」净减 1（实际 ${B.hand.length}）`);
   }
 
   /* --- I5. 手牌为空时不能卡死 --- */
@@ -2149,8 +2150,12 @@ section('R. 遗物扩充 / 蓝色卡提费 / 开局事件');
     // 只断言不会变的语义（新旧一致的那几条），不锁死我这次调过的数值口径。
     const V = await import('file://' + join(ROOT, 'js/data/values.js'));
     ok(V.VAL.dmg === 1 && V.VAL.block === 1, '价值表：1 伤害 = 1 护甲 = 1 点');
-    ok(V.VAL.poison === 3 && V.VAL.bleed === 3 && V.VAL.weak === 3 && V.VAL.burn === 3,
-       `DoT/虚弱/点燃 都是 3 点（中毒${V.VAL.poison} 流血${V.VAL.bleed} 虚弱${V.VAL.weak} 点燃${V.VAL.burn}）`);
+    // 2026-10-13 产品把 DoT 三兄弟从 3 降到 **2.5**（延迟结算的伤害比即时伤害便宜）。
+    // 虚弱/荆棘保持 3，真理 5，抽牌 5，敏捷 3.5。
+    ok(V.VAL.poison === 2.5 && V.VAL.bleed === 2.5 && V.VAL.burn === 2.5,
+       `DoT 都是 2.5 点（中毒${V.VAL.poison} 流血${V.VAL.bleed} 点燃${V.VAL.burn}）`);
+    ok(V.VAL.weak === 3 && V.VAL.thorns === 3, `虚弱 / 荆棘 3 点（${V.VAL.weak} / ${V.VAL.thorns}）`);
+    ok(V.VAL.gold === 0.5, `1 金币 = ${V.VAL.gold} 点`);
     ok(V.VAL.truth === 5, `真理 ${V.VAL.truth} 点`);
     ok(V.VAL.draw === 5, `抽牌 ${V.VAL.draw} 点（产品口径）`);
     ok(V.VAL.dexterity === 3.5, `敏捷 ${V.VAL.dexterity} 点`);
@@ -3330,13 +3335,17 @@ section('W. 四职业定位与新机制');
 
     // 游侠：低费快过牌
     const rg = pool('rogue');
-    const cheap = rg.filter(c => c.cost <= 1);
-    ok(cheap.length / rg.length >= 0.7,
-       `游侠以低费为主（${cheap.length}/${rg.length} 张 ≤1 费）`);
+    /* ⚠️ 算比例时**要排除终结牌** —— 终结牌的费用是 N（吃掉当前全部能量），
+       它不在"费用曲线"上。把它算进分母等于用一张特殊牌去否定整个职业的低费定位
+       （我加终结牌时这条就红了：18/26 = 69%）。 */
+    const rgCurve = rg.filter(c => !c.finisher);
+    const cheap = rgCurve.filter(c => c.cost <= 1);
+    ok(cheap.length / rgCurve.length >= 0.7,
+       `游侠以低费为主（${cheap.length}/${rgCurve.length} 张 ≤1 费，已排除终结牌）`);
     /* ⚠️ 这条阈值**被抽牌的新定价改小了**（原 ≥7）：抽牌从 2 点涨到 **5 点**之后，
-       1 费档（5 点）再也装不下"伤害/护甲 + 抽 1 张"，所以游侠的过牌牌被迫收敛
-       到 2 费及以上（2 费普通 12 点才放得下）。这不是卡变弱，是**抽牌变贵**的必然结果。
-       当前 4 张仍然保住了"过牌"这条轴；若产品想恢复"低费过牌"的强度，
+       1 费档（5 点）很难同时装下"伤害/护甲 + 抽 1 张"，所以游侠的过牌牌收敛了。
+       我刻意保住了两张（飞刀 / 闪避）来维持"低费过牌"这条轴 —— 但总体上
+       它确实比改价前少。这不是卡变弱，是**抽牌变贵**的必然结果。
        需要单独讨论（比如给游侠抽牌一个职业折扣），不能靠偷偷调低权重。 */
     const drawers = rg.filter(c => has(c, 'draw'));
     ok(drawers.length >= 4, `游侠的过牌够多（${drawers.length} 张带抽牌）`);
@@ -3827,28 +3836,39 @@ section('X. 灼烧与中毒的衰减规则 / 职业特性');
     ok(cards.length === CLASS_LIST.length,
        `职业页列出全部 ${CLASS_LIST.length} 个职业（实测 ${cards.length}）`);
     const lockedNames = cards.filter(c => c.classList.contains('locked')).map(c => c.querySelector('.cname2').textContent);
-    const needLock = CLASS_LIST.filter(c => (c.unlockScore || 0) > 0).length;
+    // `alwaysUnlocked`（铁誓骑士）**不算**在被锁名单里 —— 它永远可选。
+    const needLock = CLASS_LIST.filter(c => !c.alwaysUnlocked && (c.unlockScore || 0) > 0).length;
     ok(lockedNames.length === needLock,
        `0 分时 ${needLock} 个职业被锁（实测 ${lockedNames.join('/')}）`);
     ok(cards.some(c => c.querySelector('.cname2').textContent === '铁誓骑士' && !c.classList.contains('locked')),
        '骑士在 0 分时仍可选');
-    ok(cards.some(c => c.querySelector('.locknote')?.textContent.includes('36')),
-       '被锁的职业写出了所需难度分');
+    // 被锁的牌要写出**自己的**门槛（不要写死具体数字 —— 门槛会被产品调整，
+    // 我这次就把它从 36 调到 27，写死的断言立刻过期）。
+    {
+      const maxNeed = Math.max(...CLASS_LIST.filter(c => !c.alwaysUnlocked).map(c => c.unlockScore || 0));
+      ok(cards.some(c => c.querySelector('.locknote')?.textContent.includes(String(maxNeed))),
+         `被锁的职业写出了所需难度分（最高档 ${maxNeed}）`);
+    }
 
-    /* ③ 分数够了解锁（直接按门槛构造 picks：每条难度 +9 分） */
+    /* ③ 分数够了解锁（直接按门槛构造 picks：每条难度 +9 分）
+       ⚠️ 分数从 CLASS_LIST 的最高门槛**动态推导**，不写死 36 ——
+       产品随时会调门槛（2026-10-13 就把最高档从 36 降到了 27）。 */
     const { DIFFICULTY } = await import('file://' + join(ROOT, 'js/data/difficulty.js'));
-    const picks36 = DIFFICULTY.slice(0, 4).map(d => d.id);      // 4×9 = 36 分
-    A.go('class', picks36); await new Promise(r => setTimeout(r, 160));
+    const maxNeed = Math.max(...CLASS_LIST.filter(c => !c.alwaysUnlocked).map(c => c.unlockScore || 0));
+    const nPicks = Math.ceil(maxNeed / 9);
+    const picksMax = DIFFICULTY.slice(0, nPicks).map(d => d.id);
+    const maxScore = nPicks * 9;
+    A.go('class', picksMax); await new Promise(r => setTimeout(r, 160));
     const c2 = [...doc.querySelectorAll('.class-card')];
     const locked2 = c2.filter(c => c.classList.contains('locked')).map(c => c.querySelector('.cname2').textContent);
-    ok(locked2.length === 0, `36 分时全部职业解锁（实测仍锁着：${locked2.join('/') || '无'}）`);
-    ok((doc.querySelector('.screen')?.textContent || '').includes('36'), '职业页顶部显示当前难度分');
+    ok(locked2.length === 0, `${maxScore} 分时全部职业解锁（实测仍锁着：${locked2.join('/') || '无'}）`);
+    ok((doc.querySelector('.screen')?.textContent || '').includes(String(maxScore)), '职业页顶部显示当前难度分');
     // 并且真的能选进去（用奥术法师验证）
     const arc = c2.find(c => c.querySelector('.cname2').textContent === '奥术法师');
     arc.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
     await new Promise(r => setTimeout(r, 200));
-    ok(A.G && A.G.cls === 'arcanist', `36 分可以选奥术法师（实测 ${A.G && A.G.cls}）`);
-    ok((A.G.picks || []).length === 4, `难度选择被带进本局（${(A.G.picks || []).length} 条）`);
+    ok(A.G && A.G.cls === 'arcanist', `${maxScore} 分可以选奥术法师（实测 ${A.G && A.G.cls}）`);
+    ok((A.G.picks || []).length === nPicks, `难度选择被带进本局（${(A.G.picks || []).length} 条）`);
 
     /* ④ 门槛没到就点：不能进去 */
     A.go('class', DIFFICULTY.slice(0, 1).map(d => d.id));   // 9 分
@@ -3861,6 +3881,100 @@ section('X. 灼烧与中毒的衰减规则 / 职业特性');
     ok(A.G.cls === before, `9 分时点不进奥术法师（职业仍是 ${A.G && A.G.cls}）`);
     A.saveMeta(meta);                            // 还原 meta，别污染后面的测试
     A.go('menu'); await new Promise(r => setTimeout(r, 80));
+  }
+
+  /* --- X6c2. 增益拉满（分数为负）时，**铁誓骑士必须仍可选** ---
+     增益每条 −4 分，拉满 10 条 = **−40 分**。解锁判定是 `need > score`，
+     而骑士的 unlockScore 是 0 → `0 > −40` 成立 → **骑士也被锁**，
+     8 个职业全锁、玩家卡在职业页进不去游戏。
+     产品口径：骑士无需难度分，即使增益拉满也能玩。 */
+  {
+    const doc = window.document;    // X0 的 doc 是那个块内的局部变量，这里要自己取
+    const { BOONS, scoreOf } = await import('file://' + join(ROOT, 'js/data/difficulty.js'));
+    const allBoons = BOONS.map(b => b.id);
+    const negScore = scoreOf(allBoons);
+    ok(negScore < 0, `增益拉满的分数是负的（${negScore}）—— 这正是会锁死骑士的前提`);
+
+    A.go('class', allBoons);
+    await new Promise(r => setTimeout(r, 200));
+    const cards = [...doc.querySelectorAll('.class-card')];
+    const knCard = cards.find(c => c.querySelector('.cname2')?.textContent === '铁誓骑士');
+    ok(!!knCard, '职业页渲染出铁誓骑士');
+    ok(!knCard.classList.contains('locked'),
+       `分数 ${negScore} 时铁誓骑士**没有被锁**（alwaysUnlocked 生效）`);
+    const playable = cards.filter(c => !c.classList.contains('locked'));
+    ok(playable.length >= 1,
+       `至少有一个职业可选（实际 ${playable.length} 个：${playable.map(c => c.querySelector('.cname2')?.textContent).join('/')}）`);
+    // 真的能点进去（不是"看起来没锁但点不动"）
+    knCard.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    await new Promise(r => setTimeout(r, 200));
+    ok(A.G && A.G.cls === 'knight' && A.G.picks.length === allBoons.length,
+       `增益拉满时点骑士能真的开局（cls=${A.G && A.G.cls}, picks=${A.G && A.G.picks.length} 条）`);
+  }
+
+  /* --- X6e3. 炼金师初始遗物「炼金口袋」：**每瓶**药水 +10 金币；初始金币 140 ---
+     2026-10-13 产品改动：每瓶 20 → **10**，初始金币 150 → **140**。
+     顺带修掉一个"文案撒谎"：引擎原来只记布尔 `potionUsed`，喝 1 瓶和喝 5 瓶
+     给一样的钱，而描述写的是"每使用过 1 瓶"。现在按**瓶数**结算。 */
+  {
+    A.startRun('alchemist');
+    ok(A.G.gold === 140, `炼金师初始金币 140（实测 ${A.G.gold}）`);
+    ok(A.relicMods().potionBattleGold === 10,
+       `炼金口袋每瓶给 10 金币（实测 ${A.relicMods().potionBattleGold}）`);
+    ok(A.relicMods().potionSlots === 2, `药水槽 +2 仍生效（${A.relicMods().potionSlots}）`);
+
+    const B = new A.Battle(['slime'], { kind: 'battle' });
+    B.view = { ...noopView };
+    B.rollIntents();
+    await B.start();
+    // 喝 3 瓶（每瓶用最简单的一瓶药水），再把怪打死
+    B.player.hp = 30;
+    const potion = { name: '测试药水', fx: [] };
+    for (let i = 0; i < 3; i++) await B.usePotion(potion, B.aliveEnemies()[0]);
+    ok(B.potionUsedCount === 3, `统计到喝了 3 瓶（实测 ${B.potionUsedCount}）`);
+    for (const e of B.aliveEnemies()) { e.hp = 1; e.maxHp = 1; }
+    const c = makeCard('strike');
+    B.hand = [c]; B.energy = 99;
+    const goldBefore = A.G.gold;
+    await B.playCard(c, B.aliveEnemies()[0]);
+    ok(B.over, '战斗已结束');
+    // 3 瓶 × 10 = 30（外加战斗结算本身给的金币，所以只断言"至少 +30"）
+    ok(A.G.gold >= goldBefore + 30,
+       `3 瓶药水至少给 30 金币（${goldBefore} → ${A.G.gold}）`);
+    // 反向：只喝 1 瓶时不该给 3 瓶的钱
+    A.startRun('alchemist');
+    const B2 = new A.Battle(['slime'], { kind: 'battle' });
+    B2.view = { ...noopView };
+    B2.rollIntents();
+    await B2.start();
+    await B2.usePotion(potion, B2.aliveEnemies()[0]);
+    ok(B2.potionUsedCount === 1, '只喝 1 瓶时计数是 1');
+  }
+
+  /* --- X6e2. 骑士初始遗物「燃烧之血」：战斗结束后回 4 血 ---
+     2026-10-13 由 6 削弱到 **4**（产品要求）。骑士是"永远可选"的新手职业，
+     6 点战后回血让他在第 1 层几乎不掉血、整层没有取舍。
+     这条要**真的打完一场战斗**才能验证（healAfterBattle 在 win 分支里结算），
+     只查数据表是查不出"引擎有没有读这个键"的。 */
+  {
+    const { makeCard: mkC } = await import('file://' + join(ROOT, 'js/data/cards.js'));
+    A.startRun('knight');
+    const B = new A.Battle(['slime'], { kind: 'battle' });
+    B.view = { ...noopView };
+    B.rollIntents();
+    await B.start();
+    ok(A.relicMods().healAfterBattle === 4,
+       `燃烧之血给的战后回血是 4（实测 ${A.relicMods().healAfterBattle}）`);
+    // 先把血打掉一截（否则满血回血看不出效果）
+    B.player.hp = 20;
+    for (const e of B.aliveEnemies()) { e.hp = 1; e.maxHp = 1; }
+    const c = mkC('strike');
+    B.hand = [c]; B.energy = 99;
+    await B.playCard(c, B.aliveEnemies()[0]);
+    ok(B.over, '战斗已结束（怪被打死）');
+    // endBattle 会把 player.hp 写回 G.hp，再叠加战后回血
+    ok(A.G.hp === 24 || A.G.hp === B.player.hp + 4,
+       `战斗结束后回 4 血（G.hp=${A.G.hp}，战斗内 ${B.player.hp}）`);
   }
 
   /* --- X6d. 奥术法师：真理让**多段**牌加段（起始遗物的核心机制）--- */
@@ -4080,6 +4194,149 @@ section('Z. 影刃 2 层（产品改动）+ 易伤/虚弱对玩家对称');
     const helpSrc = readFileSync(join(ROOT, 'js/ui/scene-battle.js'), 'utf8');
     ok(!/易伤 · 受到伤害 \+50%/.test(helpSrc), '战斗内帮助文本里的易伤说明也已更新');
     ok(!/虚弱 · 造成伤害 -25%/.test(helpSrc), '战斗内帮助文本里的虚弱说明也已更新');
+  }
+}
+
+section('AA. 终结牌：N 费用 / 条件门 / 限定目标 / 牌组唯一');
+{
+  const noopV = { step: async () => {}, sync() {}, log() {}, onDamage() {}, onHeal() {}, onBlock() {},
+    onStatus() {}, onDraw() {}, onPlay() {}, onExhaust() {}, onEnergy() {}, onGold() {},
+    onTurnStart() {}, onEnemyAct() {}, onSummon() {}, onDeath() {}, onEnd() {}, onPotion() {}, onExecute() {} };
+  const { makeCard: mk } = await import('file://' + join(ROOT, 'js/data/cards.js'));
+  // ⚠️ CARDS 在 B 段是**块级作用域**的（section('B.…') 的 `{}` 里），这里要自己再取一次。
+  const { CARDS } = await import('file://' + join(ROOT, 'js/data/cards.js'));
+  const V = await import('file://' + join(ROOT, 'js/data/values.js'));
+
+  const finishers = Object.values(CARDS).filter(c => c.finisher);
+
+  /* --- AA1. 每个职业至少一张终结牌 --- */
+  {
+    const { CLASS_LIST } = await import('file://' + join(ROOT, 'js/data/classes.js'));
+    const missing = CLASS_LIST.filter(cl => !finishers.some(f => f.cls === cl.id)).map(c => c.name);
+    ok(missing.length === 0, `8 个职业都有终结牌（缺：${missing.join('/') || '无'}）`);
+    // 结构字段必须齐
+    const bad = [];
+    for (const f of finishers) {
+      if (!f.costN) bad.push(`${f.name} 缺 costN`);
+      if (!f.unique) bad.push(`${f.name} 缺 unique`);
+      if (typeof f.cond !== 'function') bad.push(`${f.name} 缺 cond`);
+      if (f.rarity !== 'finisher') bad.push(`${f.name} 稀有度不是 finisher`);
+      if (!f.text || !f.text(makeCardLike(f))) bad.push(`${f.name} 缺 text`);
+    }
+    ok(bad.length === 0, '终结牌结构完整（costN / unique / cond / rarity / text）', bad.join(' | '));
+  }
+  function makeCardLike(c) { return { ...c, ...(c.up || {}) }; }
+
+  /* --- AA2. 费用是 N：吃掉当前**全部**能量，且能量越满越贵 --- */
+  {
+    A.startRun('knight');
+    const B = new A.Battle(['slime'], { kind: 'battle' });
+    B.view = { ...noopV }; B.rollIntents(); await B.start();
+    const f = mk('finisher_bulwark');
+    B.energy = 3;
+    ok(B.cardCost(f) === 3, `能量 3 时终结牌费用 = 3（实测 ${B.cardCost(f)}）`);
+    B.energy = 7;
+    ok(B.cardCost(f) === 7, `能量 7 时费用 = 7（跟能量走，不是固定 3）`);
+    B.energy = 3;
+    B.hand = [f];
+    // 打出去之后能量归零
+    B.player.block = 20;                       // 满足条件
+    await B.playCard(f, B.aliveEnemies()[0]);
+    ok(B.energy === 0, `打出后能量清零（实测 ${B.energy}）`);
+  }
+
+  /* --- AA3. 条件门：没满足就打不出去，界面判据与引擎一致 --- */
+  {
+    A.startRun('knight');
+    const B = new A.Battle(['slime'], { kind: 'battle' });
+    B.view = { ...noopV }; B.rollIntents(); await B.start();
+    const f = mk('finisher_bulwark');
+    B.energy = 3; B.hand = [f];
+    B.player.block = 0;
+    ok(!B.canPlay(f), '护甲不足时终结牌不能打（条件门生效）');
+    const ok0 = await B.playCard(f, B.aliveEnemies()[0]);
+    ok(ok0 === false && B.hand.length === 1 && B.energy === 3,
+       '强打会被引擎拒绝，且不扣能量、不弃牌');
+    B.player.block = 20;
+    ok(B.canPlay(f), '护甲够了就能打');
+  }
+
+  /* --- AA4. 限定目标：只能打冻结目标（产品给的例子）--- */
+  {
+    A.startRun('icemage');
+    const B = new A.Battle(['slime', 'bat'], { kind: 'battle' });
+    B.view = { ...noopV }; B.rollIntents(); await B.start();
+    const f = mk('finisher_shatterfrost');
+    B.energy = 3; B.hand = [f];
+    const [e1, e2] = B.aliveEnemies();
+    ok(!B.canPlay(f), '没有任何敌人被冻时，碎冰绝响不能打');
+    ok(B.validTargets(f).length === 0, '没有合法目标');
+    B.add(e2, 'freeze', 1);
+    ok(B.canPlay(f), '有敌人被冻住后就能打了');
+    ok(B.validTargets(f).length === 1 && B.validTargets(f)[0] === e2,
+       '合法目标**只有**被冻的那一只（不是所有敌人）');
+    // 打到不合法目标上要被引擎夹回合法目标（界面在单选时会传第一个敌人）
+    e2.hp = e2.maxHp = 500;
+    await B.playCard(f, e1);
+    ok(e2.hp < 500 && e1.hp === e1.maxHp,
+       `目标被夹到合法的冻结目标上（冻的那只掉到 ${e2.hp}，没冻的没掉血）`);
+  }
+
+  /* --- AA5. 牌组唯一：有一张就不再给第二张 ---
+     ⚠️ 必须用 `A.rollCardChoices`（运行时**同一个模块实例**）。
+     写成 `import('file://…/core/state.js')` 会拿到**另一份模块实例**、
+     有自己独立的 `G` —— `A.G.deck = [...]` 根本影响不到它，
+     "牌组里有时不再出现"会**空绿**（永远是 0 次，看起来通过）。
+     我第一版就是这么写的，靠下面那条反向断言才发现。 */
+  {
+    const rollCardChoices = A.rollCardChoices;
+    ok(typeof rollCardChoices === 'function', 'A.rollCardChoices 已暴露（避开模块实例陷阱）');
+    A.startRun('icemage');
+    const fid = 'finisher_shatterfrost';
+    A.G.deck = [{ id: fid, up: false }];
+    let seen = 0;
+    for (let i = 0; i < 200; i++) {
+      for (const c of rollCardChoices(3)) if (c.id === fid) seen++;
+    }
+    ok(seen === 0, `牌组里已有终结牌时，200 次重掷都没再出现（实测出现 ${seen} 次）`);
+    // **反向断言**：移出牌组后必须能出现。没有这一条，上面那条在"终结牌压根没进池"时
+    // 也会通过 —— 那就是典型的"绿得毫无理由"（我这次真的差点放过去）。
+    A.G.deck = [];
+    let seen2 = 0;
+    for (let i = 0; i < 400; i++) {
+      for (const c of rollCardChoices(3)) if (c.id === fid) seen2++;
+    }
+    ok(seen2 > 0, `牌组里没有时仍有机会出现（400 次出现 ${seen2} 次）—— 这条专防"空绿"`);
+  }
+
+  /* --- AA6. 低权重：终结牌比同池普通牌稀有得多 --- */
+  {
+    ok(A.FINISHER_WEIGHT < 1, `终结牌权重 ${A.FINISHER_WEIGHT} < 普通牌 1（产品要求"权重较低"）`);
+    A.startRun('icemage'); A.G.deck = [];
+    const cnt = {};
+    let total = 0;
+    for (let i = 0; i < 1000; i++) {
+      for (const c of A.rollCardChoices(3)) { cnt[c.id] = (cnt[c.id] || 0) + 1; total++; }
+    }
+    const finRate = finishers.filter(f => f.cls === 'icemage')
+      .reduce((s, f) => s + (cnt[f.id] || 0), 0) / total;
+    const commonRate = Object.entries(cnt)
+      .filter(([id]) => CARDS[id] && CARDS[id].rarity === 'common')
+      .reduce((s, [, n]) => s + n, 0) / total;
+    ok(finRate < commonRate / 3,
+       `终结牌出现率(${(finRate * 100).toFixed(2)}%) 明显低于普通牌(${(commonRate * 100).toFixed(2)}%)`);
+    ok(A.CLASS_CARD_WEIGHT > 0, '职业权重仍生效');
+  }
+
+  /* --- AA7. 文案短到放得下（终结牌文案略长也不许爆卡面）--- */
+  {
+    const units = s => { let u = 0; for (const ch of String(s)) { if (/\s/.test(ch)) u += 0.34; else u += /[\x00-\xff]/.test(ch) ? 0.5 : 1.0; } return u; };
+    const strip = h => String(h).replace(/<[^>]+>/g, '');
+    const long = finishers
+      .map(f => ({ f, u: units(strip(f.text(makeCardLike(f)))) }))
+      .filter(x => x.u > 28);
+    ok(long.length === 0, '终结牌的卡面文案都在 28 单位内（真机可读性预算）',
+       long.map(x => `${x.f.name} ${x.u.toFixed(1)}`).join(', '));
   }
 }
 

@@ -165,9 +165,12 @@ export function classScene({ picks = [], onPick, onBack }) {
 
       ),
     );
-    // 难度分不够 → 置灰、显示门槛、点不动
+    // 难度分不够 → 置灰、显示门槛、点不动。
+    // ⚠️ `alwaysUnlocked` 的职业（铁誓骑士）**跳过这整套判定**：
+    // 增益拉满时总分是 **−40**，而骑士门槛是 0，`0 > −40` 会把骑士也锁掉 ——
+    // 8 个职业全锁、游戏直接进不去（2026-10-13 实测）。
     const need = c.unlockScore || 0;
-    if (need > score) {
+    if (!c.alwaysUnlocked && need > score) {
       card.classList.add('locked');
       card.append(el('div', { class: 'locknote', text: `🔒 需要 ${need} 难度分` }));
       card.addEventListener('click', () => {

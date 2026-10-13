@@ -336,6 +336,7 @@ export function battleScene(B, { onFinish, onQuit, resumed }) {
       const playable = B.canPlay(c);
       const node = cardEl(c, {
         extraClass: [playable ? 'playable' : '', selected === c ? 'selected' : ''].join(' '),
+        battle: B,                       // 让终结牌知道条件满足没有（决定要不要变暗）
         onClick: () => onCardTap(c, node),
       });
       if (!playable) node.classList.add('unplayable');
@@ -398,13 +399,24 @@ export function battleScene(B, { onFinish, onQuit, resumed }) {
   function onCardTap(card, node) {
     if (busy || finished) return;
     if (card.unplayable) { sfx.error(); toast('这张牌不能被打出'); return; }
-    if (!B.canPlay(card)) { sfx.error(); shake(node); toast('能量不足'); return; }
+    if (!B.canPlay(card)) {
+      sfx.error(); shake(node);
+      // 说清**为什么**不能打 —— 终结牌有两道门，笼统报"能量不足"会让玩家
+      // 以为是能量问题，实际是条件没满足（或没有合法目标）。
+      if (card.costN && B.energy < B.cardCost(card)) toast('能量不足');
+      else if (card.cond && !card.cond(B)) toast('条件还没满足 —— ' + finisherHint(card));
+      else if (card.targetFilter && !B.validTargets(card).length) toast('没有合法目标 —— ' + finisherHint(card));
+      else toast('能量不足');
+      return;
+    }
 
     const alive = B.aliveEnemies();
-    const needTarget = card.target === 'enemy' && alive.length > 1;
+    // 有 targetFilter 的牌必须让玩家自己点目标 —— 即使场上只剩 2 只，
+    // 也得筛出**合法的**那一只；auto-target 会打到不可选的敌人身上。
+    const needTarget = card.target === 'enemy' && (card.targetFilter ? B.validTargets(card).length > 1 : alive.length > 1);
     if (!needTarget) {
-      // 需要选目标但只有一个敌人，直接打
-      play(card, alive[0]);
+      const only = card.targetFilter ? B.validTargets(card)[0] : alive[0];
+      play(card, only);
       return;
     }
     if (selected === card) { cancelSelect(); return; }
@@ -415,6 +427,21 @@ export function battleScene(B, { onFinish, onQuit, resumed }) {
     sfx.click();
     toast(`选择「${card.name}」的目标`, 1200);
     sync();
+  }
+
+  /** 终结牌的条件说明（放在 toast 里告诉玩家差什么） */
+  function finisherHint(card) {
+    const m = {
+      finisher_bulwark: '需要 15 点以上护甲',
+      finisher_pyre: '需要某个敌人身上有 5 层以上点燃',
+      finisher_exsanguinate: '需要某个敌人身上有 8 层以上流血',
+      finisher_shatterfrost: '需要先把敌人冻住',
+      finisher_finaltheorem: '需要 3 层以上真理',
+      finisher_plagueend: '需要某个敌人身上有 8 层以上中毒',
+      finisher_judgment: '需要生命低于一半',
+      finisher_annihilate: '需要某个敌人身上有 5 层以上易伤',
+    };
+    return m[card.id] || '条件未满足';
   }
 
   function cancelSelect() {
@@ -432,6 +459,12 @@ export function battleScene(B, { onFinish, onQuit, resumed }) {
     }
     if (pendingTarget && selected) {
       const c = selected;
+      // 终结尾的目标限制也要在这里拦：点错目标不该"照着打"，而是明确拒绝
+      if (c.targetFilter && !c.targetFilter(e, B)) {
+        sfx.error();
+        toast('这个目标不合法 —— ' + finisherHint(c));
+        return;
+      }
       cancelSelect();
       play(c, e);
     } else {

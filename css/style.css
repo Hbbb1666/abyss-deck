@@ -354,6 +354,27 @@ i { color: var(--dim); font-style: normal; }
 .card.r-uncommon { border-image-source: url('../assets/ui/frame_uncommon.png'); }
 .card.r-rare { border-image-source: url('../assets/ui/frame_rare.png'); }
 .card.r-special { border-image-source: url('../assets/ui/frame_special.png'); }
+/* ---- 终结牌：彩色流光边框 ----
+   不用 PNG 边框（静态贴图做不出"流光"），而是抹掉 border-image、
+   用**会动的 box-shadow** 画一圈彩色描边。box-shadow 是跨浏览器都能动画的属性，
+   比 conic-gradient + @property 稳（后者在旧 Safari 上不生效，会退化成没有边框）。
+   注意 `.card` 自己带背景渐变，default 撑满 border-box，
+   所以抹掉 border-image 之后那 12px 边框区不会漏成透明。 */
+.card.r-finisher {
+  border-image-source: none;
+  background: linear-gradient(#3a2748, #20142e);
+  animation: finisherGlow 2.6s linear infinite;
+}
+@keyframes finisherGlow {
+  0%, 100% { box-shadow: 0 0 0 2px #ff79e1, 0 0 12px #ff79e1aa, inset 0 0 10px #ff79e144; }
+  33%      { box-shadow: 0 0 0 2px #7ad2ff, 0 0 12px #7ad2ffaa, inset 0 0 10px #7ad2ff44; }
+  66%      { box-shadow: 0 0 0 2px #ffe97a, 0 0 12px #ffe97aaa, inset 0 0 10px #ffe97a44; }
+}
+/* 条件没满足时：保留彩色（让玩家知道这是张特殊的牌），但明确变暗 */
+.card.r-finisher.gated { animation: none; filter: saturate(.35) brightness(.72); box-shadow: 0 0 0 2px #8a7f9a; }
+@media (prefers-reduced-motion: reduce) {
+  .card.r-finisher { animation: none; box-shadow: 0 0 0 2px #ff79e1, 0 0 12px #ff79e188; }
+}
 .card.t-curse, .card.t-status { border-image-source: url('../assets/ui/frame_curse.png'); filter: saturate(.5); }
 
 /* ---- 费用配色变量 ----

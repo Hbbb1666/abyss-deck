@@ -215,17 +215,40 @@ export function gainGold(n) {
     不然奖励里一半是中立牌，构筑会越来越趋同。 */
 export const CLASS_CARD_WEIGHT = 3;
 
+/** 终结牌的抽取权重（普通稀少度的牌是 1，职业牌 ×3）。
+ *
+ * 产品要求"获得权重较低" —— 它们是**一次性的大牌**，摸到一张就定型了，
+ * 出现得太多会让每局都变成"等终结牌"。
+ * 0.18 的含义：一次金卡位里，终结牌的出现概率大约是同池普通牌的 1/6。
+ * 配合 `unique`（牌组里有一张就不再给第二张），一局通常只会见到 1~2 张。 */
+export const FINISHER_WEIGHT = 0.18;
+
+/** 这张卡现在能不能进奖励池。
+ *  `unique` 的终结牌：牌组里已经有一张就不再出现（产品要求"有一个就不会获得第二个"）。 */
+function rewardEligible(c) {
+  if (!c.unique) return true;
+  return !(G.deck || []).some(d => d && d.id === c.id);
+}
+
 export function rollCardChoices(n = 3) {
   const cls = G.cls;
-  const rarityRoll = () => G.rng.weighted([['common', 58], ['uncommon', 32], ['rare', 10]]);
+  // 终结牌不再按 58/32/10 的普通稀有度分布掷 —— 它们自成一体，
+  // 这里把 `finisher` 当成第四个档位，用一个很小的概率单独掷。
+  // 不这么做的话，终结牌混进 rare 池会把金卡位的概率整体稀释掉。
+  const rarityRoll = () => G.rng.weighted([['common', 58], ['uncommon', 32], ['rare', 10], ['finisher', 4]]);
   const out = [];
   let guard = 0;
   while (out.length < n && guard++ < 200) {
     const r = rarityRoll();
     // 同一个稀有度里，专属卡的抽取权重是中立卡的 CLASS_CARD_WEIGHT 倍
-    const pool = rewardPool(cls, [r]).filter(c => !out.some(x => x.id === c.id));
+    const pool = rewardPool(cls, [r])
+      .filter(c => rewardEligible(c))
+      .filter(c => !out.some(x => x.id === c.id));
     if (!pool.length) continue;
-    const c = G.rng.weighted(pool.map(x => [x, x.cls === cls ? CLASS_CARD_WEIGHT : 1]));
+    const c = G.rng.weighted(pool.map(x => [
+      x,
+      (x.cls === cls ? CLASS_CARD_WEIGHT : 1) * (x.finisher ? FINISHER_WEIGHT : 1),
+    ]));
     out.push(c);
   }
   // 兜底：池子太小时放宽

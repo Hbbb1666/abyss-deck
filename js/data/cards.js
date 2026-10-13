@@ -52,13 +52,13 @@ export const CARDS = {
   /* ============ 骑士 ============ */
   heavy_blow: {
     name: '重击', cls: 'knight', type: 'attack', rarity: 'common', cost: 2, target: 'enemy',
-    art: 'sword_broad', dmg: 12, up: { dmg: 16 },
+    art: 'sword_broad', dmg: 13, up: { dmg: 16 },
     text: c => `造成 <b>${c.dmg}</b> 点伤害。`,
     fx: [{ t: 'dmg', v: 'dmg' }],
   },
   iron_wall: {
     name: '铁壁', cls: 'knight', type: 'skill', rarity: 'common', cost: 2, target: 'self',
-    art: 'bars', blk: 10, up: { blk: 13 },
+    art: 'bars', blk: 13, up: { blk: 17 },
     text: c => `获得 <b>${c.blk}</b> 点护甲。`,
     fx: [{ t: 'block', v: 'blk' }],
   },
@@ -76,7 +76,7 @@ export const CARDS = {
   },
   crush: {
     name: '碎骨', cls: 'knight', type: 'attack', rarity: 'uncommon', cost: 2, target: 'enemy',
-    art: 'hammer', dmg: 9, vul: 1, up: { dmg: 13, vul: 2 },
+    art: 'hammer', dmg: 11, vul: 1, up: { dmg: 13, vul: 2 },
     text: c => `造成 <b>${c.dmg}</b> 点伤害，施加 <b>${c.vul}</b> 层易伤。`,
     fx: [{ t: 'dmg', v: 'dmg' }, { t: 'debuff', k: 'vulnerable', v: 'vul' }],
   },
@@ -94,7 +94,7 @@ export const CARDS = {
   },
   pommel_strike: {
     name: '剑柄打击', cls: 'knight', type: 'attack', rarity: 'common', cost: 2, target: 'enemy',
-    art: 'sword_short', dmg: 7, draw: 1, up: { dmg: 9, draw: 2 },
+    art: 'sword_short', dmg: 8, draw: 1, up: { dmg: 9, draw: 2 },
     text: c => `造成 <b>${c.dmg}</b> 点伤害，抽 <b>${c.draw}</b> 张牌。`,
     fx: [{ t: 'dmg', v: 'dmg' }, { t: 'draw', v: 'draw' }],
   },
@@ -106,13 +106,13 @@ export const CARDS = {
   },
   iron_blood: {
     name: '铁血', cls: 'knight', type: 'skill', rarity: 'common', cost: 1, target: 'self',
-    art: 'potion_red', heal: 5, exhaust: true, up: { heal: 8 },
+    art: 'potion_red', heal: 6, exhaust: true, up: { heal: 8 },
     text: c => `回复 <b>${c.heal}</b> 点生命。<i>消耗</i>`,
     fx: [{ t: 'heal', v: 'heal' }],
   },
   perfect_guard: {
     name: '完美格挡', cls: 'knight', type: 'skill', rarity: 'common', cost: 2, target: 'self',
-    art: 'portcullis', blk: 7, draw: 1, up: { blk: 9 },
+    art: 'portcullis', blk: 8, draw: 1, up: { blk: 9 },
     text: c => `获得 <b>${c.blk}</b> 点护甲，抽 <b>${c.draw}</b> 张牌。`,
     fx: [{ t: 'block', v: 'blk' }, { t: 'draw', v: 'draw' }],
   },
@@ -127,7 +127,7 @@ export const CARDS = {
   },
   thunderclap: {
     name: '雷霆一击', cls: 'knight', type: 'attack', rarity: 'uncommon', cost: 2, target: 'all',
-    art: 'poleaxe', dmg: 7, weak: 1, up: { dmg: 10, weak: 2 },
+    art: 'poleaxe', dmg: 8, weak: 1, up: { dmg: 10, weak: 2 },
     text: c => `对<b>所有</b>敌人造成 <b>${c.dmg}</b> 点伤害，施加 <b>${c.weak}</b> 层虚弱。`,
     fx: [{ t: 'dmgAll', v: 'dmg' }, { t: 'debuffAll', k: 'weak', v: 'weak' }],
   },
@@ -161,7 +161,7 @@ export const CARDS = {
   },
   earthshatter: {
     name: '地裂斩', cls: 'knight', type: 'attack', rarity: 'rare', cost: 2, target: 'all',
-    art: 'boss_stone', dmg: 7, vul: 1, up: { dmg: 9, vul: 2 },
+    art: 'boss_stone', dmg: 9, vul: 1, up: { dmg: 10, vul: 2 },
     text: c => `对<b>所有</b>敌人造成 <b>${c.dmg}</b> 点伤害，施加 <b>${c.vul}</b> 层易伤。`,
     fx: [{ t: 'dmgAll', v: 'dmg' }, { t: 'debuffAll', k: 'vulnerable', v: 'vul' }],
   },
@@ -175,13 +175,13 @@ export const CARDS = {
   /* ============ 法师 ============ */
   fireball: {
     name: '火球术', cls: 'mage', type: 'attack', rarity: 'common', cost: 2, target: 'enemy',
-    art: 'potion_red', dmg: 8, poi: 1, up: { dmg: 11, poi: 2 },
+    art: 'potion_red', dmg: 11, poi: 1, up: { dmg: 14, poi: 2 },
     text: c => `造成 <b>${c.dmg}</b> 点伤害，施加 <b>${c.poi}</b> 层点燃。`,
     fx: [{ t: 'dmg', v: 'dmg' }, { t: 'debuff', k: 'burn', v: 'poi' }],
   },
   ice_shard: {
     name: '火矢', cls: 'mage', type: 'attack', rarity: 'common', cost: 1, target: 'enemy',
-    art: 'sword_dagger', dmg: 1, weak: 1, up: { dmg: 2, weak: 2 },
+    art: 'sword_dagger', dmg: 2, weak: 1, up: { dmg: 2, weak: 2 },
     text: c => `造成 <b>${c.dmg}</b> 点伤害，施加 <b>${c.weak}</b> 层虚弱。`,
     fx: [{ t: 'dmg', v: 'dmg' }, { t: 'debuff', k: 'weak', v: 'weak' }],
   },
@@ -211,7 +211,7 @@ export const CARDS = {
   },
   burning: {
     name: '燃烧', cls: 'mage', type: 'skill', rarity: 'common', cost: 1, target: 'enemy',
-    art: 'torch', poi: 1, up: { poi: 2 },
+    art: 'torch', poi: 2, up: { poi: 3 },
     text: c => `施加 <b>${c.poi}</b> 层点燃。`,
     fx: [{ t: 'debuff', k: 'burn', v: 'poi' }],
   },
@@ -223,7 +223,7 @@ export const CARDS = {
   },
   time_warp: {
     name: '烈焰急涌', cls: 'mage', type: 'skill', rarity: 'common', cost: 2, target: 'self',
-    art: 'coil', draw: 2, up: { draw: 3 },
+    art: 'coil', draw: 3, up: { draw: 4 },
     text: c => `抽 <b>${c.draw}</b> 张牌。`,
     fx: [{ t: 'draw', v: 'draw' }],
   },
@@ -247,13 +247,13 @@ export const CARDS = {
   },
   hex: {
     name: '焦灼诅咒', cls: 'mage', type: 'skill', rarity: 'uncommon', cost: 2, target: 'enemy',
-    art: 'grave_cross', vul: 2, weak: 1, up: { vul: 3, weak: 2 },
+    art: 'grave_cross', vul: 3, weak: 1, up: { vul: 4, weak: 2 },
     text: c => `施加 <b>${c.vul}</b> 层易伤和 <b>${c.weak}</b> 层虚弱。`,
     fx: [{ t: 'debuff', k: 'vulnerable', v: 'vul' }, { t: 'debuff', k: 'weak', v: 'weak' }],
   },
   soul_drain: {
     name: '焚魂汲取', cls: 'mage', type: 'attack', rarity: 'uncommon', cost: 2, target: 'enemy',
-    art: 'potion_green', dmg: 9, heal: 5, up: { dmg: 13, heal: 8 },
+    art: 'potion_green', dmg: 10, heal: 5, up: { dmg: 13, heal: 8 },
     text: c => `造成 <b>${c.dmg}</b> 点伤害，回复 <b>${c.heal}</b> 点生命。`,
     fx: [{ t: 'dmg', v: 'dmg' }, { t: 'heal', v: 'heal' }],
   },
@@ -288,7 +288,7 @@ export const CARDS = {
   },
   backstab: {
     name: '背刺', cls: 'rogue', type: 'attack', rarity: 'common', cost: 0, target: 'enemy',
-    art: 'sword_dagger', dmg: 5, exhaust: true, up: { dmg: 7 },
+    art: 'sword_dagger', dmg: 6, exhaust: true, up: { dmg: 7 },
     text: c => `造成 <b>${c.dmg}</b> 点伤害。<i>消耗</i>`,
     fx: [{ t: 'dmg', v: 'dmg' }],
   },
@@ -299,25 +299,28 @@ export const CARDS = {
     fx: [{ t: 'dmg', v: 'dmg', hits: 'hits' }],
   },
   dagger_throw: {
-    // 抽牌在价值表里值 5 点，1 费普通档（5 点）装不下"伤害+抽牌"。
-    // 游侠的设计身份是**低费为主**，所以这里选择"去掉抽牌、保住 1 费"，而不是升费。
+    // 游侠的招牌"打一下、抽一张、弃一张"。抽牌涨价后（2→5 点）要重新配平：
+    // 伤害压到 2 点，让 2 + 5(抽) − 0.8(弃) = 6.2 落在 1 费普通档（5）附近。
+    // 这一张是**故意保住的过牌轴** —— 游侠的身份就是"低费快过牌"，
+    // 不能因为抽牌变贵就把这条轴整条砍掉（那样职业定位就名存实亡了）。
     name: '飞刀', cls: 'rogue', type: 'attack', rarity: 'common', cost: 1, target: 'enemy',
-    art: 'sword_dagger', dmg: 5, up: { dmg: 7 },
-    text: c => `造成 <b>${c.dmg}</b> 点伤害，然后弃 1 张牌。`,
-    fx: [{ t: 'dmg', v: 'dmg' }, { t: 'discard', v: 1 }],
+    art: 'sword_dagger', dmg: 2, draw: 1, up: { dmg: 4 },
+    text: c => `造成 <b>${c.dmg}</b> 点伤害，抽 <b>${c.draw}</b> 张牌，然后弃 1 张牌。`,
+    fx: [{ t: 'dmg', v: 'dmg' }, { t: 'draw', v: 'draw' }, { t: 'discard', v: 1 }],
   },
   shadow_strike: {
     name: '影袭', cls: 'rogue', type: 'attack', rarity: 'uncommon', cost: 2, target: 'enemy',
-    art: 'sword_long', dmg: 14, up: { dmg: 18 },
+    art: 'sword_long', dmg: 15, up: { dmg: 18 },
     text: c => `造成 <b>${c.dmg}</b> 点伤害。`,
     fx: [{ t: 'dmg', v: 'dmg' }],
   },
   dodge: {
-    // 同上：保住 1 费，把"抽 1 张"换成「备战」（下回合护甲），仍是防御牌但不撞抽牌预算。
+    // 游侠的第二张过牌：1 费抽 1 张（抽牌 5 点 = 1 费普通档上限，正好卡满）。
+    // 升级给「费用 0」——0 费抽 1 张同样是 5 点，正好是 0/1 费档的上限。
     name: '闪避', cls: 'rogue', type: 'skill', rarity: 'common', cost: 1, target: 'self',
-    art: 'door_wood', blk: 3, next: 2, up: { blk: 4, next: 3 },
-    text: c => `获得 <b>${c.blk}</b> 点护甲，下回合再获得 <b>${c.next}</b> 点护甲。`,
-    fx: [{ t: 'block', v: 'blk' }, { t: 'buff', k: 'block_next', v: 'next' }],
+    art: 'door_wood', draw: 1, blk: 2, up: { cost: 0 },
+    text: c => `抽 <b>${c.draw}</b> 张牌，获得 <b>${c.blk}</b> 点护甲。`,
+    fx: [{ t: 'draw', v: 'draw' }, { t: 'block', v: 'blk' }],
   },
   smoke_bomb: {
     name: '烟雾弹', cls: 'rogue', type: 'skill', rarity: 'common', cost: 1, target: 'all',
@@ -327,7 +330,7 @@ export const CARDS = {
   },
   deadly_poison: {
     name: '大出血', cls: 'rogue', type: 'skill', rarity: 'uncommon', cost: 2, target: 'enemy',
-    art: 'potion_green', poi: 5, up: { poi: 6 },
+    art: 'potion_green', poi: 6, up: { poi: 7 },
     text: c => `施加 <b>${c.poi}</b> 层流血。`,
     fx: [{ t: 'debuff', k: 'bleed', v: 'poi' }],
   },
@@ -351,7 +354,7 @@ export const CARDS = {
   },
   swift_step: {
     name: '疾风步', cls: 'rogue', type: 'skill', rarity: 'common', cost: 0, target: 'self',
-    art: 'box', blk: 5, exhaust: true, up: { blk: 8 },
+    art: 'box', blk: 6, exhaust: true, up: { blk: 8 },
     text: c => `获得 <b>${c.blk}</b> 点护甲。<i>消耗</i>`,
     fx: [{ t: 'block', v: 'blk' }],
   },
@@ -363,7 +366,7 @@ export const CARDS = {
   },
   loot: {
     name: '掠夺', cls: 'rogue', type: 'skill', rarity: 'common', cost: 1, target: 'self',
-    art: 'chest_gold', gold: 50, exhaust: true, up: { gold: 75 },
+    art: 'chest_gold', gold: 13, exhaust: true, up: { gold: 18 },
     text: c => `获得 <b>${c.gold}</b> 金币。<i>消耗</i>`,
     fx: [{ t: 'gold', v: 'gold' }],
   },
@@ -375,7 +378,7 @@ export const CARDS = {
   },
   assassinate: {
     name: '暗杀', cls: 'rogue', type: 'attack', rarity: 'uncommon', cost: 1, target: 'enemy',
-    art: 'sword_dagger', dmg: 3, exec: 25, up: { dmg: 4 },
+    art: 'sword_dagger', dmg: 4, exec: 25, up: { dmg: 4 },
     text: c => `造成 <b>${c.dmg}</b> 点伤害。若敌人生命低于 <b>${c.exec}%</b>，直接斩杀。`,
     fx: [{ t: 'dmg', v: 'dmg', execute: 'exec' }],
   },
@@ -399,7 +402,7 @@ export const CARDS = {
   },
   guardian_angel: {
     name: '守护天使', cls: 'knight', type: 'skill', rarity: 'rare', cost: 2, target: 'self',
-    art: 'grave_cross', heal: 8, blk: 7, up: { heal: 12, blk: 11 },
+    art: 'grave_cross', heal: 10, blk: 7, up: { heal: 12, blk: 11 },
     text: c => `回复 <b>${c.heal}</b> 点生命，获得 <b>${c.blk}</b> 点护甲。`,
     fx: [{ t: 'heal', v: 'heal' }, { t: 'block', v: 'blk' }],
   },
@@ -419,7 +422,7 @@ export const CARDS = {
   },
   frost_armor: {
     name: '熔岩之肤', cls: 'mage', type: 'skill', rarity: 'uncommon', cost: 1, target: 'all',
-    art: 'door', blk: 1, weak: 1, up: { blk: 2, weak: 2 },
+    art: 'door', blk: 2, weak: 1, up: { blk: 2, weak: 2 },
     text: c => `获得 <b>${c.blk}</b> 点护甲，对<b>所有</b>敌人施加 <b>${c.weak}</b> 层虚弱。`,
     fx: [{ t: 'block', v: 'blk' }, { t: 'debuffAll', k: 'weak', v: 'weak' }],
   },
@@ -431,7 +434,7 @@ export const CARDS = {
   },
   mind_spike: {
     name: '火星迸射', cls: 'mage', type: 'attack', rarity: 'common', cost: 2, target: 'enemy',
-    art: 'key_blue', dmg: 7, draw: 1, up: { dmg: 9, draw: 2 },
+    art: 'key_blue', dmg: 8, draw: 1, up: { dmg: 9, draw: 2 },
     text: c => `造成 <b>${c.dmg}</b> 点伤害，抽 <b>${c.draw}</b> 张牌。`,
     fx: [{ t: 'dmg', v: 'dmg' }, { t: 'draw', v: 'draw' }],
   },
@@ -439,7 +442,7 @@ export const CARDS = {
   /* ============ 游侠 · 补充 ============ */
   blade_rain: {
     name: '刃雨', cls: 'rogue', type: 'attack', rarity: 'rare', cost: 2, target: 'all',
-    art: 'sword_dagger', dmg: 9, poi: 1, up: { dmg: 12, poi: 1 },
+    art: 'sword_dagger', dmg: 10, poi: 1, up: { dmg: 13 },
     text: c => `对<b>所有</b>敌人造成 <b>${c.dmg}</b> 点伤害，施加 <b>${c.poi}</b> 层流血。`,
     fx: [{ t: 'dmgAll', v: 'dmg' }, { t: 'debuffAll', k: 'bleed', v: 'poi' }],
   },
@@ -450,14 +453,16 @@ export const CARDS = {
     fx: [{ t: 'debuffAll', k: 'bleed', v: 'poi' }],
   },
   pickpocket: {
+    // 1 费蓝档预算 6 点：12 金币（0.5 点/枚 = 6）。原来还带"抽 1 张"（5 点），
+    // 那会让它到 11 点 —— 抽牌涨价后 1 费档放不下，所以去掉抽牌。
     name: '扒窃', cls: 'rogue', type: 'skill', rarity: 'uncommon', cost: 1, target: 'self',
-    art: 'key_gold', gain: 25, draw: 1, up: { gain: 40 },
-    text: c => `获得 <b>${c.gain}</b> 金币，抽 <b>${c.draw}</b> 张牌。`,
-    fx: [{ t: 'gold', v: 'gain' }, { t: 'draw', v: 'draw' }],
+    art: 'key_gold', gain: 12, up: { gain: 18 },
+    text: c => `获得 <b>${c.gain}</b> 金币。`,
+    fx: [{ t: 'gold', v: 'gain' }],
   },
   caltrops: {
     name: '铁蒺藜', cls: 'rogue', type: 'skill', rarity: 'common', cost: 1, target: 'self',
-    art: 'spider', blk: 1, thn: 1, up: { blk: 2, thn: 2 },
+    art: 'spider', blk: 2, thn: 1, up: { blk: 2, thn: 2 },
     text: c => `获得 <b>${c.blk}</b> 点护甲和 <b>${c.thn}</b> 层荆棘。`,
     fx: [{ t: 'block', v: 'blk' }, { t: 'buff', k: 'thorns', v: 'thn' }],
   },
@@ -474,7 +479,7 @@ export const CARDS = {
   },
   shadow_step: {
     name: '暗影步', cls: 'assassin', type: 'skill', rarity: 'common', cost: 2, target: 'self',
-    art: 'door_wood', blk: 7, draw: 1, up: { blk: 9 },
+    art: 'door_wood', blk: 8, draw: 1, up: { blk: 9 },
     text: c => `获得 <b>${c.blk}</b> 点护甲，抽 <b>${c.draw}</b> 张牌。`,
     fx: [{ t: 'block', v: 'blk' }, { t: 'draw', v: 'draw' }],
   },
@@ -498,7 +503,7 @@ export const CARDS = {
   },
   lethal_thrust: {
     name: '致命突刺', cls: 'assassin', type: 'attack', rarity: 'common', cost: 2, target: 'enemy',
-    art: 'sword_long', dmg: 12, up: { dmg: 16 },
+    art: 'sword_long', dmg: 13, up: { dmg: 16 },
     text: c => `造成 <b>${c.dmg}</b> 点伤害。`,
     fx: [{ t: 'dmg', v: 'dmg' }],
   },
@@ -527,10 +532,12 @@ export const CARDS = {
     fx: [{ t: 'block', v: 'blk' }, { t: 'buff', k: 'block_next', v: 'next' }],
   },
   mark: {
+    // 0 费普通档预算 5 点；单独 1 层易伤（刺客 3.5）达不到，
+    // 所以补 1 层虚弱凑满（3.5 + 3 = 6.5，留 1.5 余量）。
     name: '猎杀标记', cls: 'assassin', type: 'skill', rarity: 'common', cost: 0, target: 'enemy',
-    art: 'key_red', vul: 1, exhaust: true, up: { vul: 2 },
-    text: c => `施加 <b>${c.vul}</b> 层易伤。<i>消耗</i>`,
-    fx: [{ t: 'debuff', k: 'vulnerable', v: 'vul' }],
+    art: 'key_red', vul: 1, weak: 1, exhaust: true, up: { vul: 2, weak: 2 },
+    text: c => `施加 <b>${c.vul}</b> 层易伤和 <b>${c.weak}</b> 层虚弱。<i>消耗</i>`,
+    fx: [{ t: 'debuff', k: 'vulnerable', v: 'vul' }, { t: 'debuff', k: 'weak', v: 'weak' }],
   },
   throat_slit: {
     name: '割喉', cls: 'assassin', type: 'attack', rarity: 'uncommon', cost: 1, target: 'enemy',
@@ -552,7 +559,7 @@ export const CARDS = {
   },
   assassins_mark: {
     name: '刺客印记', cls: 'assassin', type: 'skill', rarity: 'uncommon', cost: 2, target: 'enemy',
-    art: 'grave_cross', vul: 2, draw: 1, up: { vul: 3, draw: 2 },
+    art: 'grave_cross', vul: 3, draw: 1, up: { vul: 4, draw: 2 },
     text: c => `施加 <b>${c.vul}</b> 层易伤，抽 <b>${c.draw}</b> 张牌。`,
     fx: [{ t: 'debuff', k: 'vulnerable', v: 'vul' }, { t: 'draw', v: 'draw' }],
   },
@@ -579,7 +586,7 @@ export const CARDS = {
   },
   execute: {
     name: '处决', cls: 'assassin', type: 'attack', rarity: 'rare', cost: 2, target: 'enemy',
-    art: 'sword_broad', dmg: 13, exec: 35, up: { dmg: 18, exec: 40 },
+    art: 'sword_broad', dmg: 15, exec: 35, up: { dmg: 20, exec: 40 },
     text: c => `造成 <b>${c.dmg}</b> 点伤害。生命低于 <b>${c.exec}%</b> 则直接斩杀。`,
     fx: [{ t: 'dmg', v: 'dmg', execute: 'exec' }],
   },
@@ -620,7 +627,7 @@ export const CARDS = {
   },
   bulwark_slam: {
     name: '壁垒冲撞', cls: 'knight', type: 'attack', rarity: 'uncommon', cost: 2, target: 'enemy',
-    art: 'hammer', dmg: 7, blk: 6, up: { dmg: 9, blk: 8 },
+    art: 'hammer', dmg: 9, blk: 6, up: { dmg: 9, blk: 8 },
     text: c => `造成 <b>${c.dmg}</b> 点伤害，获得 <b>${c.blk}</b> 点护甲。`,
     fx: [{ t: 'dmg', v: 'dmg' }, { t: 'block', v: 'blk' }],
   },
@@ -697,7 +704,7 @@ export const CARDS = {
     // 于是去掉抽牌、保留"低费叠流血"这个身份。文案与 fx 必须同步改 ——
     // 只删字段不删 fx 会让测试抓到"引用了不存在的字段"（这次就抓到了）。
     name: '淬血之刃', cls: 'rogue', type: 'attack', rarity: 'uncommon', cost: 0, target: 'enemy',
-    art: 'potion_green', dmg: 1, poi: 1, up: { dmg: 2, poi: 2 },
+    art: 'potion_green', dmg: 2, poi: 2, up: { dmg: 3, poi: 3 },
     text: c => `造成 <b>${c.dmg}</b> 点伤害，施加 <b>${c.poi}</b> 层流血。`,
     fx: [{ t: 'dmg', v: 'dmg' }, { t: 'debuff', k: 'bleed', v: 'poi' }],
   },
@@ -713,7 +720,7 @@ export const CARDS = {
   },
   shadow_arsenal: {
     name: '暗影武库', cls: 'assassin', type: 'skill', rarity: 'uncommon', cost: 2, target: 'self',
-    art: 'axe', str: 3, up: { str: 4 },
+    art: 'axe', str: 4, up: { str: 5 },
     text: c => `获得 <b>${c.str}</b> 层力量。`,
     fx: [{ t: 'buff', k: 'strength', v: 'str' }],
   },
@@ -756,13 +763,13 @@ export const CARDS = {
     // 2026-10-13：冰霜有**硬约束**（只允许出现在 ≥2 费的寒冰法师牌上，因为 1 层冰霜
     // 值 4.5 点，1 费档装不下），所以本卡由 1 费提到 2 费并把伤害补足预算。
     name: '寒冰箭', cls: 'icemage', type: 'skill', rarity: 'uncommon', cost: 2, target: 'enemy',
-    art: 'key_blue', dmg: 9, fro: 1, up: { dmg: 12 },
+    art: 'key_blue', dmg: 10, fro: 1, up: { dmg: 12 },
     text: c => `造成 <b>${c.dmg}</b> 点伤害，施加 <b>${c.fro}</b> 层冰霜。`,
     fx: [{ t: 'dmg', v: 'dmg' }, { t: 'debuff', k: 'frost', v: 'fro' }],
   },
   ice_wall: {
     name: '冰墙', cls: 'icemage', type: 'skill', rarity: 'common', cost: 2, target: 'self',
-    art: 'stone_platform', blk: 10, up: { blk: 13 },
+    art: 'stone_platform', blk: 13, up: { blk: 17 },
     text: c => `获得 <b>${c.blk}</b> 点护甲。`,
     fx: [{ t: 'block', v: 'blk' }],
   },
@@ -774,19 +781,19 @@ export const CARDS = {
   },
   ice_lance: {
     name: '冰枪', cls: 'icemage', type: 'skill', rarity: 'common', cost: 2, target: 'enemy',
-    art: 'sword_long', dmg: 12, up: { dmg: 16 },
+    art: 'sword_long', dmg: 13, up: { dmg: 16 },
     text: c => `造成 <b>${c.dmg}</b> 点伤害。`,
     fx: [{ t: 'dmg', v: 'dmg' }],
   },
   snow_veil: {
     name: '雪幕', cls: 'icemage', type: 'skill', rarity: 'common', cost: 2, target: 'self',
-    art: 'door', blk: 7, draw: 1, up: { blk: 9 },
+    art: 'door', blk: 8, draw: 1, up: { blk: 9 },
     text: c => `获得 <b>${c.blk}</b> 点护甲，抽 <b>${c.draw}</b> 张牌。`,
     fx: [{ t: 'block', v: 'blk' }, { t: 'draw', v: 'draw' }],
   },
   blizzard: {
     name: '暴风雪', cls: 'icemage', type: 'skill', rarity: 'common', cost: 2, target: 'all',
-    art: 'coil', dmg: 9, up: { dmg: 12 },
+    art: 'coil', dmg: 10, up: { dmg: 12 },
     text: c => `对<b>所有</b>敌人造成 <b>${c.dmg}</b> 点伤害。`,
     fx: [{ t: 'dmgAll', v: 'dmg' }],
   },
@@ -807,19 +814,21 @@ export const CARDS = {
   },
   hailstorm: {
     name: '冰雹', cls: 'icemage', type: 'skill', rarity: 'uncommon', cost: 2, target: 'all',
-    art: 'coil', dmg: 7, weak: 1, up: { dmg: 11 },
+    art: 'coil', dmg: 8, weak: 1, up: { dmg: 11 },
     text: c => `对<b>所有</b>敌人造成 <b>${c.dmg}</b> 点伤害，施加 <b>${c.weak}</b> 层虚弱。`,
     fx: [{ t: 'dmgAll', v: 'dmg' }, { t: 'debuffAll', k: 'weak', v: 'weak' }],
   },
   cold_snap: {
+    // 冰霜 2 层（4.5×2×1.3=11.7）离 2 费蓝上限 15 还差一截，补 1 层全体虚弱
+    //（3×1.3=3.9）刚好补齐 —— 这张牌的身份是"群体制冷"，顺手削弱是附带的。
     name: '寒潮', cls: 'icemage', type: 'skill', rarity: 'uncommon', cost: 2, target: 'all',
-    art: 'gate', fro: 2, up: { fro: 3 },
-    text: c => `对<b>所有</b>敌人施加 <b>${c.fro}</b> 层冰霜。`,
-    fx: [{ t: 'debuffAll', k: 'frost', v: 'fro' }],
+    art: 'gate', fro: 2, weak: 1, up: { fro: 3, weak: 2 },
+    text: c => `对<b>所有</b>敌人施加 <b>${c.fro}</b> 层冰霜和 <b>${c.weak}</b> 层虚弱。`,
+    fx: [{ t: 'debuffAll', k: 'frost', v: 'fro' }, { t: 'debuffAll', k: 'weak', v: 'weak' }],
   },
   shatter: {
     name: '碎冰', cls: 'icemage', type: 'attack', rarity: 'uncommon', cost: 2, target: 'enemy',
-    art: 'hammer', dmg: 6, bonus: 10, exec: 25, up: { dmg: 8, bonus: 13, exec: 30 },
+    art: 'hammer', dmg: 7, bonus: 10, exec: 25, up: { dmg: 8, bonus: 13, exec: 30 },
     text: c => `造成 <b>${c.dmg}</b> 点伤害；已<b>冰冻</b>则额外 <b>${c.bonus}</b> 点，低于 <b>${c.exec}%</b> 斩杀。`,
     fx: [{ t: 'dmg', v: 'dmg', ifFrozen: 'bonus', execute: 'exec' }],
   },
@@ -856,7 +865,7 @@ export const CARDS = {
   },
   winter: {
     name: '凛冬', cls: 'icemage', type: 'skill', rarity: 'rare', cost: 3, target: 'all',
-    art: 'grave_cross', fro: 3, weak: 2, up: { fro: 4 },
+    art: 'grave_cross', fro: 3, weak: 3, up: { fro: 4, weak: 3 },
     text: c => `对<b>所有</b>敌人施加 <b>${c.fro}</b> 层冰霜和 <b>${c.weak}</b> 层虚弱。`,
     fx: [{ t: 'debuffAll', k: 'frost', v: 'fro' }, { t: 'debuffAll', k: 'weak', v: 'weak' }],
   },
@@ -906,7 +915,7 @@ export const CARDS = {
   },
   rune_sight: {
     name: '符文视界', cls: 'arcanist', type: 'skill', rarity: 'common', cost: 2, target: 'self',
-    art: 'portal', draw: 2, up: { draw: 3 },
+    art: 'portal', draw: 3, up: { draw: 4 },
     text: c => `抽 <b>${c.draw}</b> 张牌。`,
     fx: [{ t: 'draw', v: 'draw' }],
   },
@@ -924,13 +933,13 @@ export const CARDS = {
   },
   runic_aegis: {
     name: '符文壁垒', cls: 'arcanist', type: 'skill', rarity: 'uncommon', cost: 2, target: 'self',
-    art: 'stone_platform', blk: 9, next: 3, up: { blk: 12, next: 4 },
+    art: 'stone_platform', blk: 10, next: 3, up: { blk: 12, next: 4 },
     text: c => `获得 <b>${c.blk}</b> 点护甲，下回合额外 <b>${c.next}</b> 点。`,
     fx: [{ t: 'block', v: 'blk' }, { t: 'buff', k: 'block_next', v: 'next' }],
   },
   arcane_analysis: {
     name: '奥术解析', cls: 'arcanist', type: 'skill', rarity: 'uncommon', cost: 2, target: 'enemy',
-    art: 'apprentice', dmg: 4, hits: 2, draw: 1, up: { dmg: 5 },
+    art: 'apprentice', dmg: 5, hits: 2, draw: 1, up: { dmg: 5 },
     text: c => `造成 <b>${c.dmg}</b> 点伤害 <b>${c.hits}</b> 次，抽 <b>${c.draw}</b> 张牌。`,
     fx: [{ t: 'dmg', v: 'dmg', hits: 'hits' }, { t: 'draw', v: 'draw' }],
   },
@@ -960,13 +969,13 @@ export const CARDS = {
   },
   final_theorem: {
     name: '终焉定理', cls: 'arcanist', type: 'skill', rarity: 'rare', cost: 3, target: 'enemy',
-    art: 'key_bone', dmg: 4, hits: 6, up: { dmg: 5 },
+    art: 'key_bone', dmg: 5, hits: 6, up: { dmg: 6 },
     text: c => `造成 <b>${c.dmg}</b> 点伤害 <b>${c.hits}</b> 次。`,
     fx: [{ t: 'dmg', v: 'dmg', hits: 'hits' }],
   },
   grand_unity: {
     name: '万物归一', cls: 'arcanist', type: 'skill', rarity: 'rare', cost: 3, target: 'self',
-    art: 'portal', tru: 2, blk: 15, up: { tru: 3, blk: 20 },
+    art: 'portal', tru: 2, blk: 18, up: { tru: 3, blk: 24 },
     text: c => `获得 <b>${c.tru}</b> 层真理和 <b>${c.blk}</b> 点护甲。`,
     fx: [{ t: 'buff', k: 'truth', v: 'tru' }, { t: 'block', v: 'blk' }],
   },
@@ -978,7 +987,7 @@ export const CARDS = {
   },
   infinite_recursion: {
     name: '无限递归', cls: 'arcanist', type: 'skill', rarity: 'rare', cost: 3, target: 'enemy',
-    art: 'coil', dmg: 5, hits: 4, tru: 1, up: { dmg: 6 },
+    art: 'coil', dmg: 6, hits: 4, tru: 1, up: { dmg: 7 },
     text: c => `造成 <b>${c.dmg}</b> 点伤害 <b>${c.hits}</b> 次，获得 <b>${c.tru}</b> 层真理。`,
     fx: [{ t: 'dmg', v: 'dmg', hits: 'hits' }, { t: 'buff', k: 'truth', v: 'tru' }],
   },
@@ -1004,7 +1013,7 @@ export const CARDS = {
   },
   acid_flask: {
     name: '酸液瓶', cls: 'alchemist', type: 'skill', rarity: 'uncommon', cost: 2, target: 'enemy',
-    art: 'potion_green', dmg: 10, poi: 1, up: { dmg: 13, poi: 2 },
+    art: 'potion_green', dmg: 12, poi: 1, up: { dmg: 14, poi: 2 },
     text: c => `造成 <b>${c.dmg}</b> 点伤害，施加 <b>${c.poi}</b> 层中毒。`,
     fx: [{ t: 'dmg', v: 'dmg' }, { t: 'debuff', k: 'poison', v: 'poi' }],
   },
@@ -1016,7 +1025,7 @@ export const CARDS = {
   },
   toxic_draught: {
     name: '剧毒药剂', cls: 'alchemist', type: 'skill', rarity: 'common', cost: 1, target: 'enemy',
-    art: 'potion_green', poi: 1, up: { poi: 2 },
+    art: 'potion_green', poi: 2, up: { poi: 3 },
     text: c => `施加 <b>${c.poi}</b> 层中毒。`,
     fx: [{ t: 'debuff', k: 'poison', v: 'poi' }],
   },
@@ -1034,7 +1043,7 @@ export const CARDS = {
   },
   coin_flip: {
     name: '点石成金', cls: 'alchemist', type: 'skill', rarity: 'common', cost: 1, target: 'self',
-    art: 'key_gold', gain: 30, up: { gain: 45 },
+    art: 'key_gold', gain: 10, up: { gain: 16 },
     text: c => `获得 <b>${c.gain}</b> 金币。`,
     fx: [{ t: 'gold', v: 'gain' }],
   },
@@ -1046,43 +1055,43 @@ export const CARDS = {
   },
   concentrate: {
     name: '浓缩', cls: 'alchemist', type: 'skill', rarity: 'uncommon', cost: 1, target: 'enemy',
-    art: 'potion_green', dmg: 2, poi: 1, up: { dmg: 3 },
+    art: 'potion_green', dmg: 3, poi: 1, up: { dmg: 3 },
     text: c => `造成 <b>${c.dmg}</b> 点伤害，施加 <b>${c.poi}</b> 层中毒。`,
     fx: [{ t: 'dmg', v: 'dmg' }, { t: 'debuff', k: 'poison', v: 'poi' }],
   },
   plague_flask: {
     name: '瘟疫之瓶', cls: 'alchemist', type: 'skill', rarity: 'uncommon', cost: 2, target: 'enemy',
-    art: 'potion_green', poi: 5, up: { poi: 6 },
+    art: 'potion_green', poi: 6, up: { poi: 7 },
     text: c => `施加 <b>${c.poi}</b> 层中毒。`,
     fx: [{ t: 'debuff', k: 'poison', v: 'poi' }],
   },
   acid_rain: {
     name: '酸雨', cls: 'alchemist', type: 'skill', rarity: 'uncommon', cost: 2, target: 'all',
-    art: 'potion_blue', dmg: 7, poi: 1, up: { dmg: 10 },
+    art: 'potion_blue', dmg: 9, poi: 1, up: { dmg: 12 },
     text: c => `对<b>所有</b>敌人造成 <b>${c.dmg}</b> 点伤害，施加 <b>${c.poi}</b> 层中毒。`,
     fx: [{ t: 'dmgAll', v: 'dmg' }, { t: 'debuffAll', k: 'poison', v: 'poi' }],
   },
   bubbling_shield: {
     name: '沸腾护盾', cls: 'alchemist', type: 'skill', rarity: 'uncommon', cost: 2, target: 'self',
-    art: 'potion_red', blk: 9, next: 3, up: { blk: 12, next: 4 },
+    art: 'potion_red', blk: 10, next: 3, up: { blk: 12, next: 4 },
     text: c => `获得 <b>${c.blk}</b> 点护甲，下回合额外 <b>${c.next}</b> 点。`,
     fx: [{ t: 'block', v: 'blk' }, { t: 'buff', k: 'block_next', v: 'next' }],
   },
   mercury: {
     name: '水银', cls: 'alchemist', type: 'skill', rarity: 'uncommon', cost: 2, target: 'enemy',
-    art: 'potion_empty', dmg: 10, weak: 1, up: { dmg: 14 },
+    art: 'potion_empty', dmg: 12, weak: 1, up: { dmg: 14 },
     text: c => `造成 <b>${c.dmg}</b> 点伤害，施加 <b>${c.weak}</b> 层虚弱。`,
     fx: [{ t: 'dmg', v: 'dmg' }, { t: 'debuff', k: 'weak', v: 'weak' }],
   },
   transmute: {
     name: '转化', cls: 'alchemist', type: 'skill', rarity: 'uncommon', cost: 2, target: 'self',
-    art: 'key_gold', gain: 70, draw: 1, up: { gain: 100 },
+    art: 'key_gold', gain: 20, draw: 1, up: { gain: 30 },
     text: c => `获得 <b>${c.gain}</b> 金币，抽 <b>${c.draw}</b> 张牌。`,
     fx: [{ t: 'gold', v: 'gain' }, { t: 'draw', v: 'draw' }],
   },
   virulent_toxin: {
     name: '剧毒之息', cls: 'alchemist', type: 'skill', rarity: 'rare', cost: 3, target: 'all',
-    art: 'ghost', poi: 7, up: { poi: 9 },
+    art: 'ghost', poi: 9, up: { poi: 11 },
     text: c => `对<b>所有</b>敌人施加 <b>${c.poi}</b> 层中毒。`,
     fx: [{ t: 'debuffAll', k: 'poison', v: 'poi' }],
   },
@@ -1100,13 +1109,13 @@ export const CARDS = {
   },
   elixir: {
     name: '万灵药', cls: 'alchemist', type: 'skill', rarity: 'rare', cost: 2, target: 'self',
-    art: 'potion_red', heal: 6, blk: 9, up: { heal: 9, blk: 14 },
+    art: 'potion_red', heal: 8, blk: 9, up: { heal: 9, blk: 14 },
     text: c => `回复 <b>${c.heal}</b> 点生命，获得 <b>${c.blk}</b> 点护甲。`,
     fx: [{ t: 'heal', v: 'heal' }, { t: 'block', v: 'blk' }],
   },
   gold_synthesis: {
     name: '炼金术', cls: 'alchemist', type: 'skill', rarity: 'rare', cost: 2, target: 'self',
-    art: 'key_gold', gain: 130, up: { gain: 180 },
+    art: 'key_gold', gain: 34, up: { gain: 46 },
     text: c => `获得 <b>${c.gain}</b> 金币。`,
     fx: [{ t: 'gold', v: 'gain' }],
   },
@@ -1142,7 +1151,7 @@ export const CARDS = {
   },
   divine_favor: {
     name: '神恩', cls: 'paladin', type: 'skill', rarity: 'common', cost: 2, target: 'self',
-    art: 'key_gold', heal: 7, draw: 1, up: { heal: 9 },
+    art: 'key_gold', heal: 8, draw: 1, up: { heal: 9 },
     text: c => `回复 <b>${c.heal}</b> 点生命，抽 <b>${c.draw}</b> 张牌。`,
     fx: [{ t: 'heal', v: 'heal' }, { t: 'draw', v: 'draw' }],
   },
@@ -1160,31 +1169,31 @@ export const CARDS = {
   },
   judgement: {
     name: '审判', cls: 'paladin', type: 'attack', rarity: 'uncommon', cost: 2, target: 'enemy',
-    art: 'hammer', dmg: 10, heal: 4, up: { dmg: 13, heal: 6 },
+    art: 'hammer', dmg: 11, heal: 4, up: { dmg: 13, heal: 6 },
     text: c => `造成 <b>${c.dmg}</b> 点伤害，回复 <b>${c.heal}</b> 点生命。`,
     fx: [{ t: 'dmg', v: 'dmg' }, { t: 'heal', v: 'heal' }],
   },
   greater_heal: {
     name: '高等治疗', cls: 'paladin', type: 'skill', rarity: 'uncommon', cost: 2, target: 'self',
-    art: 'key_gold', heal: 14, up: { heal: 18 },
+    art: 'key_gold', heal: 15, up: { heal: 18 },
     text: c => `回复 <b>${c.heal}</b> 点生命。`,
     fx: [{ t: 'heal', v: 'heal' }],
   },
   martyr: {
     name: '殉道', cls: 'paladin', type: 'attack', rarity: 'uncommon', cost: 2, target: 'enemy',
-    art: 'sword_broad', dmg: 14, selfdmg: 5, up: { dmg: 19, selfdmg: 4 },
+    art: 'sword_broad', dmg: 15, selfdmg: 5, up: { dmg: 19, selfdmg: 4 },
     text: c => `造成 <b>${c.dmg}</b> 点伤害。若你生命低于一半，改为造成 <b>双倍</b>。`,
     fx: [{ t: 'dmg', v: 'dmg', ifLowHp: 'dmg' }],
   },
   retribution: {
     name: '报应', cls: 'paladin', type: 'skill', rarity: 'uncommon', cost: 2, target: 'self',
-    art: 'bars', blk: 8, thn: 1, up: { blk: 12, thn: 2 },
+    art: 'bars', blk: 12, thn: 1, up: { blk: 16, thn: 2 },
     text: c => `获得 <b>${c.blk}</b> 点护甲和 <b>${c.thn}</b> 层荆棘。`,
     fx: [{ t: 'block', v: 'blk' }, { t: 'buff', k: 'thorns', v: 'thn' }],
   },
   divine_smite: {
     name: '神圣制裁', cls: 'paladin', type: 'attack', rarity: 'uncommon', cost: 2, target: 'enemy',
-    art: 'torch', dmg: 11, heal: 3, up: { dmg: 14 },
+    art: 'torch', dmg: 12, heal: 3, up: { dmg: 14 },
     text: c => `造成 <b>${c.dmg}</b> 点伤害，回复 <b>${c.heal}</b> 点生命。`,
     fx: [{ t: 'dmg', v: 'dmg' }, { t: 'heal', v: 'heal' }],
   },
@@ -1208,7 +1217,7 @@ export const CARDS = {
   },
   divine_intervention: {
     name: '神圣干预', cls: 'paladin', type: 'skill', rarity: 'rare', cost: 3, target: 'self',
-    art: 'portal', heal: 8, blk: 17, up: { heal: 11, blk: 24 },
+    art: 'portal', heal: 10, blk: 18, up: { heal: 13, blk: 25 },
     text: c => `回复 <b>${c.heal}</b> 点生命，获得 <b>${c.blk}</b> 点护甲。`,
     fx: [{ t: 'heal', v: 'heal' }, { t: 'block', v: 'blk' }],
   },
@@ -1220,7 +1229,7 @@ export const CARDS = {
   },
   eternal_light: {
     name: '永恒圣光', cls: 'paladin', type: 'power', rarity: 'rare', cost: 2, target: 'self',
-    art: 'torch', hl: 4, up: { hl: 6 },
+    art: 'torch', hl: 5, up: { hl: 7 },
     text: c => `回合结束时回复 <b>${c.hl}</b> 点生命（然后 -1 层）。`,
     fx: [{ t: 'buff', k: 'regen', v: 'hl' }],
   },
@@ -1234,13 +1243,13 @@ export const CARDS = {
   /* ============ 中性 ============ */
   bandage: {
     name: '绷带', cls: 'neutral', type: 'skill', rarity: 'common', cost: 0, target: 'self',
-    art: 'potion_empty', heal: 4, exhaust: true, up: { heal: 7 },
+    art: 'potion_empty', heal: 6, exhaust: true, up: { heal: 8 },
     text: c => `回复 <b>${c.heal}</b> 点生命。<i>消耗</i>`,
     fx: [{ t: 'heal', v: 'heal' }],
   },
   quick_slash: {
     name: '快速斩击', cls: 'neutral', type: 'attack', rarity: 'common', cost: 0, target: 'enemy',
-    art: 'sword_short', dmg: 3, up: { dmg: 5 },
+    art: 'sword_short', dmg: 5, up: { dmg: 5 },
     text: c => `造成 <b>${c.dmg}</b> 点伤害。`,
     fx: [{ t: 'dmg', v: 'dmg' }],
   },
@@ -1300,6 +1309,110 @@ export const CARDS = {
     text: c => `<i>不能被打出。</i>回合结束时受到 <b>${c.endDmg}</b> 点伤害。`,
     fx: [],
   },
+
+  /* ============================================================================
+   * 终结牌（Finisher）
+   * ----------------------------------------------------------------------------
+   * 每个职业至少一张。共同点：
+   *   · `costN: true` —— 费用是 **N**：吃掉你**当前全部能量**。
+   *     它贵的不是 3 点能量，而是"这一回合你别的什么都打不了"。
+   *   · `finisher: true` —— 卡框走彩色流光（CSS `.card.r-finisher`），
+   *     `rarity: 'finisher'` 给它自己的稀有度档。
+   *   · `cond: B => …` —— **条件门**：没满足就打不出去（界面会置灰并说明原因）。
+   *   · `targetFilter`（可选）—— 只允许打在某类目标上（例：只能打**冻结**目标）。
+   *   · `unique: true` —— 牌组里有一张就**不会再给第二张**（见 rewardPool/rollCardChoices）。
+   *   · 参考价值 **40**（见 values.js 的 FINISHER_VALUE）—— 不走普通费用档的预算。
+   *
+   * 设计意图：它们不是"更强的普通牌"，而是**给一套铺垫一个交代**。
+   * 每张都要求你先做成某件事（叠够点燃/流血/中毒、冻住它、攒够护甲…），
+   * 然后一次性把铺垫全部兑现。所以它们只在"构筑成型"之后才有意义。
+   * ========================================================================== */
+
+  /** 铁誓骑士 —— 先挨打攒甲，再一次性把甲变成全体重击 */
+  finisher_bulwark: {
+    name: '誓约·破城', cls: 'knight', type: 'attack', rarity: 'finisher', cost: 3, costN: true,
+    finisher: true, unique: true, target: 'all',
+    art: 'portcullis', dmg: 25, blk: 8,
+    cond: B => B.player.block >= 15,
+text: c => `<i>需护甲 ≥15</i><br>全体 <b>${c.dmg}</b> 伤，获得 <b>${c.blk}</b> 护甲。`,
+    fx: [{ t: 'dmgAll', v: 'dmg' }, { t: 'block', v: 'blk' }],
+  },
+
+  /** 火焰法师 —— 点燃烧够之后，引爆全部点燃 */
+  finisher_pyre: {
+    name: '焚世之终', cls: 'mage', type: 'attack', rarity: 'finisher', cost: 3, costN: true,
+    finisher: true, unique: true, target: 'enemy',
+    // 价值：伤害 20 + 全体点燃 6 层（2.5×6×1.3=19.5）= 39.5 ≈ 40。
+    // 引爆是**额外**的（模型不计），所以实际收益比表面更高 —— 这正是终结牌该有的样子。
+    art: 'icon_burn', dmg: 20, mult: 2, poi: 6,
+    cond: B => B.aliveEnemies().some(e => B.get(e, 'burn') >= 5),
+text: c => `<i>需点燃 ≥5</i><br><b>${c.dmg}</b> 伤，引爆其点燃 ×${c.mult}，全体 +<b>${c.poi}</b> 点燃。`,
+    fx: [{ t: 'dmg', v: 'dmg' }, { t: 'detonate', mult: 'mult' }, { t: 'debuffAll', k: 'burn', v: 'poi' }],
+  },
+
+  /** 暗巷游侠 —— 放够血之后，把流血一次性榨干 */
+  finisher_exsanguinate: {
+    name: '血尽', cls: 'rogue', type: 'attack', rarity: 'finisher', cost: 3, costN: true,
+    finisher: true, unique: true, target: 'enemy',
+    // 价值：伤害 20 + 全体流血 6 层（2.5×6×1.3=19.5）= 39.5；dmgBleed 是额外收益
+    art: 'spider', dmg: 20, mult: 3, poi: 6,
+    cond: B => B.aliveEnemies().some(e => B.get(e, 'bleed') >= 8),
+text: c => `<i>需流血 ≥8</i><br><b>${c.dmg}</b> 伤 +（流血×<b>${c.mult}</b>），全体 +<b>${c.poi}</b> 流血。`,
+    fx: [{ t: 'dmg', v: 'dmg' }, { t: 'dmgBleed', mult: 'mult' }, { t: 'debuffAll', k: 'bleed', v: 'poi' }],
+  },
+
+  /** 寒冰法师 —— 冻住它，然后一击碎冰（产品给的例子） */
+  finisher_shatterfrost: {
+    name: '碎冰绝响', cls: 'icemage', type: 'attack', rarity: 'finisher', cost: 3, costN: true,
+    finisher: true, unique: true, target: 'enemy',
+    art: 'icon_freeze', dmg: 25, fro: 2,
+    // 只能打**处于冰冻**的敌人 —— 这就是产品给的那个例子。
+    targetFilter: (e, B) => B.get(e, 'freeze') > 0,
+    cond: B => B.aliveEnemies().some(e => B.get(e, 'freeze') > 0),
+text: c => `<i>需冰冻中</i><br><b>${c.dmg}</b> 伤，+<b>${c.fro}</b> 冰霜。`,
+    fx: [{ t: 'dmg', v: 'dmg' }, { t: 'debuff', k: 'frost', v: 'fro' }],
+  },
+
+  /** 奥术法师 —— 真理叠够，一次连击收尾 */
+  finisher_finaltheorem: {
+    name: '终极定理', cls: 'arcanist', type: 'attack', rarity: 'finisher', cost: 3, costN: true,
+    finisher: true, unique: true, target: 'enemy',
+    art: 'arcane_orb', dmg: 8, hits: 5,
+    cond: B => B.get(B.player, 'truth') >= 3,
+text: c => `<i>需真理 ≥3</i><br><b>${c.dmg}</b> 伤 ×<b>${c.hits}</b>。`,
+    fx: [{ t: 'dmg', v: 'dmg', hits: 'hits' }],
+  },
+
+  /** 炼金师 —— 毒够厚，一次性归宗 */
+  finisher_plagueend: {
+    name: '万毒归宗', cls: 'alchemist', type: 'attack', rarity: 'finisher', cost: 3, costN: true,
+    finisher: true, unique: true, target: 'enemy',
+    // 价值：伤害 25 + 全体中毒 4 层（2.5×4×1.3=13）= 38；毒爆（dmgPoison）是额外收益
+    art: 'potion_green', dmg: 25, mult: 5, poi: 4,
+    cond: B => B.aliveEnemies().some(e => B.get(e, 'poison') >= 8),
+text: c => `<i>需中毒 ≥8</i><br><b>${c.dmg}</b> 伤 +（中毒×<b>${c.mult}</b>），全体 +<b>${c.poi}</b> 中毒。`,
+    fx: [{ t: 'dmg', v: 'dmg' }, { t: 'dmgPoison', mult: 'mult' }, { t: 'debuffAll', k: 'poison', v: 'poi' }],
+  },
+
+  /** 圣骑士 —— 残血时的圣裁：一口气奶回来再砸一波 */
+  finisher_judgment: {
+    name: '最终圣裁', cls: 'paladin', type: 'skill', rarity: 'finisher', cost: 3, costN: true,
+    finisher: true, unique: true, target: 'self',
+    art: 'anvil', heal: 25, dmg: 12,
+    cond: B => B.player.hp <= B.player.maxHp / 2,
+text: c => `<i>需生命 <50%</i><br>回复 <b>${c.heal}</b>，全体 <b>${c.dmg}</b> 伤。`,
+    fx: [{ t: 'heal', v: 'heal' }, { t: 'dmgAll', v: 'dmg' }],
+  },
+
+  /** 暗影刺客 —— 易伤叠满，一刀定胜负 */
+  finisher_annihilate: {
+    name: '湮灭之刻', cls: 'assassin', type: 'attack', rarity: 'finisher', cost: 3, costN: true,
+    finisher: true, unique: true, target: 'enemy',
+    art: 'sword_broad', dmg: 30, vul: 3,
+    cond: B => B.aliveEnemies().some(e => B.get(e, 'vulnerable') >= 5),
+text: c => `<i>需易伤 ≥5</i><br><b>${c.dmg}</b> 伤，+<b>${c.vul}</b> 易伤。`,
+    fx: [{ t: 'dmg', v: 'dmg' }, { t: 'debuff', k: 'vulnerable', v: 'vul' }],
+  },
 };
 
 // 注入 id
@@ -1312,6 +1425,9 @@ export const RARITY = {
   uncommon: { label: '罕见', frame: 'uncommon', color: '#60a8ff' },
   rare: { label: '稀有', frame: 'rare', color: '#ffcc52' },
   special: { label: '特殊', frame: 'special', color: '#ba6eff' },
+  // 终结牌：自己一档。卡框走 CSS 的流光动画（.card.r-finisher），不用 PNG 边框，
+  // 因为"彩色"要的是**会动**的效果，静态贴图做不到。
+  finisher: { label: '终结', frame: 'finisher', color: '#ff79e1' },
 };
 
 export const TYPE_LABEL = { attack: '攻击', skill: '技能', power: '能力', curse: '诅咒', status: '状态' };
@@ -1335,4 +1451,11 @@ export function rewardPool(cls, rarities = ['common', 'uncommon', 'rare']) {
     rarities.includes(c.rarity) &&
     (c.cls === cls || c.cls === 'neutral') &&
     c.type !== 'curse' && c.type !== 'status');
+}
+
+/** 终结牌（费用 N、条件门、牌组唯一） */
+export const isFinisher = c => !!(c && c.finisher);
+/** 牌组里是否已经有这张终结牌的同名卡（用于 `unique` 判定） */
+export function deckHasCard(deck, id) {
+  return (deck || []).some(d => (d && d.id === id));
 }
