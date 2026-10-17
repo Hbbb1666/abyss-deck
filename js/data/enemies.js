@@ -25,7 +25,7 @@ const A = (name, dmg, extra = {}) => ({ name, intent: 'attack', dmg, ...extra })
     攻击增幅 2026-10-12 一天内被调过三次：+20% → +15% → +20% → **+13%**。
     难度系统里另有"每层额外 +8% 攻击"的选项可以再往上加。 */
 export const ACT_HP_STEP = 0.25;
-export const ACT_ATK_STEP = 0.13;
+export const ACT_ATK_STEP = 0.17;
 export const TOTAL_ACTS = 4;
 export function actScale(act) {
   const n = Math.max(0, (act | 0) - 1);
@@ -38,7 +38,7 @@ export const ENEMIES = {
     name: '史莱姆', sprite: 'slime', hp: [10, 14], act: 1,
     moves: {
       tackle: A('撞击', 5),
-      lick: { name: '酸液舔舐', intent: 'attack_debuff', dmg: 3, fx: [{ t: 'debuff', k: 'weak', v: 1 }] },
+      lick: { name: '酸液舔舐', intent: 'attack_debuff', dmg: 9, fx: [{ t: 'debuff', k: 'weak', v: 1 }] },
       jiggle: { name: '抖动', intent: 'buff', blk: 4 },
     },
     ai: (e, t, rng) => (t % 4 === 3 ? 'jiggle' : t % 3 === 2 ? 'lick' : 'tackle'),
@@ -46,7 +46,7 @@ export const ENEMIES = {
   bat: {
     name: '吸血蝙蝠', sprite: 'bat', hp: [8, 11], act: 1,
     moves: {
-      bite: A('双咬', 3, { hits: 2 }),
+      bite: A('双咬', 4, { hits: 2 }),
       screech: { name: '尖啸', intent: 'debuff', fx: [{ t: 'debuff', k: 'weak', v: 1 }] },
     },
     ai: (e, t) => (t % 3 === 2 ? 'screech' : 'bite'),
@@ -54,7 +54,7 @@ export const ENEMIES = {
   spider: {
     name: '洞穴蜘蛛', sprite: 'spider', hp: [10, 13], act: 1,
     moves: {
-      bite: A('毒咬', 4, { fx: [{ t: 'debuff', k: 'poison', v: 1 }] }),
+      bite: A('毒咬', 9, { fx: [{ t: 'debuff', k: 'poison', v: 1 }] }),
       web: { name: '吐丝', intent: 'debuff', fx: [{ t: 'debuff', k: 'weak', v: 2 }] },
     },
     ai: (e, t) => (t % 3 === 1 ? 'web' : 'bite'),
@@ -102,8 +102,8 @@ export const ENEMIES = {
   slime_big: {
     name: '巨型史莱姆', sprite: 'slime', hp: [34, 40], act: 1, elite: true, body: 1.5,
     moves: {
-      devour: A('吞噬', 10),
-      acid: { name: '酸液喷溅', intent: 'attack_debuff', dmg: 4, fx: [{ t: 'debuff', k: 'poison', v: 3 }] },
+      devour: A('吞噬', 9),
+      acid: { name: '酸液喷溅', intent: 'attack_debuff', dmg: 11, fx: [{ t: 'debuff', k: 'poison', v: 3 }] },
       split: { name: '分裂', intent: 'buff', fx: [{ t: 'summon', id: 'slime', n: 1 }] },
     },
     ai: (e, t) => (t % 4 === 2 ? 'split' : t % 3 === 1 ? 'acid' : 'devour'),
@@ -111,7 +111,7 @@ export const ENEMIES = {
   skeleton_king: {
     name: '骷髅王', sprite: 'undead', hp: [40, 46], act: 1, elite: true, body: 1.5,
     moves: {
-      royal_slash: A('王之斩', 12),
+      royal_slash: A('王之斩', 9),
       summon: { name: '召唤骸骨', intent: 'buff', fx: [{ t: 'summon', id: 'undead', n: 1 }] },
       bonewall: { name: '骨墙', intent: 'defend', blk: 10 },
     },
@@ -122,7 +122,7 @@ export const ENEMIES = {
   golem: {
     name: '石傀儡', sprite: 'golem', hp: [24, 30], act: 2,
     moves: {
-      smash: A('重拳', 10),
+      smash: A('重拳', 12),
       harden: { name: '硬化', intent: 'defend', blk: 10 },
     },
     ai: (e, t) => (t % 3 === 2 ? 'harden' : 'smash'),
@@ -130,7 +130,7 @@ export const ENEMIES = {
   crabdemon: {
     name: '红蟹魔', sprite: 'crabdemon', hp: [20, 26], act: 2,
     moves: {
-      pincer: A('钳击', 7, { fx: [{ t: 'debuff', k: 'poison', v: 2 }] }),
+      pincer: A('钳击', 9, { fx: [{ t: 'debuff', k: 'poison', v: 2 }] }),
       spray: { name: '喷毒', intent: 'debuff', fx: [{ t: 'debuff', k: 'poison', v: 4 }] },
     },
     ai: (e, t) => (t % 3 === 1 ? 'spray' : 'pincer'),
@@ -139,7 +139,7 @@ export const ENEMIES = {
     name: '沼泽女巫', sprite: 'witch', hp: [18, 24], act: 2,
     moves: {
       hex: { name: '诅咒', intent: 'debuff', fx: [{ t: 'addCard', id: 'curse_wound', to: 'discard', n: 2 }] },
-      bolt: A('暗影箭', 6),
+      bolt: A('暗影箭', 9),
       mending: { name: '自愈', intent: 'heal', fx: [{ t: 'healSelf', v: 6 }] },
     },
     ai: (e, t) => (t === 0 ? 'hex' : t % 3 === 2 ? 'bolt' : rng0(e) ? 'mending' : 'bolt'),
@@ -155,7 +155,7 @@ export const ENEMIES = {
   monk: {
     name: '苦修武僧', sprite: 'monk', hp: [22, 28], act: 2,
     moves: {
-      flurry: A('三连击', 4, { hits: 3 }),
+      flurry: A('三连击', 6, { hits: 2 }),
       meditate: { name: '打坐', intent: 'heal', fx: [{ t: 'healSelf', v: 5 }, { t: 'buff', k: 'block_next', v: 5 }] },
     },
     ai: (e, t) => (t % 3 === 2 ? 'meditate' : 'flurry'),
@@ -163,7 +163,7 @@ export const ENEMIES = {
   guard_elite: {
     name: '精英守卫', sprite: 'guard_elite', hp: [32, 38], act: 2,
     moves: {
-      heavy: A('重斩', 10),
+      heavy: A('重斩', 12),
       ironwall: { name: '铁壁', intent: 'defend', blk: 8 },
       intimidate: { name: '威吓', intent: 'debuff', fx: [{ t: 'debuff', k: 'weak', v: 2 }, { t: 'debuff', k: 'vulnerable', v: 2 }] },
     },
@@ -172,8 +172,8 @@ export const ENEMIES = {
   spider_queen: {
     name: '蛛后', sprite: 'spider', hp: [50, 58], act: 2, elite: true, body: 1.6,
     moves: {
-      venom: { name: '毒液喷射', intent: 'attack_debuff', dmg: 5, fx: [{ t: 'debuff', k: 'poison', v: 6 }] },
-      rend: A('撕咬', 10),
+      venom: { name: '毒液喷射', intent: 'attack_debuff', dmg: 14, fx: [{ t: 'debuff', k: 'poison', v: 6 }] },
+      rend: A('撕咬', 14),
       web: { name: '蛛网', intent: 'defend', blk: 8, fx: [{ t: 'debuff', k: 'weak', v: 2 }] },
       brood: { name: '产卵', intent: 'buff', fx: [{ t: 'summon', id: 'spider', n: 1 }] },
     },
@@ -182,9 +182,9 @@ export const ENEMIES = {
   lich: {
     name: '巫妖', sprite: 'witch', hp: [55, 64], act: 2, elite: true, body: 1.55,
     moves: {
-      deathray: A('死亡射线', 14),
+      deathray: A('死亡射线', 13),
       curse: { name: '亡灵诅咒', intent: 'debuff', fx: [{ t: 'addCard', id: 'curse_regret', to: 'discard', n: 1 }, { t: 'debuff', k: 'vulnerable', v: 2 }] },
-      drain: A('生命汲取', 8, { fx: [{ t: 'healSelf', v: 8 }] }),
+      drain: A('生命汲取', 14, { fx: [{ t: 'healSelf', v: 8 }] }),
     },
     ai: (e, t) => ['deathray', 'curse', 'drain', 'deathray', 'curse'][t % 5],
   },
@@ -193,7 +193,7 @@ export const ENEMIES = {
   warrior: {
     name: '深渊战士', sprite: 'warrior', hp: [34, 40], act: 3,
     moves: {
-      greatsword: A('巨剑斩', 14),
+      greatsword: A('巨剑斩', 13),
       warcry: { name: '战吼', intent: 'buff', fx: [{ t: 'buff', k: 'strength', v: 3 }] },
     },
     ai: (e, t) => (t === 0 ? 'warcry' : t % 4 === 3 ? 'warcry' : 'greatsword'),
@@ -201,7 +201,7 @@ export const ENEMIES = {
   noble: {
     name: '堕落贵族', sprite: 'noble', hp: [28, 34], act: 3,
     moves: {
-      whip: A('鞭笞', 9),
+      whip: A('鞭笞', 12),
       rally: { name: '鼓舞', intent: 'buff', fx: [{ t: 'buffAll', k: 'strength', v: 2 }] },
       sip: { name: '饮血', intent: 'heal', fx: [{ t: 'healSelf', v: 7 }] },
     },
@@ -211,7 +211,7 @@ export const ENEMIES = {
     name: '石像守卫', sprite: 'boss_stone', hp: [40, 48], act: 3,
     moves: {
       gaze: { name: '石化凝视', intent: 'debuff', fx: [{ t: 'debuff', k: 'vulnerable', v: 2 }, { t: 'debuff', k: 'weak', v: 2 }] },
-      crush: A('碾压', 16),
+      crush: A('碾压', 13),
       stone: { name: '岩壳', intent: 'defend', blk: 14 },
     },
     ai: (e, t) => (t === 0 ? 'gaze' : t % 3 === 2 ? 'stone' : 'crush'),
@@ -219,8 +219,8 @@ export const ENEMIES = {
   demonling: {
     name: '深渊小鬼', sprite: 'undead', tint: 'hue-rotate(275deg) saturate(2.1) brightness(1.12)', hp: [24, 30], act: 3,
     moves: {
-      claw: A('撕抓', 5, { hits: 3 }),
-      boom: A('自爆', 18, { selfDamage: 10 }),
+      claw: A('撕抓', 6, { hits: 2 }),
+      boom: A('自爆', 13, { selfDamage: 10 }),
     },
     ai: (e, t, rng) => (e.hp < e.maxHp * 0.3 ? 'boom' : 'claw'),
   },
@@ -243,7 +243,7 @@ export const ENEMIES = {
     name: '窃魂灯', sprite: 'soul_lantern', hp: [30, 36], act: 3,
     moves: {
       drain: { name: '吸魂', intent: 'debuff', fx: [{ t: 'drainEnergy', n: 1 }, { t: 'debuff', k: 'weak', v: 1 }] },
-      flare: A('鬼火', 8),
+      flare: A('鬼火', 12),
       guard: { name: '灯罩', intent: 'defend', blk: 10 },
     },
     ai: (e, t) => ['drain', 'flare', 'guard', 'flare'][t % 4],
@@ -257,7 +257,7 @@ export const ENEMIES = {
     moves: {
       rite: { name: '血祭', intent: 'buff', fx: [{ t: 'buffAll', k: 'strength', v: 2 }] },
       hex: { name: '深渊祷言', intent: 'debuff', fx: [{ t: 'addCard', id: 'curse_wound', to: 'discard', n: 1 }, { t: 'debuff', k: 'vulnerable', v: 2 }] },
-      smite: A('祭司之锤', 6),
+      smite: A('祭司之锤', 12),
       mend: { name: '献祭自愈', intent: 'heal', fx: [{ t: 'healSelf', v: 12 }] },
     },
     ai: (e, t) => ['rite', 'hex', 'smite', 'mend', 'rite', 'smite'][t % 6],
@@ -271,7 +271,7 @@ export const ENEMIES = {
     name: '虚空裂片', sprite: 'void_shard', hp: [34, 40], act: 4,
     split: { n: 2, hpPct: 0.4 },
     moves: {
-      slice: A('虚空切面', 11),
+      slice: A('虚空切面', 14),
       shatter: { name: '碎响', intent: 'debuff', fx: [{ t: 'debuff', k: 'weak', v: 2 }] },
     },
     ai: (e, t) => (t % 3 === 2 ? 'shatter' : 'slice'),
@@ -282,9 +282,9 @@ export const ENEMIES = {
   abyss_maw: {
     name: '深渊之喉', sprite: 'abyss_maw', hp: [70, 82], act: 4, elite: true, body: 1.6,
     moves: {
-      devour: { name: '吞噬甲胄', intent: 'attack', dmg: 14, preFx: [{ t: 'eatBlock', pct: 50 }] },
-      grind: { name: '磨牙', intent: 'attack', dmg: 6, hits: 3, preFx: [{ t: 'eatBlock', pct: 50 }] },
-      swallow: { name: '囫囵吞下', intent: 'attack_debuff', dmg: 9, preFx: [{ t: 'eatBlock', pct: 50 }], fx: [{ t: 'debuff', k: 'frail', v: 2 }] },
+      devour: { name: '吞噬甲胄', intent: 'attack', dmg: 13, preFx: [{ t: 'eatBlock', pct: 50 }] },
+      grind: { name: '磨牙', intent: 'attack', dmg: 7, hits: 2, preFx: [{ t: 'eatBlock', pct: 50 }] },
+      swallow: { name: '囫囵吞下', intent: 'attack_debuff', dmg: 15, preFx: [{ t: 'eatBlock', pct: 50 }], fx: [{ t: 'debuff', k: 'frail', v: 2 }] },
       gorge: { name: '饱食', intent: 'heal', fx: [{ t: 'healSelf', v: 14 }] },
     },
     ai: (e, t) => ['devour', 'grind', 'gorge', 'swallow'][t % 4],
@@ -295,9 +295,9 @@ export const ENEMIES = {
     name: '深渊魔眼', sprite: 'boss_demon', hp: [74, 74], act: 1, boss: true, body: 1.6,
     moves: {
       gaze: { name: '虚空凝视', intent: 'debuff', fx: [{ t: 'debuff', k: 'vulnerable', v: 2 }, { t: 'debuff', k: 'weak', v: 2 }] },
-      wave: { name: '暗影波', intent: 'attack', dmg: 7 },
+      wave: { name: '暗影波', intent: 'attack', dmg: 12 },
       charge: { name: '蓄能', intent: 'buff', fx: [{ t: 'buff', k: 'strength', v: 3 }] },
-      ray: A('湮灭射线', 18),
+      ray: A('湮灭射线', 10),
       spawn: { name: '召唤仆从', intent: 'buff', fx: [{ t: 'summon', id: 'bat', n: 2 }] },
     },
     ai: (e, t) => ['gaze', 'wave', 'charge', 'ray', 'spawn', 'wave', 'ray'][t % 7],
@@ -305,20 +305,20 @@ export const ENEMIES = {
   boss_tyrant: {
     name: '石像暴君', sprite: 'boss_stone', hp: [108, 108], act: 2, boss: true, body: 2.0,
     moves: {
-      crush: A('碾压', 14),
+      crush: A('碾压', 12),
       petrify: { name: '石化诅咒', intent: 'debuff', fx: [{ t: 'debuff', k: 'weak', v: 3 }, { t: 'debuff', k: 'vulnerable', v: 3 }] },
       armor: { name: '磐石之躯', intent: 'defend', blk: 16 },
-      quake: { name: '大地震击', intent: 'attack', dmg: 9, hits: 2 },
+      quake: { name: '大地震击', intent: 'attack', dmg: 8, hits: 2 },
     },
     ai: (e, t) => ['petrify', 'crush', 'armor', 'quake', 'crush', 'quake'][t % 6],
   },
   boss_lord: {
     name: '深渊之主', sprite: 'boss_gargoyle', hp: [144, 144], act: 3, boss: true, body: 2.1,
     moves: {
-      ruin: A('毁灭之爪', 21),
+      ruin: A('毁灭之爪', 14),
       void: { name: '虚空侵蚀', intent: 'debuff', fx: [{ t: 'addCard', id: 'curse_regret', to: 'discard', n: 2 }, { t: 'debuff', k: 'vulnerable', v: 3 }] },
       swarm: { name: '深渊召唤', intent: 'buff', fx: [{ t: 'summon', id: 'demonling', n: 2 }] },
-      drain: { name: '灵魂收割', intent: 'attack', dmg: 11, fx: [{ t: 'healSelf', v: 14 }] },
+      drain: { name: '灵魂收割', intent: 'attack', dmg: 18, fx: [{ t: 'healSelf', v: 14 }] },
       doom: { name: '终末宣告', intent: 'unknown', fx: [{ t: 'buff', k: 'strength', v: 4 }] },
     },
     ai: (e, t) => ['void', 'ruin', 'swarm', 'drain', 'doom', 'ruin', 'drain'][t % 7],
@@ -331,10 +331,10 @@ export const ENEMIES = {
   boss_frostqueen: {
     name: '凛冬女王', sprite: 'boss_frostqueen', hp: [140, 140], act: 3, boss: true, body: 1.8,
     moves: {
-      frost_bolt: { name: '霜矢', intent: 'attack', dmg: 13, fx: [{ t: 'debuff', k: 'frost', v: 1 }] },
-      ice_lance: { name: '冰锥', intent: 'attack', dmg: 7, hits: 2, fx: [{ t: 'debuff', k: 'frost', v: 1 }] },
-      blizzard: { name: '暴风雪', intent: 'attack', dmg: 19, fx: [{ t: 'debuff', k: 'frost', v: 2 }] },
-      winter_grasp: { name: '凛冬之握', intent: 'attack_debuff', dmg: 9, fx: [{ t: 'debuff', k: 'weak', v: 3 }, { t: 'debuff', k: 'frost', v: 2 }] },
+      frost_bolt: { name: '霜矢', intent: 'attack', dmg: 14, fx: [{ t: 'debuff', k: 'frost', v: 1 }] },
+      ice_lance: { name: '冰锥', intent: 'attack', dmg: 8, hits: 2, fx: [{ t: 'debuff', k: 'frost', v: 1 }] },
+      blizzard: { name: '暴风雪', intent: 'attack', dmg: 15, fx: [{ t: 'debuff', k: 'frost', v: 2 }] },
+      winter_grasp: { name: '凛冬之握', intent: 'attack_debuff', dmg: 18, fx: [{ t: 'debuff', k: 'weak', v: 3 }, { t: 'debuff', k: 'frost', v: 2 }] },
       frozen_throne: { name: '冰封王座', intent: 'buff', blk: 16, fx: [{ t: 'buff', k: 'strength', v: 2 }, { t: 'debuff', k: 'frost', v: 2 }] },
       absolute_zero: { name: '绝对零度', intent: 'buff', fx: [{ t: 'buff', k: 'strength', v: 3 }, { t: 'debuff', k: 'frost', v: 3 }] },
     },
@@ -358,11 +358,11 @@ export const ENEMIES = {
   boss_abyss: {
     name: '深渊之眼', sprite: 'boss_abyss', hp: [168, 168], act: 4, boss: true, body: 2.2,
     moves: {
-      rend: A('撕裂虚空', 22),
+      rend: A('撕裂虚空', 16),
       mark: { name: '湮灭印记', intent: 'debuff', fx: [{ t: 'debuff', k: 'vulnerable', v: 4 }, { t: 'debuff', k: 'weak', v: 2 }] },
       bulwark: { name: '深渊壁垒', intent: 'defend', blk: 21 },
-      onslaught: { name: '连环撕裂', intent: 'attack', dmg: 9, hits: 3 },
-      reap: { name: '收割灵魂', intent: 'attack', dmg: 12, fx: [{ t: 'healSelf', v: 16 }] },
+      onslaught: { name: '连环撕裂', intent: 'attack', dmg: 9, hits: 2 },
+      reap: { name: '收割灵魂', intent: 'attack', dmg: 13, fx: [{ t: 'healSelf', v: 16 }] },
       ascend: { name: '终极宣告', intent: 'unknown', fx: [{ t: 'buff', k: 'strength', v: 5 }] },
     },
     // 去掉 brood 之后正好剩 6 手：先上印记（逼玩家挡）→ 大招 → 三连击 → 吸血 → 加甲 → 力量成长

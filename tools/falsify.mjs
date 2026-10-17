@@ -151,6 +151,37 @@ else if (what === 'stats') {
   s = s.replace(a, '    if (false) {   // TEMP 去掉破甲');
   writeFileSync(p, s, 'utf8');
   console.log('已去掉「破甲」');
+} else if (what === 'powercap') {
+  backup('battle');
+  const p = R + '/core/battle.js';
+  let s = readFileSync(p, 'utf8');
+  const a = '    if (opts.hitIndex != null && opts.hitIndex >= POWER_STACK_CAP) {';
+  if (!s.includes(a)) throw new Error('没找到力量封顶判断');
+  s = s.replace(a, '    if (false) {   // TEMP 去掉多段力量封顶');
+  writeFileSync(p, s, 'utf8');
+  console.log('已去掉「多段力量封顶」（复原 3 段吃 3 倍力量）');
+} else if (what === 'dexenemy') {
+  backup('battle');
+  const p = R + '/core/battle.js';
+  let s = readFileSync(p, 'utf8');
+  const a = "    let b = base + this.get(e, 'dexterity');";
+  if (!s.includes(a)) throw new Error('没找到 calcBlock 敏捷');
+  s = s.replace(a, "    let b = base + (e && e.isPlayer ? this.get(e, 'dexterity') : 0);   // TEMP 只对玩家生效");
+  writeFileSync(p, s, 'utf8');
+  console.log('已让敏捷只对玩家生效（复原"怪物吃不到敏捷"）');
+} else if (what === 'enemydmg') {
+  // 把深渊之眼的连环撕裂改回 3 段、并且放大
+  backup('enemies');
+  const p = R + '/data/enemies.js';
+  let s = readFileSync(p, 'utf8');
+  const a = 'onslaught:';
+  const i = s.indexOf(a);
+  if (i < 0) throw new Error('没找到 onslaught');
+  const end = s.indexOf('\n', i);
+  const line = s.slice(i, end);
+  s = s.slice(0, i) + "onslaught: { name: '连环撕裂', intent: 'attack', dmg: 13, hits: 3 }," + s.slice(end);
+  writeFileSync(p, s, 'utf8');
+  console.log('已把连环撕裂改回 13×3=39（复原超模）');
 } else if (what === 'relicsprite') {
   // 把两件遗物改成共用同一张贴图（复原"撞图"）
   backup('relics');

@@ -1552,8 +1552,13 @@ section('O. 四层结构与层级强度曲线');
     ok(hp[0] === 1 && atk[0] === 1, '第 1 层不缩放（基准）');
     ok(hp.map(x => +x.toFixed(4)).join(',') === '1,1.25,1.5,1.75',
        `生命每层 +25%：${hp.map(x => (x * 100).toFixed(0) + '%').join(' → ')}`);
-    ok(atk.map(x => +x.toFixed(4)).join(',') === '1,1.13,1.26,1.39',
-       `攻击每层 +13%（产品 2026-10-12 最终值）：${atk.map(x => (x * 100).toFixed(0) + '%').join(' → ')}`);
+    /* ⚠️ 别把成长率写死成数字 —— 它被调过 5 次
+       （+20% → +15% → +20% → +13% → **+17%**，最后一次是 2026-10-13 为了对齐
+       产品给的"每层一击伤害"参考表）。断言从实现里读。 */
+    const STEP = (atk[1] - 1);
+    ok(atk.every((v, i) => Math.abs(v - (1 + STEP * i)) < 1e-9),
+       `攻击每层线性 +${(STEP * 100).toFixed(0)}%：${atk.map(x => (x * 100).toFixed(0) + '%').join(' → ')}`);
+    ok(Math.abs(STEP - 0.17) < 1e-9, `当前成长率为 +${(STEP * 100).toFixed(0)}%（对齐参考表所需的 17%）`);
     ok(actScale(99).hp > 1, '层数越界时不会崩，仍给出更大倍率');
   }
 
@@ -1562,6 +1567,8 @@ section('O. 四层结构与层级强度曲线');
      （我第一次就是这么写的，13→13→21→21 那种）。所以先把 RNG 固定到同一状态，
      让每次掷出**完全相同**的原始血量，再比精确公式。 */
   {
+    // 成长率从实现读（O1 块里的 STEP 是块级作用域，这里取不到）
+    const STEP_O2 = actScale(2).atk - 1;
     const sample = ['slime', 'golem', 'warrior'];
     for (const id of sample) {
       const hpByAct = [], dmgByAct = [], rawByAct = [];
@@ -1585,10 +1592,12 @@ section('O. 四层结构与层级强度曲线');
       const dmgRising = dmgByAct.every((v, i) => i === 0 || v >= dmgByAct[i - 1]);
       ok(dmgRising, `${ENEMIES[id].name} 伤害随层数上升（${dmgByAct.join(' → ')}）`);
       const dmgRatio = dmgByAct[3] / dmgByAct[0];
-      // 第 4 层攻击倍率 = 1 + 0.15×3 = 1.45（原为 1.6）。
-      // 注意实测值会因「力量/虚弱」等固定值加减与取整而略偏离倍率本身，
-      // 所以这里是"约为"（容差 0.06），不是精确等式。
-      ok(Math.abs(dmgRatio - 1.39) < 0.08, `${ENEMIES[id].name} 第4层伤害约为第1层的 1.39 倍（实测 ${dmgRatio.toFixed(2)}）`);
+      /* 第 4 层攻击倍率 = 1 + STEP×3。**从实现读**，不写死 ——
+         成长率被调过五次，写死就必然过期（我这几轮已经因为写死数字假红过好几次）。
+         实测值会因为「力量/虚弱」的固定值加减与取整略偏离倍率本身，所以给容差。 */
+      const want = 1 + STEP_O2 * 3;
+      ok(Math.abs(dmgRatio - want) < 0.08,
+         `${ENEMIES[id].name} 第4层伤害约为第1层的 ${want.toFixed(2)} 倍（实测 ${dmgRatio.toFixed(2)}）`);
     }
   }
 
@@ -4922,10 +4931,13 @@ section('AE. 最终 Boss 砍召唤 + 第三/四层新怪（能量掠夺 / 护甲
     // AI 里也不能再引用召唤那手（引用不存在的招式会在 pickMove 时崩）
     const aiSrc = boss.ai.toString();
     ok(!/brood/.test(aiSrc), 'AI 循环里也不再引用 brood');
-    // 攻击数值下调
-    ok(boss.moves.rend.dmg === 22, `撕裂虚空 22 点（实测 ${boss.moves.rend.dmg}）`);
-    ok(boss.moves.onslaught.dmg === 9, `连环撕裂每段 9 点（实测 ${boss.moves.onslaught.dmg}）`);
-    ok(boss.moves.reap.dmg === 12, `收割灵魂 12 点（实测 ${boss.moves.reap.dmg}）`);
+    /* 攻击数值：现在由**参考表**决定（第 4 层 Boss 一击 ≤28），
+       不再写死具体数字 —— 写死会在下一次配平时过期。这里断言的是"落进档内"。 */
+    const dmgAt4 = b => Math.round(b * (1 + 0.17 * 3));
+    ok(dmgAt4(boss.moves.rend.dmg) <= 28,
+       `撕裂虚空在档内（${dmgAt4(boss.moves.rend.dmg)} ≤ 28）`);
+    ok(dmgAt4(boss.moves.onslaught.dmg) * 2 <= 28,
+       `连环撕裂两段合计在档内（${dmgAt4(boss.moves.onslaught.dmg)}×2 = ${dmgAt4(boss.moves.onslaught.dmg) * 2} ≤ 28）`);
     ok(boss.moves.reap.fx[0].v === 16, '收割灵魂的吸血量没被顺手砍掉（仍 16）');
     // 打满 12 个回合，确认它真的不召唤、且不会崩
     {
@@ -5333,6 +5345,150 @@ section('AF. 遗物扩容（57 件 / 每件独立贴图）+ 为此补的引擎�
     for (const [rar, min] of [['common', 8], ['uncommon', 8], ['rare', 8], ['boss', 4], ['starter', 8]]) {
       ok((byRar[rar] || 0) >= min, `${rar} 池有 ${byRar[rar] || 0} 件（要求 ≥ ${min}）`);
     }
+  }
+}
+
+section('AG. 一击伤害参考表 + 敏捷对怪物生效（产品查证项）');
+{
+  const { ENEMIES, ENCOUNTERS, actScale } = await import('file://' + join(ROOT, 'js/data/enemies.js'));
+  const noop = { step: async () => {}, sync() {}, log() {} };
+  const mk = async (ids, act = 1, picks = []) => {
+    A.startRun('knight', picks);
+    A.G.act = act;
+    const B = new A.Battle(ids, { kind: 'battle' });
+    B.view = { ...noop };
+    B.rollIntents();
+    await B.start();
+    return B;
+  };
+
+  /* --- AG1. 裸难度下每一招都落在参考表档内（产品 2026-10-13 给的基准）---
+     普通 9/15/18/21（每层下限 5/10/15/18）· 精英 = 普通上限 +2 · Boss 12/20/24/28
+     ⚠️ 用**稳态**（attacked=1，不吃 Boss 首击 0.85 减伤）—— 产品拍板按稳态口径。 */
+  {
+    const REF = {
+      1: { normal: [5, 9], elite: [5, 11], boss: [8, 12] },
+      2: { normal: [10, 15], elite: [10, 17], boss: [12, 20] },
+      3: { normal: [15, 18], elite: [15, 20], boss: [16, 24] },
+      4: { normal: [18, 21], elite: [18, 23], boss: [19, 28] },
+    };
+    const bad = [];
+    let checked = 0;
+    for (const act of [1, 2, 3, 4]) {
+      for (const kind of ['weak', 'strong', 'elite', 'boss']) {
+        for (const enc of ENCOUNTERS[act][kind]) {
+          const B = await mk(enc, act);
+          for (const e of B.enemies) {
+            const tier = e.def.boss ? 'boss' : kind === 'elite' ? 'elite' : 'normal';
+            const [lo, hi] = REF[act][tier];
+            let best = 0, bestMv = '';
+            for (const mv of Object.keys(e.def.moves)) {
+              if (!e.def.moves[mv].dmg) continue;
+              e.attacked = 1;                      // 稳态：不看 Boss 首击减伤
+              e.moveId = mv;
+              const it = B.intentOf(e);
+              const total = it.dmg * (it.hits || 1);
+              if (total > best) { best = total; bestMv = mv; }
+            }
+            e.attacked = 0;
+            if (!best) continue;
+            checked++;
+            if (best > hi) bad.push(`act${act} ${e.name}.${bestMv} ${best}>${hi}`);
+            else if (best < lo) bad.push(`act${act} ${e.name}.${bestMv} ${best}<${lo}（偏低）`);
+          }
+        }
+      }
+    }
+    ok(bad.length === 0, `${checked} 个「敌人×出现层」的一击伤害都落在产品给的档内`, bad.slice(0, 8).join(' | '));
+  }
+
+  /* --- AG2. 多段招式不超过 2 段（3 段会被力量吃 3 倍收益）--- */
+  {
+    const over = [];
+    for (const [id, d] of Object.entries(ENEMIES)) {
+      for (const [mv, m] of Object.entries(d.moves)) {
+        if ((m.hits || 1) > 2) over.push(`${d.name}.${mv}×${m.hits}`);
+      }
+    }
+    ok(over.length === 0, '敌人没有 3 段以上的招式（多段统治的根源已削）', over.join(', '));
+  }
+
+  /* --- AG3. 第 3 段起不再吃力量加成（POWER_STACK_CAP）---
+     这是"削弱多段统治力"真正的机制关键：压总伤害只压住起点，
+     压不住"每层力量 × 段数"这个乘数。 */
+  {
+    const B = await mk(['slime'], 1);
+    const e = B.aliveEnemies()[0];
+    B.add(e, 'strength', 5);
+    const per = 10;
+    // 单段：吃满力量
+    ok(B.calcDamage(per, e, B.player) === per + 5, `单段吃满力量（10 → ${B.calcDamage(per, e, B.player)}）`);
+    // 第 1、2 段仍吃
+    ok(B.calcDamage(per, e, B.player, { hitIndex: 0 }) === per + 5, '第 1 段吃力量');
+    ok(B.calcDamage(per, e, B.player, { hitIndex: 1 }) === per + 5, '第 2 段吃力量');
+    // 第 3 段起不吃
+    ok(B.calcDamage(per, e, B.player, { hitIndex: 2 }) === per,
+       `第 3 段不吃力量加成（10 → ${B.calcDamage(per, e, B.player, { hitIndex: 2 })}）`);
+    // 玩家侧不受影响：不传 hitIndex，行为不变
+    B.add(B.player, 'strength', 3);
+    ok(B.calcDamage(10, B.player, e) === 13, '玩家侧完全不传 hitIndex，力量照常生效');
+  }
+
+  /* --- AG4. 敏捷对怪物**确实生效**（产品问："实战没看到怪物从敏捷获得护盾"）---
+     查证结论：机制没问题 —— 公式层、意图预告、实际结算三处都会加。
+     看不到是**正常的**：默认难度下怪物敏捷恒为 0，唯一来源是难度「暴怒」。
+     这条测试守住"以后别把 calcBlock 改成只对玩家生效"。 */
+  {
+    const B = await mk(['statue'], 3);              // 石像守卫有「岩壳」blk 14
+    const e = B.aliveEnemies()[0];
+    ok(B.calcBlock(10, e) === 10, '怪物没有敏捷时加甲 = 基础值');
+    B.add(e, 'dexterity', 3);
+    ok(B.calcBlock(10, e) === 13, `怪物有 3 层敏捷时加甲 +3（实测 ${B.calcBlock(10, e)}）`);
+
+    // 意图预告也要跟着涨（否则玩家看到的和实际不一致）
+    e.moveId = 'stone';
+    const before = B.intentOf(e).blk;
+    B.add(e, 'dexterity', 2);
+    const after = B.intentOf(e).blk;
+    ok(after === before + 2, `意图预告里的护甲也随敏捷上涨（${before} → ${after}）`);
+
+    // 实际结算：让它在真回合里出这一招
+    const B2 = await mk(['statue'], 3);
+    const e2 = B2.aliveEnemies()[0];
+    B2.player.hp = B2.player.maxHp = 99999;
+    B2.add(e2, 'dexterity', 3);
+    e2.moveId = 'stone';
+    await B2.enemyTurn();
+    /* ⚠️ 敌人的**护甲不吃层级缩放**：enemyTurn 里是 `gainBlock(e, def.blk)`，
+       直接传原始 blk（只有 dmg 才乘 atkMult）。所以基准就是 14，不是 14×1.34。
+       我第一版按"19 + 3"写，属于把伤害的缩放口径误用到护甲上。 */
+    ok(e2.block === 14 + 3, `实际护甲 = 基础 14 + 3 敏捷 = 17（实测 ${e2.block}）`);
+
+    /* 默认难度下怪物确实一点敏捷都没有 —— 这就是"实战看不到"的原因。
+       这条同时也是给产品的证据：不选「暴怒」就永远看不到怪物变厚。 */
+    const B3 = await mk(['statue'], 3);
+    B3.player.hp = B3.player.maxHp = 99999;
+    await B3.enemyTurn();
+    await B3.enemyTurn();
+    ok(B3.get(B3.aliveEnemies()[0], 'dexterity') === 0,
+       '默认难度下怪物敏捷恒为 0（所以裸难度看不到护盾增长）');
+
+    // 难度「暴怒」确实把敏捷挂上去了
+    const B4 = await mk(['statue'], 3, ['d_enemy_scale_each_turn']);
+    B4.player.hp = B4.player.maxHp = 99999;
+    await B4.enemyTurn();
+    ok(B4.get(B4.aliveEnemies()[0], 'dexterity') === 1, '开「暴怒」后怪物每轮 +1 敏捷');
+  }
+
+  /* --- AG5. 「暴怒」的文案不能再撒谎（要写明是护甲、且并非所有怪都受影响）--- */
+  {
+    const { DIFFICULTY } = await import('file://' + join(ROOT, 'js/data/difficulty.js'));
+    const rage = DIFFICULTY.find(d => d.id === 'd_enemy_scale_each_turn');
+    ok(/护甲/.test(rage.desc), `「暴怒」描述写明了它加的是护甲（实际：${rage.desc.slice(0, 40)}…）`);
+    ok(/没有加护甲招式|不受影响/.test(rage.desc), '「暴怒」描述写明了哪些怪不受影响');
+    // 顺带统计：确实存在"没有加甲招式"的怪（否则那句提示是多余的）
+    const noBlk = Object.values(ENEMIES).filter(d => !Object.values(d.moves).some(m => m.blk));
+    ok(noBlk.length > 0, `确实有 ${noBlk.length} 只怪没有加护甲招式（所以敏捷对它们无效）`);
   }
 }
 

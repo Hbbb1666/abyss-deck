@@ -367,12 +367,30 @@ export class Battle {
     return base + this.get(this.player, 'truth') * this.mods.hitsPerTruth;
   }
 
-  calcDamage(base, atk, def) {
+  calcDamage(base, atk, def, opts = {}) {
     // 顺序是语义的一部分，而且现在**三项都是固定值加减**：
     //   ① 加力量  ② 减虚弱（扣完至少留 1）  ③ 加易伤（每层 +1）
     // 最后才乘"倍率"类的修正（Boss 首击减伤）。
     // 虚弱与易伤刻意对称：一个每层 -1、一个每层 +1，都是**每段各算一次**。
     let d = base + this.get(atk, 'strength');
+    /* 「多段的力量收益封顶」（2026-10-13，产品拍板削弱多段怪的统治力）。
+       问题：`calcDamage` 是**每段**各调一次，所以 N 段招式会把力量吃 N 倍
+       —— Boss 的「终极宣告 +5 力量」让 3 段招式每回合多打 15 点，单段只多 5 点。
+       这就是"多段统治"的真正根源，压总伤害只能压住起点，压不住这个乘数。
+
+       处理：多段（hits ≥ 2）招式里，力量最多按 **2 段**计。
+       具体做法是第 3 段及以后把力量加成抹掉（`opts.hitIndex` 由调用方传入）。
+       ⚠️ 不影响玩家侧：玩家走 playCard → resolve() 那条路不传 hitIndex，
+          行为完全不变（产品只要求削**怪物**）。
+       ⚠️ 段数在本次改动里也统一降到了 ≤2（3 段改 2 段），
+          所以这条规则的现实效果是"以后有人再加 3 段招式也吃不到 3 倍力量"。 */
+    /* ⚠️ hitIndex 是 **0-based**：第 1 段 = 0、第 2 段 = 1、第 3 段 = 2。
+       所以判断必须是 `>=`，写成 `>` 会让第 3 段照样吃满力量（我第一版就是这么写的，
+       被 AG3 那条测试当场抓到：10+5 应该变 10，实测还是 15）。 */
+    const POWER_STACK_CAP = 2;
+    if (opts.hitIndex != null && opts.hitIndex >= POWER_STACK_CAP) {
+      d = base;                       // 第 3 段起：不带力量加成
+    }
     if (d > 0) {
       // 本来有伤害才扣虚弱；扣完至少留 1 点 ——
       // 否则叠够层数就能把敌人彻底废掉，"无论什么攻击都是 0" 会复现。
@@ -415,7 +433,7 @@ export class Battle {
   async damage(target, base, source = '?', opts = {}) {
     if (target.dead || this.over) return 0;
     const atk = opts.attacker || this.player;
-    let dmg = opts.raw ? base : this.calcDamage(base, atk, target);
+    let dmg = opts.raw ? base : this.calcDamage(base, atk, target, { hitIndex: opts.hitIndex });
     /* 「破甲」：玩家打出的攻击可以先削掉目标一部分护甲（新遗物「破甲钉」）——
        它绕开了 `calcDamage`，因为那一步只放大/缩小伤害数字，而护甲是在
        `damage()` 里按 `min(block, dmg)` 抵消的。放在这里 = 三种牌（单体/群体/多段）
@@ -1184,7 +1202,9 @@ export class Battle {
         const base = defDamage(def, e);
         for (let i = 0; i < hits; i++) {
           if (this.player.hp <= 0) break;
-          await this.damage(this.player, base, e.name, { attacker: e, melee: true });
+          // `hitIndex` 让 calcDamage 知道这是第几段 —— 第 3 段起不再吃力量加成，
+          // 否则 N 段招式会把力量吃 N 倍（多段统治的根源，见 calcDamage 的注释）。
+          await this.damage(this.player, base, e.name, { attacker: e, melee: true, hitIndex: i });
         }
         // 记下"这个敌人已经打过人了"。必须放在挥出**之后**：
         // intentOf() 是在出招前调的，那时 attacked 还是 0，看到的仍是减伤后的数值。
