@@ -3457,16 +3457,37 @@ section('X. 灼烧与中毒的衰减规则 / 职业特性');
     ok(B.get(e, 'burn') === 4, `灼烧每跳 -1（5 → ${B.get(e, 'burn')}）—— 比中毒衰减慢，这是两者唯一的区别`);
   }
 
-  /* --- X3. 灼烧无视护甲（和中毒一样是 DoT） --- */
+  /* --- X3. 灼烧会被护甲挡住（2026-10-17 产品改：DoT 不再无视护盾） ---
+     旧断言是"6 层灼烧无视 40 点护甲照样掉血"——**语义已经反过来了**。
+     现在 DoT 走「护甲 → 虚血 → 生命」，而且结算被挑到清甲之前，
+     所以敌人上一轮留下的甲能挡住这一口火。
+
+     ⚠️ 两个测试陷阱（我第一版都踩了）：
+       ① 敌人的护甲在**它自己这一轮结束时会被清掉**（先结算 DoT、再清甲），
+          所以想观察"甲被吃掉了多少"，必须给它挂「壁垒」让甲留下来。
+       ② 不要用 `enemyTurn()` 去测**玩家**的 DoT —— 那个方法里敌人会先打你一顿，
+          量到的掉血量混着敌人的攻击，验证不出 DoT 到底算了几分。 */
   {
     const B = mk(['golem']);
     await B.start();
     const e = B.aliveEnemies()[0];
     e.hp = 200; e.maxHp = 200; e.block = 40;      // 厚甲
+    e.st.barricade = 1;                            // 让甲留下来，才能看出被吃掉多少
     B.add(e, 'burn', 6);
     const hp0 = e.hp, blk0 = e.block;
     await B.enemyTurn();
-    ok(hp0 - e.hp >= 6, `6 层灼烧无视 40 点护甲照样掉血（实测 ${hp0 - e.hp}）`);
+    ok(e.hp === hp0, `6 层灼烧被 40 点护甲完全挡住，血没掉（实测掉了 ${hp0 - e.hp}）`);
+    ok(e.block === blk0 - 6, `护甲被灼烧消耗掉 6 点（${blk0} → ${e.block}）`);
+    // 甲不够时，超出部分才落到血上
+    const B2 = mk(['golem']);
+    await B2.start();
+    const e2 = B2.aliveEnemies()[0];
+    e2.hp = 200; e2.maxHp = 200; e2.block = 2;
+    e2.st.barricade = 1;
+    B2.add(e2, 'burn', 6);
+    await B2.enemyTurn();
+    ok(200 - e2.hp === 4, `甲 2 点、灼烧 6 → 只掉 4 点血（实测 ${200 - e2.hp}）`);
+    ok(e2.block === 0, `护甲被吃光（实测 ${e2.block}）`);
   }
 
   /* --- X4. 火焰法师的职业特性：**技能牌**挂 1 层灼烧 ---
@@ -3637,7 +3658,9 @@ section('X. 灼烧与中毒的衰减规则 / 职业特性');
     ok(r.dealt === 1 && r.left === 0, `1 层 → 打 1 点、清零（实测 ${r.dealt} / ${r.left}）`);
 
     // ③ 结算时机：流血在**行动之后**、中毒/灼烧在**行动之前**
-    e.st = {}; e.hp = 500; e.maxHp = 500; e.moveId = 'slam';
+    /* ⚠️ 2026-10-17 起 DoT **不再无视护甲**，所以这里要显式把甲清零 ——
+       否则量到的是"被甲挡掉之后的净值"，验证不出"两种 DoT 都结算了"。 */
+    e.st = {}; e.hp = 500; e.maxHp = 500; e.moveId = 'smash'; e.block = 0;
     B.player.hp = 9999; B.player.maxHp = 9999;
     B.add(e, 'bleed', 8);
     B.add(e, 'poison', 8);
@@ -3645,9 +3668,25 @@ section('X. 灼烧与中毒的衰减规则 / 职业特性');
     await B.enemyTurn();
     // 中毒 8（行动前，-2 层） + 流血 8（行动后，减半） = 16
     ok(hpBefore - e.hp === 16,
-       `同一回合中毒(行动前)与流血(行动后)都结算了：掉 ${hpBefore - e.hp}，期望 16`);
+       `同一回合中毒(行动前)与流血(行动后)都结算了：掉 ${hpBefore - e.hp}，期望 16（无护甲）`);
     ok(B.get(e, 'bleed') === 4, `流血减半到 4（实测 ${B.get(e, 'bleed')}）`);
     ok(B.get(e, 'poison') === 6, `中毒 -2 到 6（实测 ${B.get(e, 'poison')}）`);
+
+    /* 再验一次"有甲时会少掉这么多血" —— 这是这次改动最核心的行为变化。
+       挂「壁垒」让甲留到最后，否则它在这一轮结束时就被清掉了。 */
+    const B3 = mk(['golem']);
+    await B3.start();
+    const e3 = B3.aliveEnemies()[0];
+    e3.st = { barricade: 1 }; e3.hp = 500; e3.maxHp = 500; e3.moveId = 'smash'; e3.block = 10;
+    B3.player.hp = 9999; B3.player.maxHp = 9999;
+    B3.add(e3, 'bleed', 8);
+    B3.add(e3, 'poison', 8);
+    const hp3 = e3.hp;
+    await B3.enemyTurn();
+    // 中毒 8 + 流血 8 = 16，护甲 10 全被吃掉 → 只掉 6
+    ok(hp3 - e3.hp === 6,
+       `同样 8 毒 + 8 流血，带 10 甲时只掉 6 血（实测 ${hp3 - e3.hp}）`);
+    ok(e3.block === 0, `护甲被 DoT 吃光（实测 ${e3.block}）`);
   }
 
   /* --- W4b. 本轮新增的三条诅咒词条真的生效（逐条实测，不是只查数据表）--- */
@@ -6513,16 +6552,125 @@ section('AQ. 出牌异常后界面能自愈');
     if (c2) c2.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
     await sleep(1000);
     const handAfter = doc.querySelectorAll('.hand .card').length;
-    /* "界面仍在响应"的判据：手牌数变化 / 能量变化 / 进入选目标态。
-       三者任一成立即说明 busy 没有卡死。 */
-    const responded = handAfter !== handBefore || B.energy !== energyBefore;
+    /* "界面仍在响应"的判据有三种，任一成立即可：
+         ① 手牌数变化（牌打出去了）
+         ② 能量变化（牌打出去了）
+         ③ 进入选目标态（点了需要目标的牌，`.selected` 加在卡上）
+       ⚠️ 少了第 ③ 种就会**假红**：抽到一张需要选目标的牌时，
+          手牌数和能量都不会变，但它明明响应了（在等你点敌人）。 */
+    const selectedNow = !!doc.querySelector('.hand .card.selected');
+    const responded = handAfter !== handBefore || B.energy !== energyBefore || selectedNow;
     ok(responded,
-       `异常之后界面仍能继续出牌（手牌 ${handBefore}→${handAfter}，能量 ${energyBefore}→${B.energy}）`);
+       `异常之后界面仍能继续出牌（手牌 ${handBefore}→${handAfter}，能量 ${energyBefore}→${B.energy}，` +
+       `选目标态 ${selectedNow}）`);
   } finally {
     process.off('unhandledRejection', onRej);
   }
 
   A.clearSave();
+}
+
+/* ================= AR. DoT 被护甲/虚血挡住（2026-10-17 产品要求） ================= */
+section('AR. 中毒/点燃/流血不再无视护盾');
+{
+  const noopD = { step: async () => {}, sync() {}, log() {}, onStatus() {}, onDamage() {},
+    onHeal() {}, onBlock() {}, onDeath() {}, onSummon() {}, onEnd() {}, onVhp() {}, onExecute() {} };
+  const mkD = async (cls = 'prince', picks = []) => {
+    A.startRun(cls, picks);
+    A.G.act = 1;
+    const B = new A.Battle(['golem'], { kind: 'battle' });
+    B.view = { ...noopD };
+    B.rollIntents();
+    await B.start();
+    B.player.hp = B.player.maxHp = 200;
+    B.player.block = 0; B.player.vhp = 0;
+    return B;
+  };
+
+  /* --- AR1. 玩家中毒：**虚血先被扣**（玩家报的就是这个）---
+     旧行为：中毒直接掉血、虚血一动不动。
+     ⚠️ 必须直接调 `playerTurn()` 而不是 `enemyTurn()` —— 后者里敌人会先打你一顿，
+        量到的掉血混着攻击伤害，验证不出 DoT 到底算在哪一层。 */
+  {
+    const B = await mkD();
+    B.player.vhp = 30;
+    B.add(B.player, 'poison', 6);
+    await B.playerTurn();
+    ok(B.player.vhp === 24, `6 层中毒先扣虚血（30 → ${B.player.vhp}）`);
+    ok(B.player.hp === 200, `血一点没掉（实测 ${B.player.hp}）`);
+  }
+
+  /* --- AR2. 虚血不够时，剩下的才掉血 --- */
+  {
+    const B = await mkD();
+    B.player.vhp = 4;
+    B.add(B.player, 'poison', 10);
+    await B.playerTurn();
+    ok(B.player.vhp === 0, `虚血被吃光（实测 ${B.player.vhp}）`);
+    ok(B.player.hp === 194, `剩下的 6 点掉血（200 → ${B.player.hp}）`);
+  }
+
+  /* --- AR3. **护甲也能挡毒**：这是"顺序挑到清甲之前"的目的 ---
+     旧顺序是先清甲再中毒，所以护甲永远挡不住任何 DoT。
+     挂「壁垒」是为了让甲在结算后留下来，从而能看出被吃掉了多少。 */
+  {
+    const B = await mkD();
+    B.player.block = 12;
+    B.add(B.player, 'barricade', 1);
+    B.add(B.player, 'poison', 6);
+    const hp0 = B.player.hp;
+    await B.playerTurn();
+    ok(B.player.hp === hp0, `6 层中毒被 12 点护甲完全挡住（实测掉了 ${hp0 - B.player.hp}）`);
+    ok(B.player.block === 6, `护甲被吃掉 6 点（12 → ${B.player.block}）`);
+  }
+
+  /* --- AR4. 中毒排在清甲**之前**（回合顺序本身被改过，这条守着它） --- */
+  {
+    const B = await mkD();
+    B.player.block = 20;
+    B.add(B.player, 'poison', 5);
+    const hp0 = B.player.hp;
+    await B.playerTurn();
+    ok(B.player.hp === hp0,
+       `不挂壁垒时：毒仍被这 20 点甲挡住、血没掉（实测掉了 ${hp0 - B.player.hp}）`);
+    ok(B.player.block === 0,
+       `这一口用完，护甲才按常规被清空（实测 ${B.player.block}）—— ` +
+       '若顺序还是"先清甲"，上面那条会掉 5 点血');
+  }
+
+  /* --- AR5. 卡牌「失去生命」代价**仍然无视护盾**（产品明确要求保留） --- */
+  {
+    const B = await mkD();
+    B.player.block = 50; B.player.vhp = 50;
+    const hp0 = B.player.hp;
+    // 「双刃誓约」= 8 伤 + 失去 3 点生命
+    const { makeCard } = await import('file://' + join(ROOT, 'js/data/cards.js'));
+    const c = makeCard('double_edge');
+    const e = B.aliveEnemies()[0];
+    e.hp = e.maxHp = 9999;
+    B.hand = [c]; B.energy = 99;
+    await B.playCard(c, e);
+    ok(B.player.hp === hp0 - 3,
+       `自伤代价照样直扣血（${hp0} → ${B.player.hp}），不吃 50 甲 + 50 虚血`);
+    ok(B.player.block === 50 && B.player.vhp === 50,
+       `护甲与虚血都没被这 3 点消耗（甲 ${B.player.block} / 虚 ${B.player.vhp}）`);
+  }
+
+  /* --- AR6. 终结牌「终末清算」仍然无视护甲与虚血（产品明确要求） --- */
+  {
+    const B = await mkD('reaper');
+    const e = B.aliveEnemies()[0];
+    e.hp = e.maxHp = 100; e.block = 40; e.vhp = 30;
+    B.add(e, 'debt', 50);
+    B.deathDomainUsed = true;
+    B.player.hp = 1;
+    const { makeCard } = await import('file://' + join(ROOT, 'js/data/cards.js'));
+    const fin = makeCard('finisher_reckoning');
+    B.hand = [fin]; B.energy = 0;
+    await B.playCard(fin, e);
+    ok(e.hp === 50, `债务 50 点照样直穿 40 甲 + 30 虚血（100 → ${e.hp}）`);
+    ok(e.block === 40 && e.vhp === 30, `护甲/虚血都没动（甲 ${e.block} / 虚 ${e.vhp}）`);
+  }
 }
 
 /* ================= AI. 读档续战必须如实还原"战斗内状态"（不许白捡便宜） ================= */

@@ -132,7 +132,7 @@ export const ST = {
   // 且每跳造成 N 点伤害后**层数减半**（奇数取下）。见 settleBleed()。
   // 游侠的职业 DOT。
   bleed: { pri: 92, name: '流血', icon: '✚', color: '#ff6b7a',
-           desc: '它行动后失去 N 点生命（无视护甲），然后层数<b>减半</b>（奇数取下）' },
+           desc: '它行动后失去 N 点生命（<b>先扣护甲/虚血</b>），然后层数<b>减半</b>（奇数取下）' },
   freeze: { pri: 97, name: '冰冻', icon: '❄', sprite: 'icon_freeze', color: '#b8f0ff', desc: '怪物：轮到它行动时消耗 <b>1</b> 层、受最大生命 <b>5%</b> 伤害并跳过这次行动。<b>玩家</b>：本回合能量<b>减半</b>' },
   frost: { pri: 91, name: '冰霜', icon: '❄', sprite: 'icon_frost', color: '#8ee6ff', desc: '集满后转化为 <b>1</b> 层冰冻（小怪 <b>4</b> 层、精英 <b>7</b> 层、Boss <b>9</b> 层）。不会自然衰减' },
   burn: { pri: 93, name: '点燃', icon: '火', sprite: 'icon_burn', color: '#ff7a3c', desc: '轮到它行动时失去 N 点生命，然后 -1' },
@@ -558,12 +558,12 @@ export class Battle {
 
   /* ---------------- 数值计算 ---------------- */
   /** 流血结算：**怪物行动之后**才结算（中毒/灼烧是行动前）。
-      造成 N 点伤害（无视护甲），然后把层数**减半**（奇数取下）：
+      造成 N 点伤害（会被护甲/虚血吸收，见 loseHp 的 absorb），然后把层数**减半**（奇数取下）：
       8 层 → 8、4、2、1 共 15 点；3 层 → 3、1 共 4 点。 */
   async settleBleed(e) {
     const n = this.get(e, 'bleed');
     if (n <= 0 || e.dead || e.hp <= 0) return;
-    await this.loseHp(e, n, { isDot: true });
+    await this.loseHp(e, n, { isDot: true, absorb: true });
     this.add(e, 'bleed', -Math.ceil(n / 2));
     this.view.sync?.();
     await this.view.step?.(200);
@@ -727,20 +727,51 @@ export class Battle {
     }
   }
 
-  /** 直接扣血（无视护甲）：中毒 / 生命消耗 / 敌人自伤都走这一条路径。
+  /** 直接扣血（**默认无视护甲与虚血**）：卡牌「失去生命」代价、遗物自伤、
+      终结牌「终末清算」都走这一条路径。
       统计口径**只在这一处定义** —— 旧代码这些伤害直接在各自分支里 `hp -= n`，
       全都绕过了 damage() 的统计，于是结算面板的「造成/受到伤害」明显偏低
       （中毒流尤其离谱：一套毒打完，面板上几乎没涨）。
-      opts.credit: 'player'（默认）敌人掉血记入「造成伤害」；'none' 不计（敌人自伤不算玩家的功劳）。 */
+      opts.credit: 'player'（默认）敌人掉血记入「造成伤害」；'none' 不计（敌人自伤不算玩家的功劳）。
+
+      ⚠️ **`opts.absorb`**（2026-10-17 产品要求）：中毒/点燃/流血这三种**持续伤害**
+      不再无视护盾 —— 它们要按「护甲 → 虚血 → 生命」的顺序被吸收。
+      其余走这个入口的伤害（自伤代价、终末清算）保持无视，协议见下面的分叉。
+      为什么 DoT 要单独一个开关而不是整体改：卡牌上写「失去 5 点生命」是**代价**，
+      它本来就该疼到血条上；而 DoT 是"敌人持续在伤你"，盾挡得住才符合直觉。 */
   async loseHp(target, n, opts = {}) {
     if (target.dead || this.over || n <= 0) return 0;
-    const real = Math.max(0, Math.min(n, target.hp));   // 统计不超过剩余生命，别记出负数
-    target.hp -= n;
+
+    /* DoT 的护盾减免。顺序与 `damage()` 保持一致：护甲 → 虚血 → 生命。
+       这样"提前备甲"对中毒/点燃依然有效，虚血也能真正护住 DoT。
+       ⚠️ 这里**不走 calcDamage**：DoT 是固定值，不该吃力量/虚弱/易伤/脆弱
+          （那些是"攻击"的修正）。 */
+    let remain = n;
+    let absorbed = 0;
+    if (opts.absorb) {
+      const byBlock = Math.min(target.block || 0, remain);
+      if (byBlock > 0) { target.block -= byBlock; remain -= byBlock; absorbed += byBlock; }
+      const byVhp = Math.min(target.vhp || 0, remain);
+      if (byVhp > 0) {
+        target.vhp -= byVhp; remain -= byVhp; absorbed += byVhp;
+        this.view.onVhp?.(target, -byVhp);
+      }
+      if (absorbed > 0) this.view.sync?.();
+    }
+    // 全部被盾吃掉：不扣血、但仍要报一次 0 伤害，界面才知道"这口毒被挡住了"
+    if (remain <= 0) {
+      this.view.onDamage?.(target, 0, absorbed, n, opts.isDot);
+      if (opts.step) await this.view.step?.(opts.step);
+      return 0;
+    }
+
+    const real = Math.max(0, Math.min(remain, target.hp));   // 统计不超过剩余生命，别记出负数
+    target.hp -= remain;
     if (real > 0) {
       if (target.isPlayer) G.stats.dmgTaken += real;
       else if (opts.credit !== 'none') G.stats.dmgDealt += real;
     }
-    this.view.onDamage?.(target, n, 0, n, opts.isDot);
+    this.view.onDamage?.(target, remain, absorbed, n, opts.isDot);
     if (opts.step) await this.view.step?.(opts.step);
     if (target.hp <= 0) await this.kill(target);
     return real;
@@ -1403,23 +1434,32 @@ export class Battle {
     G.stats.turns++;
     const m = this.mods;
 
-    // 回合开始的负面结算
-    if (!this.get(this.player, 'barricade')) this.player.block = 0;
     this.pushLog(`—— 第 ${this.turn} 回合 ——`);
 
-    // 中毒 / 点燃：轮到行动时掉 N 点血（无视护甲），然后 -1。
+    /* ⚠️ 顺序（2026-10-17 产品要求改动）：**先结算 DoT，再清护甲**。
+       原来这里是"先清甲、再中毒"，于是中毒永远打在 0 甲上 —— 玩家看到的就是
+       "小怪给我上毒，血直接掉、虚血一动不动"。现在 DoT 吃「护甲 → 虚血 → 生命」，
+       而护甲在这一步还没被清，所以**上一回合剩的甲能挡住这一口毒**。
+       "壁垒"仍然让它不清甲（下面的判断不变）。
+       ⚠️ 这条顺序也是语义的一部分：挪动它等于改平衡，别在修 bug 时顺手调。 */
+
+    // 中毒 / 点燃：轮到行动时掉 N 点血，然后 -1。
     // 两者规则完全一致，只是来源和颜色不同（点燃由火焰法师的攻击牌挂上）。
     // 中毒每跳 -2（衰减比点燃快一倍），点燃每跳 -1。
     // 用 Math.min(n, decay) 而不是直接减：1 层毒减 2 会变成 -1，
     // 虽然 add() 里 `<=0 就删除` 兜住了，但显式夹紧更不容易被后来的改动破坏。
+    // `absorb: true` = 这口伤害会被护甲/虚血吸收（见 loseHp）。
     for (const [dot, decay] of [['poison', 2], ['burn', 1]]) {
       const n = this.get(this.player, dot);
       if (n <= 0) continue;
-      await this.loseHp(this.player, n, { isDot: true });
+      await this.loseHp(this.player, n, { isDot: true, absorb: true });
       this.add(this.player, dot, -Math.min(n, decay));
       await this.view.step?.(180);
       if (this.over || this.player.hp <= 0) return;
     }
+
+    // DoT 结算完之后才清甲 —— 见上面那段说明
+    if (!this.get(this.player, 'barricade')) this.player.block = 0;
     // 备战（下回合护甲）/ 强化（每回合力量）
     // 注意「不屈」已经删除（2026-10-13）：它的效果"每回合开始获得 N 点护甲"
     // 与「敏捷」（每次获得护甲 +N）实质重复，产品决定只留敏捷。
@@ -1521,20 +1561,24 @@ export class Battle {
       // 才会算出和这回合一样的意图，玩家看到的预告才不会是错的。
       const frozen = this.get(e, 'freeze') > 0;
       if (!frozen) e.turn++;
-      // 壁垒：护甲不清空；否则每轮开头清空（与玩家侧同一条规则）
-      if (!this.get(e, 'barricade')) e.block = 0;
 
+      /* ⚠️ 顺序与玩家侧一致（2026-10-17）：**先结算 DoT，再清护甲**。
+         这样敌人上一轮"结阵/护盾"留下的甲能挡住毒/点燃，
+         而不是"毒永远穿透一切"。`absorb: true` 见 loseHp。 */
       // 敌人中毒
       for (const [dot, decay] of [['poison', 2], ['burn', 1]]) {
         const n = this.get(e, dot);
         if (n <= 0) continue;
-        await this.loseHp(e, n, { isDot: true });
+        await this.loseHp(e, n, { isDot: true, absorb: true });
         this.add(e, dot, -Math.min(n, decay));
         await this.view.step?.(200);
         if (e.dead || e.hp <= 0) break;
       }
       if (e.dead || e.hp <= 0) continue;
       if (this.over) return;
+
+      // 壁垒：护甲不清空；否则每轮开头清空（与玩家侧同一条规则）
+      if (!this.get(e, 'barricade')) e.block = 0;
 
       /* 债务结算 —— 产品明确要求**优先级最低**（先结算中毒/点燃/流血这些 DoT）。
          顺序有意义：那口毒把血打到债务线以下，这里就当场收人；

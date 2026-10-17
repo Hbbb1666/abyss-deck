@@ -526,4 +526,27 @@ else if (what === 'stats') {
     sync();`);
   writeFileSync(p, s, 'utf8');
   console.log('已把 play() 的 finally 与兜底整段去掉（一次异常就永久卡死）');
-} else console.log('用法: stats | guard | lowhp | paldmg | evdeath | split | mawfx | drain | bossbrood | ondamaged | exhausted | pierce | powercap | dexenemy | enemydmg | relicsprite | fintip | snapmods | snapcounters | readmedoc | cardblock | vulncost | vulntype | palhp | vhpbeforeblock | vhpclear | prestige5 | thronegate | thronevhp | prestige1cost | debtorder | debtdecay | debtnodomain | debtshield | gradientcap | saveover | retryveteran | batbite | squadatk | comboall | debtundef | busyfreeze | restore | clean');
+} else if (what === 'dotabsorb') {
+  /* 让 DoT 又变成"无视护甲"（复原玩家报的"中毒直接扣血、虚血不动"）。AR/X3 应该红。 */
+  backup('battle');
+  const p = R + '/core/battle.js';
+  let s = readFileSync(p, 'utf8');
+  const a = "    if (opts.absorb) {";
+  if (!s.includes(a)) throw new Error('没找到 absorb 分支');
+  s = s.replace(a, '    if (false) {   // TEMP DoT 又无视护盾');
+  writeFileSync(p, s, 'utf8');
+  console.log('已让 DoT 又无视护甲/虚血');
+} else if (what === 'dotorder') {
+  /* 把玩家的 DoT 挪回"清甲之后"（复原旧顺序）。AR4 应该红。 */
+  backup('battle');
+  const p = R + '/core/battle.js';
+  let s = readFileSync(p, 'utf8');
+  const clearLine = "    // DoT 结算完之后才清甲 —— 见上面那段说明\n    if (!this.get(this.player, 'barricade')) this.player.block = 0;";
+  if (!s.includes(clearLine)) throw new Error('没找到清甲那一行');
+  s = s.replace(clearLine, '    /* TEMP 清甲挪到前面去了 */');
+  const anchor = "    this.pushLog(`—— 第 ${this.turn} 回合 ——`);";
+  if (!s.includes(anchor)) throw new Error('没找到回合日志');
+  s = s.replace(anchor, anchor + "\n    if (!this.get(this.player, 'barricade')) this.player.block = 0;   // TEMP 先清甲");
+  writeFileSync(p, s, 'utf8');
+  console.log('已把玩家清甲挪回 DoT 之前（复原旧顺序）');
+} else console.log('用法: stats | guard | lowhp | paldmg | evdeath | split | mawfx | drain | bossbrood | ondamaged | exhausted | pierce | powercap | dexenemy | enemydmg | relicsprite | fintip | snapmods | snapcounters | readmedoc | cardblock | vulncost | vulntype | palhp | vhpbeforeblock | vhpclear | prestige5 | thronegate | thronevhp | prestige1cost | debtorder | debtdecay | debtnodomain | debtshield | gradientcap | saveover | retryveteran | batbite | squadatk | comboall | debtundef | busyfreeze | dotabsorb | dotorder | restore | clean');
