@@ -15,6 +15,7 @@
 import { el, clear, toast } from '../core/util.js';
 import { G, loadMeta } from '../core/state.js';
 import { DIFFICULTY, BOONS, DIFF_POINTS, BOON_POINTS, MAX_PICKS, scoreOf, scoreLabel, splitPicks, pickById } from '../data/difficulty.js';
+import { ACT_ATK_STEP, ACT_HP_STEP } from '../data/enemies.js';
 import { sfx } from '../core/audio.js';
 import { SPR, modal } from './widgets.js';
 
@@ -132,7 +133,10 @@ export function difficultyScene({ picks = [], onStart, onBack }) {
     onClick: () => modal({
       title: '难度系统说明', closable: true,
       body: el('div', { class: 'col gap8 small', style: { lineHeight: '1.9' } },
-        el('div', { html: `· 各条<b>独立生效</b>，可以只挑你认可的代价，不必整套一起选。<br>· 难度分<b>只在通关时记入</b>「通关最高分」—— 没通关的局不改变你的记录。<br>· 选择会写进存档，中途关页面再回来仍然生效。<br>· 基准难度已下调：怪物每层攻击增幅由 <b>20% 降至 15%</b>。` }),
+        /* ⚠️ 这里的百分比必须**从数据读**，不能手写死。
+            它以前写的是"由 20% 降至 15%"，而实际曲线是 17% ——
+            玩家在难度说明里看到的是一个不存在的数值。 */
+        el('div', { html: `· 各条<b>独立生效</b>，可以只挑你认可的代价，不必整套一起选。<br>· 难度分<b>只在通关时记入</b>「通关最高分」—— 没通关的局不改变你的记录。<br>· 选择会写进存档，中途关页面再回来仍然生效。<br>· 基准曲线：怪物每层生命 <b>+${Math.round(ACT_HP_STEP * 100)}%</b>、攻击 <b>+${Math.round(ACT_ATK_STEP * 100)}%</b>（相对第 1 层）。` }),
       ),
       buttons: [{ label: '知道了', cls: 'primary' }],
     }),

@@ -81,8 +81,12 @@ export const BOSS_FIRST_ATTACK_MULT = 0.85;
 export const ST = {
   strength: { pri: 90, name: '力量', icon: '⬆', desc: '攻击伤害 +N', buff: true, color: '#ff8a5c' },
   dexterity: { pri: 85, name: '敏捷', icon: '✦', desc: '获得的护甲 +N', buff: true, color: '#6ee7a8' },
-  vulnerable: { pri: 88, name: '易伤', icon: '✸', desc: '每层使受到的**每一段**伤害 +1，自身回合结束时 -1', color: '#ff5c8a' },
-  weak: { pri: 86, name: '虚弱', icon: '↓', desc: '每层使**每一次**造成的伤害 -1（分段招式每段都扣，每段至少留 1），回合结束 -1', color: '#c07bff' },
+  /* ⚠️ desc 是 **HTML**，强调要用 `<b>`，不能写 markdown 的 `**…**`。
+     这里曾经写成 `**每一段**`，而气泡是用 innerHTML 渲染的 —— 玩家看到的是
+     字面的两个星号（"每层使受到的**每一段**伤害 +1"）。三条受影响：易伤/虚弱/脆弱。
+     测试 AH 之外另有一条断言（AJ9）盯着 ST 表里不许再出现 markdown 星号。 */
+  vulnerable: { pri: 88, name: '易伤', icon: '✸', desc: '每层使受到的<b>每一段</b>伤害 +1，自身回合结束时 -1', color: '#ff5c8a' },
+  weak: { pri: 86, name: '虚弱', icon: '↓', desc: '每层使<b>每一次</b>造成的伤害 -1（分段招式每段都扣，每段至少留 1），回合结束 -1', color: '#c07bff' },
   energy_cap: { pri: 92, name: '能量饱和', icon: '◉', desc: '每回合能量上限 +N', buff: true, color: '#8fd4ff' },
   // 真理：奥术法师专属。本身没有直接效果，它的作用是**在引擎里当"多段加成"的计数器**：
   // 每层让本来就有多段的攻击/技能牌多打 1 次（见 effHits）。
@@ -114,7 +118,7 @@ export const ST = {
   // 注意它和易伤是**两种不同的放大**：易伤是固定 +1，脆弱是按比例 ×(1+0.07N)，
   // 所以脆弱对**大伤害**更狠、易伤对**小段数**更狠，两者刻意不重合。
   frail: { pri: 76, name: '脆弱', icon: '▽', color: '#c07bff',
-           desc: `每层使受到的**每一段**伤害 +${FRAIL_PCT}%，最多 ${FRAIL_MAX_STACKS} 层，自身回合结束时 -1` },
+           desc: `每层使受到的<b>每一段</b>伤害 +${FRAIL_PCT}%，最多 ${FRAIL_MAX_STACKS} 层，自身回合结束时 -1` },
   artifact: { pri: 55, name: '抵挡', icon: '◈', desc: '免疫下 N 次减益', buff: true, color: '#ffcc52' },
 };
 
@@ -155,6 +159,18 @@ export class Battle {
 
     // 从存档恢复：直接套用快照，不要重新随机
     this.restoreFailed = false;
+    /* 本场战斗的计数器必须一起恢复（2026-10-17 修）。
+       它们以前**不在快照里**，读档续战会静默归零：
+         · potionUsed/Count —— 炼金口袋按瓶数结算战后金币，续战就少给钱
+         · killCount        —— 磨砺之心「每 3 杀 +1 力量」的进度凭空清空
+         · cardsThisBattle  —— 血契吊坠「每 3 张抽 1」的进度同理
+         · cardsThisTurn    —— 连击护腕按"本回合第 3 张"触发，续战后计数错位
+       这些字段不算"战斗结果"，但都影响同一场战斗的继续结算，属于必须如实还原的状态。 */
+    this.potionUsed = false;
+    this.potionUsedCount = 0;
+    this.killCount = 0;
+    this.cardsThisBattle = 0;
+    this.cardsThisTurn = 0;
     if (opts.restore && !this.applySnapshot(opts.restore)) this.restoreFailed = true;
   }
 
@@ -182,6 +198,12 @@ export class Battle {
       })),
       draw: this.draw.map(c), hand: this.hand.map(c),
       discard: this.discard.map(c), exhaust: this.exhaustPile.map(c),
+      // 本场战斗的计数器（见构造函数里的说明）。缺了它们，读档续战会丢进度。
+      potionUsed: !!this.potionUsed,
+      potionUsedCount: this.potionUsedCount || 0,
+      killCount: this.killCount || 0,
+      cardsThisBattle: this.cardsThisBattle || 0,
+      cardsThisTurn: this.cardsThisTurn || 0,
     };
   }
 
@@ -203,7 +225,13 @@ export class Battle {
     });
     {
       // 先按快照顺序把敌人重建出来（uid 会重新分配）
-      const sc = enemyScale(this.act);
+      /* ⚠️ 缩放必须带上 `this.mods` —— 这是 2026-10-17 修的一个真 bug：
+         这里原来写的是 `enemyScale(this.act)`（不带难度修正），而 spawn() 是
+         `enemyScale(this.act, this.mods)`。于是开了难度「凶性渐长」（每层额外 +8% 攻击）
+         的局，**只要中途关页面再回来，敌人攻击倍率就掉回裸曲线** ——
+         玩家白捡便宜，而且界面预告会跟着一起变小，看起来"很正常"，极难发现。
+         测试（AI 段）直接比对"读档后的 atkMult"与"同层新开一场的 atkMult"。 */
+      const sc = enemyScale(this.act, this.mods);
       this.enemies = s.enemies.map(e => {
         const d = ENEMIES[e.defId];
         if (!d) return null;
@@ -238,6 +266,12 @@ export class Battle {
     const re = arr => (arr || []).map(c => makeCard(c.id, c.up));
     this.draw = re(s.draw); this.hand = re(s.hand);
     this.discard = re(s.discard); this.exhaustPile = re(s.exhaust);
+    // 计数器（缺字段的老快照按 0 处理，行为与"没存过"一致，不会误伤）
+    this.potionUsed = !!s.potionUsed;
+    this.potionUsedCount = s.potionUsedCount || 0;
+    this.killCount = s.killCount || 0;
+    this.cardsThisBattle = s.cardsThisBattle || 0;
+    this.cardsThisTurn = s.cardsThisTurn || 0;
     return true;
   }
 
@@ -268,7 +302,7 @@ export class Battle {
       return null;
     }
     const d = ENEMIES[id];
-    // 按**当前层**缩放：同一张敌人表被 4 层复用，数值随层数走高（每层 +25% 生命、+15% 攻击）。
+    // 按**当前层**缩放：同一张敌人表被 4 层复用，数值随层数走高（每层 +25% 生命、+17% 攻击，见 enemies.js 的 ACT_*_STEP）。
     // 难度选项可以在基础曲线上再加"每层额外 +hp%/+atk%"。
     // 关键：倍率只作用在"敌人自己的属性"上 —— 生命、以及招式里的 dmg。
     // 玩家卡牌给的易伤/虚弱在 calcDamage() 里照常生效，所以界面预告的伤害
@@ -662,7 +696,6 @@ export class Battle {
         }
         case 'dmgBlock':
           await this.damage(target, this.player.block + this.num(f.bonus, card), card?.name, { attacker: this.player });
-          break;
           break;
         case 'dmgPoison':
           await this.damage(target, this.get(target, 'poison') * (this.num(f.mult, card) || 1), card?.name, { attacker: this.player });
@@ -1150,8 +1183,8 @@ export class Battle {
       // 才会算出和这回合一样的意图，玩家看到的预告才不会是错的。
       const frozen = this.get(e, 'freeze') > 0;
       if (!frozen) e.turn++;
+      // 壁垒：护甲不清空；否则每轮开头清空（与玩家侧同一条规则）
       if (!this.get(e, 'barricade')) e.block = 0;
-      else e.block = e.block;
 
       // 敌人中毒
       for (const [dot, decay] of [['poison', 2], ['burn', 1]]) {

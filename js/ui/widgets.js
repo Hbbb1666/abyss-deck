@@ -192,7 +192,9 @@ export function openStatusTable(e, titleText) {
         statusIcon(d),
         el('span', { class: 'stn', text: d.name }),
         el('b', { class: 'stv', text: String(v) })),
-      el('div', { class: 'std', text: stText(k, v) }),
+      /* ⚠️ 必须是 html 而不是 text：ST 的 desc 里带 `<b>` 强调
+         （易伤/虚弱/脆弱的"每一段/每一次"）。用 text 会把标签原样印出来。 */
+      el('div', { class: 'std', html: stText(k, v) }),
     ));
   }
   return modal({

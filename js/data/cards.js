@@ -1,12 +1,16 @@
 /**
  * 卡牌数据
  * ---------------------------------------------------------------
- * 效果 DSL（fx 数组，按顺序结算）：
+ * 效果 DSL（fx 数组，按顺序结算）—— 引擎里共 **21 种** t（见 battle.js 的 resolve()）：
  *   {t:'dmg',       v, hits?}   对目标造成伤害（hits 默认 1，多段、每段单独结算）
  *   {t:'dmgAll',    v, hits?}   对全体敌人造成伤害（hits 同上）
  *   {t:'dmgBlock',  bonus?}     造成 当前护甲 + bonus 的伤害
  *   {t:'dmgPoison', mult?}      造成 (目标中毒层数 × mult) 的伤害
+ *   {t:'dmgBleed',  mult?}      造成 (目标流血层数 × mult) 的伤害
+ *   {t:'detonate',  mult?, all?} 引爆目标身上的「点燃」（每层 × mult，默认 2 倍）并清空
  *   {t:'dmgPerHand',v}          对目标造成 (手牌数 × v) 的伤害
+ *   {t:'dmgPerPlayed',  v}      造成 (本回合已打出牌数 × v) 的伤害
+ *   {t:'dmgPerEnergyMax', v}    造成 (能量上限 × v) 的伤害
  *   {t:'block',     v}          获得护甲
  *   {t:'blockFromBlock', mult?} 获得 (当前护甲 × mult) 的护甲
  *   {t:'draw',      v}          抽牌
@@ -21,17 +25,20 @@
  *   {t:'discard',   v}          弃掉自己手牌里的 v 张（**代价**，会让玩家选牌）
  *
  *   v 可以是数字，也可以是卡牌字段名字符串（随升级同步变化）
+ *   条件字段写在 fx 条目上：ifBlock / ifVulnerable / ifFrozen / ifLowHp / execute
  *
- * 敌人招式用的是**另一套**解析器（battle.js 的 resolveEnemyFx），支持：
- *   buff / buffAll / debuff / healSelf / block / summon / addCard
- * 两边不通用 —— 别把玩家的 t 写进敌人 moves。
+ * 敌人招式用的是**另一套**解析器（battle.js 的 resolveEnemyFx），共 9 种，支持：
+ *   buff / buffAll / debuff / healSelf / block / summon / addCard / drainEnergy / eatBlock
+ * 另外敌人招式还认 `preFx`（在加甲/出招**之前**结算，例如「吞噬甲胄」先吞一半护甲）、
+ * `selfDamage` 与 `hits`。两边不通用 —— 别把玩家的 t 写进敌人 moves。
  *
  * 注：上面这份清单是被测试盯着的（tools/test.mjs 会校验 fx 里引用的字符串
  *     必须是卡上真实存在的字段）。新增 t 时请同时更新本注释和引擎的 resolve()。
  * ---------------------------------------------------------------
  * type: attack / skill / power / curse / status
- * rarity: basic / common / uncommon / rare / special
- * cls: basic / knight / mage / rogue / neutral / curse / status
+ * rarity: basic / common / uncommon / rare / special / finisher
+ * cls: basic / knight / mage / rogue / icemage / arcanist / alchemist / paladin / assassin / neutral / curse / status
+ * ---------------------------------------------------------------
  */
 
 export const CARDS = {
@@ -1347,8 +1354,13 @@ export const CARDS = {
     name: '誓约·破城', cls: 'knight', type: 'attack', rarity: 'finisher', cost: 3, costN: true,
     finisher: true, unique: true, target: 'all',
     art: 'portcullis', dmg: 25, blk: 8,
+    /* `condText` 是**卡面条件与"打不出去"提示的共同真源**。
+       以前提示文案在 `scene-battle.js` 里另抄了一份映射表，改条件忘改文案就会
+       **卡面说一套、toast 说另一套**（真理牌真发生过：条件已提到 7 层，
+       提示还写着 3 层）。现在两边都读这一个字段，测试盯住它和实际边界一致。 */
+    condText: '需护甲 ≥15',
     cond: B => B.player.block >= 15,
-text: c => `<i>需护甲 ≥15</i><br>全体 <b>${c.dmg}</b> 伤，获得 <b>${c.blk}</b> 护甲。`,
+text: c => `<i>${c.condText}</i><br>全体 <b>${c.dmg}</b> 伤，获得 <b>${c.blk}</b> 护甲。`,
     fx: [{ t: 'dmgAll', v: 'dmg' }, { t: 'block', v: 'blk' }],
   },
 
@@ -1359,8 +1371,9 @@ text: c => `<i>需护甲 ≥15</i><br>全体 <b>${c.dmg}</b> 伤，获得 <b>${c
     // 价值：伤害 20 + 全体点燃 6 层（2.5×6×1.3=19.5）= 39.5 ≈ 40。
     // 引爆是**额外**的（模型不计），所以实际收益比表面更高 —— 这正是终结牌该有的样子。
     art: 'icon_burn', dmg: 20, mult: 2, poi: 6,
+    condText: '需点燃 ≥5',
     cond: B => B.aliveEnemies().some(e => B.get(e, 'burn') >= 5),
-text: c => `<i>需点燃 ≥5</i><br><b>${c.dmg}</b> 伤，引爆其点燃 ×${c.mult}，全体 +<b>${c.poi}</b> 点燃。`,
+text: c => `<i>${c.condText}</i><br><b>${c.dmg}</b> 伤，引爆其点燃 ×${c.mult}，全体 +<b>${c.poi}</b> 点燃。`,
     fx: [{ t: 'dmg', v: 'dmg' }, { t: 'detonate', mult: 'mult' }, { t: 'debuffAll', k: 'burn', v: 'poi' }],
   },
 
@@ -1371,8 +1384,9 @@ text: c => `<i>需点燃 ≥5</i><br><b>${c.dmg}</b> 伤，引爆其点燃 ×${c
     // 价值：伤害 15 + 全体流血 4 层（2.5×4×1.3=13）+ dmgBleed 12 = 40（正好参考值）。
     // dmgBleed 是"按流血层数追加伤害"，属模型不计的额外收益，所以实际更强一点。
     art: 'spider', dmg: 15, mult: 3, poi: 4,
+    condText: '需流血 ≥8',
     cond: B => B.aliveEnemies().some(e => B.get(e, 'bleed') >= 8),
-text: c => `<i>需流血 ≥8</i><br><b>${c.dmg}</b> 伤 +（流血×<b>${c.mult}</b>），全体 +<b>${c.poi}</b> 流血。`,
+text: c => `<i>${c.condText}</i><br><b>${c.dmg}</b> 伤 +（流血×<b>${c.mult}</b>），全体 +<b>${c.poi}</b> 流血。`,
     fx: [{ t: 'dmg', v: 'dmg' }, { t: 'dmgBleed', mult: 'mult' }, { t: 'debuffAll', k: 'bleed', v: 'poi' }],
   },
 
@@ -1382,9 +1396,10 @@ text: c => `<i>需流血 ≥8</i><br><b>${c.dmg}</b> 伤 +（流血×<b>${c.mult
     finisher: true, unique: true, target: 'enemy',
     art: 'icon_freeze', dmg: 25, fro: 2,
     // 只能打**处于冰冻**的敌人 —— 这就是产品给的那个例子。
+    condText: '需冰冻中',
     targetFilter: (e, B) => B.get(e, 'freeze') > 0,
     cond: B => B.aliveEnemies().some(e => B.get(e, 'freeze') > 0),
-text: c => `<i>需冰冻中</i><br><b>${c.dmg}</b> 伤，+<b>${c.fro}</b> 冰霜。`,
+text: c => `<i>${c.condText}</i><br><b>${c.dmg}</b> 伤，+<b>${c.fro}</b> 冰霜。`,
     fx: [{ t: 'dmg', v: 'dmg' }, { t: 'debuff', k: 'frost', v: 'fro' }],
   },
 
@@ -1399,8 +1414,9 @@ text: c => `<i>需冰冻中</i><br><b>${c.dmg}</b> 伤，+<b>${c.fro}</b> 冰霜
     // 而不是我偷偷放宽整类终结牌的判定（见 values.js 的注释）。
     // 注意真理还会让段数继续增加：7 层真理下实际是 6+7 = 13 段。
     art: 'arcane_orb', dmg: 8, hits: 6, finisherTarget: 48,
+    condText: '需真理 ≥7',
     cond: B => B.get(B.player, 'truth') >= 7,
-    text: c => `<i>需真理 ≥7</i><br><b>${c.dmg}</b> 伤 ×<b>${c.hits}</b>。`,
+    text: c => `<i>${c.condText}</i><br><b>${c.dmg}</b> 伤 ×<b>${c.hits}</b>。`,
     fx: [{ t: 'dmg', v: 'dmg', hits: 'hits' }],
   },
 
@@ -1410,8 +1426,9 @@ text: c => `<i>需冰冻中</i><br><b>${c.dmg}</b> 伤，+<b>${c.fro}</b> 冰霜
     finisher: true, unique: true, target: 'enemy',
     // 价值：伤害 15 + 全体中毒 4 层（13）+ dmgPoison 12 = 40（正好参考值）
     art: 'potion_green', dmg: 15, mult: 5, poi: 6,
+    condText: '需中毒 ≥8',
     cond: B => B.aliveEnemies().some(e => B.get(e, 'poison') >= 8),
-text: c => `<i>需中毒 ≥8</i><br><b>${c.dmg}</b> 伤 +（中毒×<b>${c.mult}</b>），全体 +<b>${c.poi}</b> 中毒。`,
+text: c => `<i>${c.condText}</i><br><b>${c.dmg}</b> 伤 +（中毒×<b>${c.mult}</b>），全体 +<b>${c.poi}</b> 中毒。`,
     fx: [{ t: 'dmg', v: 'dmg' }, { t: 'dmgPoison', mult: 'mult' }, { t: 'debuffAll', k: 'poison', v: 'poi' }],
   },
 
@@ -1420,8 +1437,12 @@ text: c => `<i>需中毒 ≥8</i><br><b>${c.dmg}</b> 伤 +（中毒×<b>${c.mult
     name: '最终圣裁', cls: 'paladin', type: 'skill', rarity: 'finisher', cost: 3, costN: true,
     finisher: true, unique: true, target: 'self',
     art: 'anvil', heal: 25, dmg: 12,
-    cond: B => B.player.hp <= B.player.maxHp / 2,
-text: c => `<i>需生命 <50%</i><br>回复 <b>${c.heal}</b>，全体 <b>${c.dmg}</b> 伤。`,
+    /* 文案写 ≤50%（不是 <50%）：引擎判的是 `hp * 2 <= maxHp`，
+       恰好一半时会触发。以前卡面写「<50%」而代码含等号 —— 那是"卡面撒谎"，
+       只是没人正好卡在半血上。现在两边口径一致，测试按解析出的百分比验边界。 */
+    condText: '需生命 ≤50%',
+    cond: B => B.player.hp * 2 <= B.player.maxHp,
+text: c => `<i>${c.condText}</i><br>回复 <b>${c.heal}</b>，全体 <b>${c.dmg}</b> 伤。`,
     fx: [{ t: 'heal', v: 'heal' }, { t: 'dmgAll', v: 'dmg' }],
   },
 
@@ -1430,8 +1451,9 @@ text: c => `<i>需生命 <50%</i><br>回复 <b>${c.heal}</b>，全体 <b>${c.dmg
     name: '湮灭之刻', cls: 'assassin', type: 'attack', rarity: 'finisher', cost: 3, costN: true,
     finisher: true, unique: true, target: 'enemy',
     art: 'sword_broad', dmg: 30, vul: 3,
+    condText: '需易伤 ≥5',
     cond: B => B.aliveEnemies().some(e => B.get(e, 'vulnerable') >= 5),
-text: c => `<i>需易伤 ≥5</i><br><b>${c.dmg}</b> 伤，+<b>${c.vul}</b> 易伤。`,
+text: c => `<i>${c.condText}</i><br><b>${c.dmg}</b> 伤，+<b>${c.vul}</b> 易伤。`,
     fx: [{ t: 'dmg', v: 'dmg' }, { t: 'debuff', k: 'vulnerable', v: 'vul' }],
   },
 };

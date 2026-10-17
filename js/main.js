@@ -1,17 +1,18 @@
 import { el, clear, sleep, toast, fitStage, disposeScene } from './core/util.js';
 import { gainGold, G, newRun, save, hasSave, loadSave, clearSave, loadMeta, saveMeta, bumpMeta, addRelic, gainMaxHp, relicMods, relicHooks, rollCardChoices, rollRelic, rollPotion, FINISHER_WEIGHT, CLASS_CARD_WEIGHT } from './core/state.js';
-import { generateMap, MAP_ROWS } from './core/map.js';
+import { generateMap } from './core/map.js';
 import { Battle } from './core/battle.js';
 import { ENCOUNTERS, TOTAL_ACTS } from './data/enemies.js';
 import { actIntro } from './data/events.js';
 import { CARDS } from './data/cards.js';
 import { RELICS } from './data/relics.js';
 import { CLASSES } from './data/classes.js';
-import { scoreOf, splitPicks, pickById, MAX_PICKS } from './data/difficulty.js';import { sfx, initAudio, setMuted } from './core/audio.js';
+import { scoreOf, splitPicks, pickById, MAX_PICKS } from './data/difficulty.js';
+import { sfx, initAudio } from './core/audio.js';
 import { fitAllCards } from './ui/widgets.js';
 import { menuScene, classScene, endScene, veteranScene } from './ui/scene-menu.js';
 import { mapScene } from './ui/scene-map.js';
-import { battleScene } from './ui/scene-battle.js';
+import { battleScene, finisherHint } from './ui/scene-battle.js';
 import { rewardScene, shopScene, eventScene, restScene, treasureScene } from './ui/scene-rooms.js';
 import { difficultyScene } from './ui/scene-difficulty.js';
 
@@ -360,6 +361,10 @@ window.__ABYSS__ = {
   //（它有自己独立的 `G`，与运行时那个不是同一个），断言会静默失效/空绿。
   rollCardChoices, rollRelic, rollPotion,
   FINISHER_WEIGHT, CLASS_CARD_WEIGHT,
+  // 终结牌「打不出去」的提示（读卡牌自己的 condText）。
+  // 暴露出来是为了让测试能断言"提示文本 == 条件边界"，
+  // 而不是靠人肉对照两张表（那张手抄表曾经说谎，见 scene-battle.js 的说明）。
+  finisherHint,
   // 渲染期崩溃的记录（诊断用）。真机上再遇到"卡死"时，靠这个取真因，不用猜。
   sceneErrors: () => { try { return JSON.parse(localStorage.getItem(ERR_KEY) || '[]'); } catch { return []; } },
   clearSceneErrors: () => { try { localStorage.removeItem(ERR_KEY); } catch {} },

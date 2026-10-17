@@ -2,7 +2,7 @@
    node tools/falsify.mjs stats   → 去掉 loadSave 的 stats 兜底
    node tools/falsify.mjs guard   → 去掉 go() 的场景兜底
    node tools/falsify.mjs restore → 从备份还原 */
-import { readFileSync, writeFileSync, copyFileSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, copyFileSync, existsSync, unlinkSync } from 'node:fs';
 
 const R = 'D:/网盘文件/OneDrive/文档/deepseek-harness/default-workspace/abyss-deck/js';
 const [what] = process.argv.slice(2);
@@ -10,16 +10,35 @@ const [what] = process.argv.slice(2);
 const FILES = { state: R + '/core/state.js', main: R + '/main.js', battle: R + '/core/battle.js', cards: R + '/data/cards.js', rooms: R + '/ui/scene-rooms.js', enemies: R + '/data/enemies.js', relics: R + '/data/relics.js' };
 const BAK = {};
 for (const k of Object.keys(FILES)) BAK[k] = `C:/Users/Aaron-PC/AppData/Local/Temp/falsify-${k}.bak`;
+// README 不在 js/ 下，单独备份一份（readmedoc 用例用）
+const README = 'D:/网盘文件/OneDrive/文档/deepseek-harness/default-workspace/abyss-deck/README.md';
+const README_BAK = 'C:/Users/Aaron-PC/AppData/Local/Temp/falsify-readme.bak';
 
+/** 备份**当前**文件（每次改坏前都刷新一次）。
+ *
+ *  ⚠️ 这里以前是 `if (!existsSync(BAK))` —— 只在第一次运行时装一次备份。
+ *  那意味着**上一轮遗留的备份会覆盖掉后来所有的手工修改**：
+ *  我改完代码后跑一次 `falsify restore`，会把文件退回到几天前那份旧备份去
+ *  （2026-10-17 差点真的踩到：%TEMP% 里躺着上一轮会话的 falsify-battle.bak）。
+ *  每次备份都刷新，语义就变成"把这一轮改坏前的状态记下来"，restore 永远只回退这一轮。 */
 function backup(k) {
-  if (!existsSync(BAK[k])) copyFileSync(FILES[k], BAK[k]);
+  copyFileSync(FILES[k], BAK[k]);
 }
 function restore() {
   for (const k of Object.keys(FILES)) if (existsSync(BAK[k])) copyFileSync(BAK[k], FILES[k]);
+  if (existsSync(README_BAK)) copyFileSync(README_BAK, README);
   console.log('已还原');
+}
+/** 清理遗留备份。留着它们本身不危险（backup 会刷新），
+    但 `existsSync` 一眼看不出是不是这一轮的，容易误判，所以收尾时清掉。 */
+function clean() {
+  for (const k of Object.keys(FILES)) if (existsSync(BAK[k])) { unlinkSync(BAK[k]); }
+  if (existsSync(README_BAK)) unlinkSync(README_BAK);
+  console.log('已清理遗留备份');
 }
 
 if (what === 'restore') { restore(); }
+else if (what === 'clean') { clean(); }
 else if (what === 'stats') {
   backup('state');
   const p = FILES.state;
@@ -192,4 +211,50 @@ else if (what === 'stats') {
   s = s.replace(a, "name: '守护符', sprite: 'r_amulet'");
   writeFileSync(p, s, 'utf8');
   console.log('已让「守护符」蹭「生命护符」的图（复原撞图）');
-} else console.log('用法: stats | guard | lowhp | paldmg | evdeath | split | mawfx | drain | bossbrood | ondamaged | exhausted | pierce | relicsprite | restore');
+} else if (what === 'fintip') {
+  /* 复原"手抄提示表说谎"：把真理牌的条件文案改回旧的 3 层。
+     AH 段要求 condText 的数字 == cond 的真实边界，所以这条应该红。 */
+  backup('cards');
+  const p = R + '/data/cards.js';
+  let s = readFileSync(p, 'utf8');
+  const a = "    condText: '需真理 ≥7',";
+  if (!s.includes(a)) throw new Error('没找到真理牌的 condText');
+  s = s.replace(a, "    condText: '需真理 ≥3',   // TEMP 复原旧文案（条件仍是 7 层）");
+  writeFileSync(p, s, 'utf8');
+  console.log('已把「终极定理」的提示改回 3 层（条件仍是 7 层 → 文案撒谎）');
+} else if (what === 'snapmods') {
+  /* 复原"读档丢难度攻击缩放"：applySnapshot 里不带 this.mods。
+     AI1 段会红（读档后 atkMult 掉回裸曲线）。 */
+  backup('battle');
+  const p = R + '/core/battle.js';
+  let s = readFileSync(p, 'utf8');
+  const a = '      const sc = enemyScale(this.act, this.mods);';
+  if (!s.includes(a)) throw new Error('没找到 applySnapshot 的 enemyScale');
+  s = s.replace(a, '      const sc = enemyScale(this.act);   // TEMP 漏掉难度修正');
+  writeFileSync(p, s, 'utf8');
+  console.log('已让读档丢掉难度攻击缩放（复原那个 bug）');
+} else if (what === 'snapcounters') {
+  /* 复原"战斗计数器不进快照"：把它们从 serialize 里删掉。
+     AI2 段会红（快照里缺字段 / 读回来是 0）。 */
+  backup('battle');
+  const p = R + '/core/battle.js';
+  let s = readFileSync(p, 'utf8');
+  const a = `      potionUsed: !!this.potionUsed,
+      potionUsedCount: this.potionUsedCount || 0,
+      killCount: this.killCount || 0,
+      cardsThisBattle: this.cardsThisBattle || 0,
+      cardsThisTurn: this.cardsThisTurn || 0,`;
+  if (!s.includes(a)) throw new Error('没找到 serialize 里的计数器');
+  s = s.replace(a, '      // TEMP 不存战斗计数器');
+  writeFileSync(p, s, 'utf8');
+  console.log('已让战斗计数器不进快照（复原那个 bug）');
+} else if (what === 'readmedoc') {
+  /* 复原"文档数字漂移"：把 README 的职业门槛改回旧的 18。
+     AJ4 段会红（README 与 classes.js 不一致）。 */
+  if (!existsSync(README_BAK)) copyFileSync(README, README_BAK);
+  let s = readFileSync(README, 'utf8');
+  if (!s.includes('| 炼金师 | 9 |')) throw new Error('没找到 README 的门槛行');
+  s = s.replace('| 炼金师 | 9 |', '| 炼金师 | 18 |');
+  writeFileSync(README, s, 'utf8');
+  console.log('已把 README 里炼金师的门槛改回 18（数据是 9 → 文档漂移）');
+} else console.log('用法: stats | guard | lowhp | paldmg | evdeath | split | mawfx | drain | bossbrood | ondamaged | exhausted | pierce | powercap | dexenemy | enemydmg | relicsprite | fintip | snapmods | snapcounters | readmedoc | restore | clean');

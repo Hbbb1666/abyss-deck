@@ -381,11 +381,13 @@ export function eventScene({ onDone, onFight, ev: givenEv, intro } = {}) {
     upgradeCard: () => new Promise(res => {
       const cand = G.deck.filter(e => CARDS[e.id].up && !e.up);
       if (!cand.length) { log.push('<span class="dim">没有可以升级的卡牌</span>'); return res(); }
-      pickCards(cand.map(e => makeCard(e.id, e.up ? false : false)), {
+      /* 只把**可升级**的牌列出来；渲染的是升级前的样子（选完立刻变升级版，
+         详见营火锻造那边的 renderCard —— 那里选的是"升级后"预览，用途不同）。 */
+      pickCards(cand.map(e => makeCard(e.id)), {
         n: 1, title: '升级一张卡牌', hint: '仅显示可升级的卡牌',
         onDone: sel => {
           if (sel) {
-            const t = G.deck.findIndex(e => e.id === sel[0].id && CARDS[e.id].up && !e.up);
+            const t = G.deck.findIndex(e => e.id === sel[0].id && !e.up);
             if (t >= 0) { upgradeCardAt(t); log.push(`升级了「<b>${CARDS[G.deck[t].id].name}</b>」`); }
           } else log.push('<span class="dim">取消了选择</span>');
           res();

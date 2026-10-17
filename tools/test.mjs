@@ -5492,6 +5492,337 @@ section('AG. 一击伤害参考表 + 敏捷对怪物生效（产品查证项）'
   }
 }
 
+/* ================= AH. 终结牌提示必须与真实条件一致（"卡面/提示不许撒谎"） ================= */
+section('AH. 终结牌条件提示 = 真实触发边界');
+{
+  const { CARDS } = await import('file://' + join(ROOT, 'js/data/cards.js'));
+  const fins = Object.values(CARDS).filter(c => c.finisher);
+
+  /* --- AH1. 每张终结牌都必须有 condText，且提示文案 === 卡面写的条件 ---
+     背景：`scene-battle.js` 里曾有一张**手抄**的 id→文案映射表，
+     真理牌条件从 3 层提到 7 层后，提示还写着"需要 3 层以上真理"——
+     玩家照着提示攒到 3 层，点下去只会被拒绝。
+     现在提示读卡牌自己的 `condText`，卡面也读同一个字段，所以两边不可能再分叉。 */
+  ok(fins.length === 8, `终结牌 8 张（实际 ${fins.length}）`);
+  const miss = fins.filter(c => !c.condText).map(c => c.id);
+  ok(miss.length === 0, '每张终结牌都有 condText', miss.join(','));
+  const hintMismatch = [];
+  for (const c of fins) {
+    // 卡面（text 里 <i>…</i> 那一段）必须原样含有 condText
+    const shown = String(c.text(c));
+    if (!shown.includes(c.condText)) hintMismatch.push(`${c.id}: 卡面未含「${c.condText}」`);
+    // 「打不出去」的提示必须就是 condText（不再有第二份映射表）
+    if (A.finisherHint({ id: c.id }) !== c.condText) hintMismatch.push(`${c.id}: 提示≠condText`);
+  }
+  ok(hintMismatch.length === 0, '卡面条件与「打不出去」提示是同一份文案', hintMismatch.join(' | '));
+
+  /* --- AH2. condText 里写的数字 = cond 的真实触发边界 ---
+     做法：解析出文案里的阈值 N，然后把状态调成 N-1（应**打不出去**）与 N（应能打出）。
+     这条是真正证伪"文案撒谎"的那一半 —— 只比对字符串还能两边一起写错。 */
+  const noop = { step: async () => {}, sync() {}, log() {} };
+  const mk = async (cls, picks = []) => {
+    A.startRun(cls, picks);
+    A.G.act = 1;
+    const B = new A.Battle(['slime'], { kind: 'battle' });
+    B.view = { ...noop };
+    B.rollIntents();
+    await B.start();
+    return B;
+  };
+  /** 卡面阈值 → 怎么把状态摆到"差一点"和"正好够"。
+       ⚠️ 不能统一用 `n-1` / `n`：
+        - 冰冻是**存在性**条件（0 层 vs 1 层），文案里根本没有数字；
+        - 圣裁是**百分比**条件（≤50% 生命），"差一点"是 51% 而不是 49%；
+        - 而且状态必须**先清零**再设 —— 刺客的起始遗物「影刃」开局就挂 2 层易伤，
+          直接 add 4 会变成 6 层，测出来的边界是错的（第一版就踩了这个）。 */
+  const BOUND = {
+    finisher_bulwark: {
+      shown: 15,
+      below: B => { B.player.block = 14; },
+      at:    B => { B.player.block = 15; },
+    },
+    finisher_pyre: {
+      shown: 5,
+      below: B => { const e = B.aliveEnemies()[0]; delete e.st.burn; B.add(e, 'burn', 4); },
+      at:    B => { const e = B.aliveEnemies()[0]; delete e.st.burn; B.add(e, 'burn', 5); },
+    },
+    finisher_exsanguinate: {
+      shown: 8,
+      below: B => { const e = B.aliveEnemies()[0]; delete e.st.bleed; B.add(e, 'bleed', 7); },
+      at:    B => { const e = B.aliveEnemies()[0]; delete e.st.bleed; B.add(e, 'bleed', 8); },
+    },
+    finisher_shatterfrost: {
+      shown: null,                                  // 存在性条件，文案里没有数字
+      below: B => { const e = B.aliveEnemies()[0]; delete e.st.freeze; delete e.st.frost; },
+      at:    B => { const e = B.aliveEnemies()[0]; B.add(e, 'freeze', 1); },
+    },
+    finisher_finaltheorem: {
+      shown: 7,
+      below: B => { delete B.player.st.truth; B.add(B.player, 'truth', 6); },
+      at:    B => { delete B.player.st.truth; B.add(B.player, 'truth', 7); },
+    },
+    finisher_plagueend: {
+      shown: 8,
+      below: B => { const e = B.aliveEnemies()[0]; delete e.st.poison; B.add(e, 'poison', 7); },
+      at:    B => { const e = B.aliveEnemies()[0]; delete e.st.poison; B.add(e, 'poison', 8); },
+    },
+    finisher_judgment: {
+      shown: 50,                                    // 百分比：≤50% 生命
+      below: B => { B.player.maxHp = 100; B.player.hp = 51; },
+      at:    B => { B.player.maxHp = 100; B.player.hp = 50; },
+    },
+    finisher_annihilate: {
+      shown: 5,
+      below: B => { const e = B.aliveEnemies()[0]; delete e.st.vulnerable; B.add(e, 'vulnerable', 4); },
+      at:    B => { const e = B.aliveEnemies()[0]; delete e.st.vulnerable; B.add(e, 'vulnerable', 5); },
+    },
+  };
+  ok(Object.keys(BOUND).length === fins.length,
+     `边界表覆盖全部 ${fins.length} 张终结牌（实际 ${Object.keys(BOUND).length}）`);
+
+  const badBound = [];
+  for (const c of fins) {
+    const b = BOUND[c.id];
+    if (!b) { badBound.push(`${c.id}: 边界表缺项`); continue; }
+    // 文案里的数字必须等于边界表里的数字（两处独立写，用它互相校验）
+    const nums = String(c.condText).match(/\d+/g) || [];
+    if (b.shown == null) {
+      if (nums.length) { badBound.push(`${c.id}: 边界表说无数字，condText 却写了 ${nums.join('/')}`); continue; }
+    } else if (nums[0] !== String(b.shown)) {
+      badBound.push(`${c.id}: condText 写 ${nums.join('/') || '(无)'}，边界表写 ${b.shown}`);
+      continue;
+    }
+    const card = { ...CARDS[c.id] };
+    // 差一点：必须打不出去
+    const B0 = await mk(c.cls);
+    B0.energy = 99;                       // 排除"能量不足"的干扰
+    b.below(B0);
+    const under = B0.canPlay(card);
+    // 正好到界限：必须能打出
+    const B1 = await mk(c.cls);
+    B1.energy = 99;
+    b.at(B1);
+    const at = B1.canPlay(card);
+    if (under || !at) badBound.push(`${c.id}: 差一点应打不出(${under}) / 正好应能打出(${at})`);
+  }
+  ok(badBound.length === 0, '每张终结牌「差一点打不出、正好能打出」与文案数字一致',
+     badBound.join(' | '));
+
+  /* --- AH3. 卡面不再出现旧口径的「<50%」（引擎实际含等号） --- */
+  const judge = CARDS.finisher_judgment;
+  ok(/≤\s*50%/.test(judge.condText), `「最终圣裁」写成 ≤50%（实际 ${judge.condText}）`);
+  const Bh = await mk('paladin');
+  Bh.player.maxHp = 100; Bh.player.hp = 50;      // 正好一半
+  ok(judge.cond(Bh), '正好半血时条件成立（与文案的 ≤ 一致，不是 <）');
+  Bh.player.hp = 51;
+  ok(!judge.cond(Bh), '半血以上一点点就不成立');
+}
+
+/* ================= AI. 读档续战必须如实还原"战斗内状态"（不许白捡便宜） ================= */
+section('AI. 战斗存档还原：难度缩放 / 战斗计数器');
+{
+  const noop = { step: async () => {}, sync() {}, log() {} };
+  const mk = async (picks = [], act = 3) => {
+    A.startRun('knight', picks);
+    A.G.act = act;
+    const B = new A.Battle(['statue'], { kind: 'battle' });
+    B.view = { ...noop };
+    B.rollIntents();
+    await B.start();
+    return B;
+  };
+
+  /* --- AI1. 难度「凶性渐长」的攻击缩放必须活着穿过读档 ---
+     真 bug（2026-10-17 修）：applySnapshot 里写的是 `enemyScale(this.act)`，
+     漏了 `this.mods`；而 spawn() 是 `enemyScale(this.act, this.mods)`。
+     于是开了这条难度的局，**中途关页面再回来，敌人攻击倍率就掉回裸曲线** ——
+     玩家白捡便宜，且意图预告会跟着一起变小，看起来完全正常。 */
+  {
+    const picks = ['d_atk_per_act'];
+    const B = await mk(picks, 3);
+    const atkBefore = B.enemies[0].atkMult;
+    const bare = await mk([], 3);
+    ok(atkBefore > bare.enemies[0].atkMult + 1e-9,
+       `难度确实抬高了攻击倍率（${bare.enemies[0].atkMult.toFixed(3)} → ${atkBefore.toFixed(3)}）`);
+
+    const snap = JSON.parse(JSON.stringify(B.serialize()));
+    A.startRun('knight', picks);
+    A.G.act = 3;
+    const B2 = new A.Battle([], { kind: 'battle', restore: snap });
+    ok(!B2.restoreFailed, '快照被接受');
+    ok(Math.abs(B2.enemies[0].atkMult - atkBefore) < 1e-9,
+       `读档后攻击倍率不丢（存 ${atkBefore.toFixed(3)} / 读回 ${B2.enemies[0].atkMult.toFixed(3)}）`);
+
+    // 意图预告也跟着一致（这是玩家真正看到的数字）
+    const e1 = B.enemies[0], e2 = B2.enemies[0];
+    for (const e of [e1, e2]) { e.moveId = 'crush'; e.attacked = 1; }
+    ok(B2.intentOf(e2).dmg === B.intentOf(e1).dmg,
+       `读档后意图预告与实际一致（${B.intentOf(e1).dmg} vs ${B2.intentOf(e2).dmg}）`);
+  }
+
+  /* --- AI2. 战斗计数器必须写进快照并读回来 ---
+     它们都直接决定"同一场战斗继续打"的结果：
+       potionUsed/Count → 炼金口袋的战后金币；killCount → 磨砺之心每 3 杀 +1 力量；
+       cardsThisBattle → 血契吊坠每 3 张抽 1；cardsThisTurn → 连击护腕每回合第 3 张 +2 力量。 */
+  {
+    const B = await mk([], 1);
+    B.potionUsed = true; B.potionUsedCount = 3;
+    B.killCount = 5; B.cardsThisBattle = 7; B.cardsThisTurn = 2;
+    const snap = JSON.parse(JSON.stringify(B.serialize()));
+
+    const fields = ['potionUsed', 'potionUsedCount', 'killCount', 'cardsThisBattle', 'cardsThisTurn'];
+    const missing = fields.filter(k => !(k in snap));
+    ok(missing.length === 0, '快照里带齐 5 个战斗计数器', missing.join(','));
+
+    A.startRun('knight', []);
+    A.G.act = 1;
+    const B2 = new A.Battle([], { kind: 'battle', restore: snap });
+    ok(!B2.restoreFailed, '快照被接受（计数器版）');
+    const wrong = fields.filter(k => B2[k] !== B[k]);
+    ok(wrong.length === 0, '读档后 5 个计数器全部一致',
+       wrong.map(k => `${k} ${B[k]}→${B2[k]}`).join(' | '));
+  }
+
+  /* --- AI3. 老快照（没有这些字段）不能被拒绝，按 0 处理 --- */
+  {
+    const B = await mk([], 1);
+    const snap = JSON.parse(JSON.stringify(B.serialize()));
+    for (const k of ['potionUsed', 'potionUsedCount', 'killCount', 'cardsThisBattle', 'cardsThisTurn']) delete snap[k];
+    A.startRun('knight', []);
+    A.G.act = 1;
+    const B2 = new A.Battle([], { kind: 'battle', restore: snap });
+    ok(!B2.restoreFailed, '缺计数器字段的老快照仍然被接受（向后兼容）');
+    ok(B2.killCount === 0 && B2.potionUsedCount === 0 && B2.potionUsed === false,
+       '缺失的计数器按 0/false 兜底');
+  }
+}
+
+/* ================= AJ. 文档与数据不许漂移（把"数字写错"变成会红的东西） ================= */
+section('AJ. 文档数字与代码真源一致');
+{
+  const { ENEMIES, ACT_HP_STEP, ACT_ATK_STEP, TOTAL_ACTS } = await import('file://' + join(ROOT, 'js/data/enemies.js'));
+  const { CARDS } = await import('file://' + join(ROOT, 'js/data/cards.js'));
+  const { RELICS } = await import('file://' + join(ROOT, 'js/data/relics.js'));
+  const { CLASSES } = await import('file://' + join(ROOT, 'js/data/classes.js'));
+  const { EVENTS, ACT_INTROS } = await import('file://' + join(ROOT, 'js/data/events.js'));
+  const { DIFFICULTY, BOONS, MAX_PICKS } = await import('file://' + join(ROOT, 'js/data/difficulty.js'));
+  const { BUDGET } = await import('file://' + join(ROOT, 'js/data/values.js'));
+  const { POTIONS } = await import('file://' + join(ROOT, 'js/data/potions.js'));
+  const { ST } = await import('file://' + join(ROOT, 'js/core/battle.js'));
+  const readme = readFileSync(join(ROOT, 'README.md'), 'utf8');
+  const guide = readFileSync(join(ROOT, 'docs/开发与维护指南.md'), 'utf8');
+  const html = readFileSync(join(ROOT, 'index.html'), 'utf8');
+  const mf = readFileSync(join(ROOT, 'manifest.webmanifest'), 'utf8');
+
+  const playable = Object.values(CARDS).filter(c => c.type !== 'curse' && c.type !== 'status');
+  const counts = {
+    cards: playable.length,
+    enemies: Object.keys(ENEMIES).length,
+    relics: Object.keys(RELICS).length,
+    potions: Object.keys(POTIONS).length,
+    events: EVENTS.length,
+    classes: Object.keys(CLASSES).length,
+    status: Object.keys(ST).length,
+    acts: TOTAL_ACTS,
+  };
+
+  /* --- AJ1. 两个"对外文案"里的数字必须等于真源 ---
+     index.html/manifest 的 description 曾被写成「99 张卡牌、27 种敌人、4 个职业」，
+     实际是 196/32/8 —— 这是玩家在安装框和应用列表里直接看到的字。 */
+  for (const [name, src] of [['index.html', html], ['manifest.webmanifest', mf]]) {
+    const bad = [];
+    if (!src.includes(`${counts.cards} 张卡牌`)) bad.push(`卡牌数应写 ${counts.cards}`);
+    if (!src.includes(`${counts.enemies} 种敌人`)) bad.push(`敌人数应写 ${counts.enemies}`);
+    if (!src.includes(`${counts.classes} 个职业`)) bad.push(`职业数应写 ${counts.classes}`);
+    ok(bad.length === 0, `${name} 的 description 与数据一致`, bad.join(' | '));
+  }
+
+  /* --- AJ2. README 里的"内容量"表 --- */
+  const want = [
+    [`**${counts.cards}** 张可打出`, '卡牌'],
+    [`**${counts.enemies}** 种`, '敌人'],
+    [`**${counts.relics}** 件`, '遗物'],
+    [`**${counts.status}** 种`, '状态'],
+    [`**${counts.potions}** 种`, '药水'],
+    [`**${counts.classes}** 个`, '职业'],
+  ];
+  const missReadme = want.filter(([s]) => !readme.includes(s)).map(([, l]) => l);
+  ok(missReadme.length === 0, 'README「内容量」表与数据一致', missReadme.join(','));
+
+  /* --- AJ3. 难度条目的数量与"条数不限" --- */
+  ok(MAX_PICKS === Infinity, 'MAX_PICKS 是无限制（README 写"条数不限"）');
+  ok(readme.includes(`${DIFFICULTY.length} 条难度`) && readme.includes(`${BOONS.length} 条增益`),
+     `README 写对难度/增益条数（${DIFFICULTY.length} / ${BOONS.length}）`);
+  ok(readme.includes(`${DIFFICULTY.length}** 条难度`), 'README 内容量表的难度条数正确');
+  ok(!/最多选 ?\d+ ?条/.test(readme) && !/<b>10<\/b> 条/.test(readme),
+     'README 不再出现"最多选 N 条"这种过时说法');
+
+  /* --- AJ4. 职业解锁门槛（README 的表） --- */
+  const badLock = [];
+  for (const c of Object.values(CLASSES)) {
+    // README 里那一行：| 名字 | 门槛 |  ——  门槛对得上即可（0 写成 "**0**"）
+    const re = new RegExp(`\\|\\s*${c.name}\\s*\\|[^|]*?(\\d+)[^|]*\\|`);
+    const m = readme.match(re);
+    if (!m) { badLock.push(`${c.name}: README 里找不到解锁门槛`); continue; }
+    const shown = Number(m[1]);
+    const real = c.alwaysUnlocked ? 0 : c.unlockScore;
+    if (shown !== real) badLock.push(`${c.name}: README ${shown} ≠ 实际 ${real}`);
+  }
+  ok(badLock.length === 0, 'README 的职业解锁门槛与 classes.js 一致', badLock.join(' | '));
+
+  /* --- AJ5. 卡牌预算表（README 的"每档预算"） ---
+     逐档比对，而不是拼一整个长串 —— 文案里夹着"（普通/蓝/金）"这类注释，
+     整串 includes 会因为一个括号而误判（我第一版就是这么写的）。 */
+  const badBud = [];
+  for (const cost of [1, 2, 3]) {
+    const want = [BUDGET[`${cost}-common`], BUDGET[`${cost}-uncommon`], BUDGET[`${cost}-rare`]].join(' / ');
+    if (!new RegExp(`${cost} 费 ${want.replace(/ /g, '\\s*')}`).test(readme)) {
+      badBud.push(`${cost} 费应为 ${want}`);
+    }
+  }
+  ok(badBud.length === 0, 'README 的每档预算与 values.js 一致', badBud.join(' | '));
+
+  /* --- AJ6. 层强度曲线的注释（enemies.js 顶部那份表） --- */
+  const enemiesSrc = readFileSync(join(ROOT, 'js/data/enemies.js'), 'utf8');
+  const badCurve = [];
+  for (const act of [1, 2, 3, 4]) {
+    const hp = (1 + ACT_HP_STEP * (act - 1)).toFixed(2);
+    const atk = (1 + ACT_ATK_STEP * (act - 1)).toFixed(2);
+    if (!enemiesSrc.includes(`第 ${act} 层 ×${hp} 生命 / ×${atk} 攻击`)) {
+      badCurve.push(`第 ${act} 层应为 ×${hp} / ×${atk}`);
+    }
+  }
+  ok(badCurve.length === 0, 'enemies.js 顶部的层倍率表与 ACT_*_STEP 一致', badCurve.join(' | '));
+  // 文档里也不许再写旧口径
+  ok(!/每层 \+25% 生命、\+20% 攻击/.test(guide), '指南里没有残留的"+20% 攻击"旧口径');
+
+  /* --- AJ6b. 状态说明不许出现 markdown 星号 ---
+     这些字符串最终进 innerHTML 显示给玩家，`**每一段**` 会原样印出两个星号。
+     受影响的是易伤 / 虚弱 / 脆弱三条 —— 恰恰是判断伤害时最常看的。 */
+  {
+    const { ST, stText } = await import('file://' + join(ROOT, 'js/core/battle.js'));
+    const starred = Object.keys(ST).filter(k => stText(k, 3).includes('**'));
+    ok(starred.length === 0, '状态说明里没有 markdown 星号（会原样显示给玩家）', starred.join(','));
+    ok(stText('vulnerable', 3).includes('<b>'), '状态说明用 <b> 强调（能正常渲染成粗体）');
+  }
+
+  /* --- AJ7. 开场事件：每层一个（README 那张表） --- */
+  ok(ACT_INTROS.length === TOTAL_ACTS && new Set(ACT_INTROS.map(e => e.act)).size === TOTAL_ACTS,
+     `开场事件每层各 1 个（${ACT_INTROS.length} 个 / ${TOTAL_ACTS} 层）`);
+}
+
+/* ================= AK. 测试项数与 README 记录一致 =================
+   放在**最后**：这一条自己也算一项，所以期望值 = 已通过+已失败+1。
+   以前 README 里同时出现过 267 / 609 两个数字，读者无法判断哪个可信；
+   现在让"写错"变成一次红灯，而不是靠人记得改。 */
+{
+  const readme = readFileSync(join(ROOT, 'README.md'), 'utf8');
+  const projected = pass + fail + 1;
+  const shown = (readme.match(/跑测试（(\d+) 项）/) || [])[1];
+  ok(shown === String(projected),
+     `README 记的测试项数 = 实际（README ${shown} / 实际 ${projected}）`);
+}
+
 /* ================= 汇总 ================= */
 console.log(`\n\x1b[1m========== 测试汇总 ==========\x1b[0m`);
 console.log(`  通过 \x1b[32m${pass}\x1b[0m   失败 \x1b[31m${fail}\x1b[0m`);

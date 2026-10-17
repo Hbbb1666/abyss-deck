@@ -1,6 +1,6 @@
-import { el, clear, sleep, toast, fxFloat, onScene } from '../core/util.js';
-import { G, save, hasRelic } from '../core/state.js';
-import { NODE_TYPES, reachable, nodeAt, layout, MAP_ROWS } from '../core/map.js';
+import { el, clear, toast, onScene } from '../core/util.js';
+import { G, save } from '../core/state.js';
+import { NODE_TYPES, reachable, layout } from '../core/map.js';
 import { classSprite } from '../data/classes.js';
 import { sfx } from '../core/audio.js';
 import { SPR, relicEl, bindTip, bindTipAction, hpBar, modal, goldIcon } from './widgets.js';

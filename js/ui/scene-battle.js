@@ -270,7 +270,14 @@ export function battleScene(B, { onFinish, onQuit, resumed }) {
     else if (it.blk) txt = `${ico} ${it.blk}`;
     refs.intent.className = 'intent ' + cls;
     refs.intent.innerHTML = `<span>${txt}</span>`;
-    bindTipOnce(refs.intent, () => `<div class="tname">${it.name}</div>` + intentDesc(it));
+    /* ⚠️ 气泡内容必须在**长按那一刻**重新取一次意图，不能在首次渲染时把 `it` 闭包进去。
+       以前写的是 `() => intentDesc(it)`，而 bindTipOnce 只绑一次 ——
+       于是敌人换招之后，长按看到的永远是**它第一次被渲染时**的招式说明
+       （数字对得上只是巧合：意图行每次都重画，气泡却没重画）。 */
+    bindTipOnce(refs.intent, () => {
+      const cur = B.intentOf(e);
+      return `<div class="tname">${cur.name}</div>` + intentDesc(cur);
+    });
   }
 
   function bindTipOnce(node, fn) {
@@ -432,20 +439,9 @@ export function battleScene(B, { onFinish, onQuit, resumed }) {
     sync();
   }
 
-  /** 终结牌的条件说明（放在 toast 里告诉玩家差什么） */
-  function finisherHint(card) {
-    const m = {
-      finisher_bulwark: '需要 15 点以上护甲',
-      finisher_pyre: '需要某个敌人身上有 5 层以上点燃',
-      finisher_exsanguinate: '需要某个敌人身上有 8 层以上流血',
-      finisher_shatterfrost: '需要先把敌人冻住',
-      finisher_finaltheorem: '需要 3 层以上真理',
-      finisher_plagueend: '需要某个敌人身上有 8 层以上中毒',
-      finisher_judgment: '需要生命低于一半',
-      finisher_annihilate: '需要某个敌人身上有 5 层以上易伤',
-    };
-    return m[card.id] || '条件未满足';
-  }
+  /** 终结牌的条件说明 —— 说明见文件底部的 finisherHint()。
+      以前这里有一份**手抄的 id → 文案映射表**，改条件忘改文案就会说谎
+      （真理牌：条件已提到 7 层、提示还写着 3 层），现已删掉。 */
 
   function cancelSelect() {
     selected = null; pendingTarget = false; selectedTarget = null; potionIndex = -1;
@@ -720,6 +716,18 @@ export function battleScene(B, { onFinish, onQuit, resumed }) {
 }
 
 /* ================= 引擎外的小工具 ================= */
+
+/** 终结牌「为什么打不出去」的说明。
+ *
+ *  **唯一真源是卡牌自己的 `condText`**（见 cards.js 的终结牌区块）。
+ *  这里以前是一张手抄映射表，于是"改条件忘改文案"必然发生：
+ *  真理牌的条件从 3 层提到 **7 层** 后，提示还写着"需要 3 层以上真理" ——
+ *  玩家照着提示攒到 3 层，点下去只会被拒绝，还不知道差在哪。
+ *  测试（AH 段）会逐张验证：提示文本 == condText，且 condText 里写的数字
+ *  正好就是 `cond` 的触发边界（差 1 点必须打不出去）。 */
+export function finisherHint(card) {
+  return CARDS[card?.id]?.condText || '条件未满足';
+}
 
 export function deckBody() {
   const body = el('div');

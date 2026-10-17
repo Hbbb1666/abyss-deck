@@ -111,17 +111,9 @@ for (const cls of CLASS_LIST) {
     for (const f of fins) {
       L.push(`- **${f.name}** — 参考价值 ${valueOf(f).toFixed(1)}/${budgetOf(f)}`);
       L.push(`  - ${describe(f)}`);
-      const condMap = {
-        finisher_bulwark: '需要 15 点以上护甲',
-        finisher_pyre: '需要某个敌人身上有 5 层以上点燃',
-        finisher_exsanguinate: '需要某个敌人身上有 8 层以上流血',
-        finisher_shatterfrost: '只能对**冰冻**中的敌人使用',
-        finisher_finaltheorem: '需要 3 层以上真理',
-        finisher_plagueend: '需要某个敌人身上有 8 层以上中毒',
-        finisher_judgment: '需要生命低于一半',
-        finisher_annihilate: '需要某个敌人身上有 5 层以上易伤',
-      };
-      L.push(`  - **使用条件**：${condMap[f.id] || '（见卡面）'}`);
+      /* 条件文案统一读卡牌自己的 `condText` —— 这里以前也有一份手抄映射表，
+         和 UI 那份一起漂移过（真理牌条件 7 层、文案 3 层）。 */
+      L.push(`  - **使用条件**：${f.condText || '（见卡面）'}`);
     }
     L.push('');
   }
