@@ -6232,6 +6232,29 @@ section('AN. 死神：债务 → 血线终结');
        `2 层债务计价 ${valueOf(withDebt) - valueOf(withoutDebt)}（应为 3）`);
   }
 
+  /* --- AN11. 债务牌打死目标时**不能抛异常**（玩家报：还剩 1 费却出不了牌）---
+     真 bug（2026-10-17）：债务那段末尾写的是无条件的 `view.onStatus?.(foes[0])`。
+     当这张牌的直接伤害把目标打死、但场上还有别的怪时（`this.over` 仍 false），
+     `foes` 过滤后是**空数组** → `foes[0]` 是 undefined → 界面 `e.isPlayer` 抛 TypeError
+     → 异常冒到 scene-battle 的 `play()`，`busy` 永远停在 true
+     → **整手牌点不动、结束回合也点不动**，而能量已经扣掉了。
+     所以这条要断言"不抛异常"，而不是只断言"债务没加上"。 */
+  {
+    const B = await mkR(['slime', 'bat']);
+    const e0 = B.aliveEnemies()[0];
+    e0.hp = 2; e0.maxHp = 10;              // 一记 2 伤的「骨牌计数」就能打死
+    let undefinedStatus = 0;
+    B.view.onStatus = (e) => { if (!e) undefinedStatus++; };
+    const c = makeCard('bone_tally');
+    B.hand = [c]; B.energy = 1;
+    let thrown = null;
+    try { await B.playCard(c, e0); } catch (err) { thrown = err; }
+    ok(thrown === null, `债务牌打死目标时不抛异常（实际：${thrown && thrown.message}）`);
+    ok(undefinedStatus === 0, `不会把 undefined 传给 onStatus（实际 ${undefinedStatus} 次）`);
+    ok(e0.dead, '目标确实被打死了（这条测试才有意义）');
+    ok(B.aliveEnemies().length === 1, '场上还有别的怪，所以战斗没结束（正是触发条件）');
+  }
+
   /* --- AN10. 卡池：债务牌不该同时把直接伤害配到满 --- */
   {
     const reaper = Object.values(A.CARDS).filter(c => c.cls === 'reaper');
@@ -6434,6 +6457,72 @@ section('AP. 互补双怪 + 三小怪分工');
     ok(ENEMIES.soul_vine.hp[0] > ENEMIES.thread_puller.hp[0],
        '第4层那对：噬魂藤比牵丝者血厚 → 最优解是"先秒牵丝者"（与第3层相反）');
   }
+}
+
+/* ================= AQ. 一次异常不许把战斗界面永久卡死 ================= */
+section('AQ. 出牌异常后界面能自愈');
+{
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const doc = window.document;
+  const txt = n => (n.textContent || '').trim();
+
+  /* 背景：玩家报"还剩 1 点费用却出不了牌"。
+     根因是债芈牌打死目标时 `onStatus(undefined)` 抛异常，
+     而 `play()` 里 `busy = true` 没有 finally → **一次异常，整局报废**。
+     引擎那处已经修了（AN11），但这条测试守的是**界面自己的状态机**：
+     就算将来别的地方再抛，界面也必须能继续玩下去，不能永久卡死。 */
+  A.clearSave();
+  A.startRun('knight');
+  A.G.act = 1;
+  A.startBattle('weak', 'battle');
+  await sleep(1500);
+  const B = A.currentBattle;
+  ok(!!B, '战斗已开始');
+
+  /* ⚠️ 必须接住 unhandledRejection。
+     `play()` 是 async 函数、从事件回调里被同步调用 —— 它一旦 reject，
+     就是一个"无人 await 的 Promise 拒绝"。Node 15+ 默认把这种拒绝当致命错误，
+     **整个进程当场退出**：表现出来就是测试只打印 section 标题然后没了，
+     既没有通过数也没有红色断言 —— 比一条红还难判断。
+     （我第一次跑 falsify 就是这么误判成"测试通过了"。）
+     所以这里在测试期间临时接管，把它记成一个可断言的证据。 */
+  const rejections = [];
+  const onRej = (r) => rejections.push(String(r && r.message || r));
+  process.on('unhandledRejection', onRej);
+  try {
+    // 让引擎"抛一次"：把 playCard 临时替换成会抛的版本
+    const realPlay = B.playCard.bind(B);
+    B.playCard = async () => { throw new Error('模拟引擎异常'); };
+    const card = doc.querySelector('.hand .card');
+    ok(!!card, '手牌里有牌可点');
+    card.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    await sleep(900);
+    ok(rejections.length === 0,
+       `出牌异常被界面接住、没有变成未处理的 Promise 拒绝（实际 ${rejections.length} 次：${rejections[0] || ''}）`);
+
+    // 恢复引擎，再点一次 —— 如果 busy 卡死，这一次会毫无反应
+    B.playCard = realPlay;
+    const endBtn = [...doc.querySelectorAll('.btn')].find(b => txt(b).includes('结束回合'));
+    ok(!!endBtn, '结束回合按钮还在');
+    ok(!endBtn.classList.contains('disabled'),
+       '抛异常之后「结束回合」不能被永久置灰（busy 没卡住）');
+
+    const handBefore = doc.querySelectorAll('.hand .card').length;
+    const energyBefore = B.energy;
+    const c2 = doc.querySelector('.hand .card');
+    if (c2) c2.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    await sleep(1000);
+    const handAfter = doc.querySelectorAll('.hand .card').length;
+    /* "界面仍在响应"的判据：手牌数变化 / 能量变化 / 进入选目标态。
+       三者任一成立即说明 busy 没有卡死。 */
+    const responded = handAfter !== handBefore || B.energy !== energyBefore;
+    ok(responded,
+       `异常之后界面仍能继续出牌（手牌 ${handBefore}→${handAfter}，能量 ${energyBefore}→${B.energy}）`);
+  } finally {
+    process.off('unhandledRejection', onRej);
+  }
+
+  A.clearSave();
 }
 
 /* ================= AI. 读档续战必须如实还原"战斗内状态"（不许白捡便宜） ================= */

@@ -7,7 +7,7 @@ import { readFileSync, writeFileSync, copyFileSync, existsSync, unlinkSync } fro
 const R = 'D:/网盘文件/OneDrive/文档/deepseek-harness/default-workspace/abyss-deck/js';
 const [what] = process.argv.slice(2);
 
-const FILES = { state: R + '/core/state.js', main: R + '/main.js', battle: R + '/core/battle.js', cards: R + '/data/cards.js', rooms: R + '/ui/scene-rooms.js', enemies: R + '/data/enemies.js', relics: R + '/data/relics.js', classes: R + '/data/classes.js' };
+const FILES = { state: R + '/core/state.js', main: R + '/main.js', battle: R + '/core/battle.js', cards: R + '/data/cards.js', rooms: R + '/ui/scene-rooms.js', sceneBattle: R + '/ui/scene-battle.js', enemies: R + '/data/enemies.js', relics: R + '/data/relics.js', classes: R + '/data/classes.js' };
 const BAK = {};
 for (const k of Object.keys(FILES)) BAK[k] = `C:/Users/Aaron-PC/AppData/Local/Temp/falsify-${k}.bak`;
 // README 不在 js/ 下，单独备份一份（readmedoc 用例用）
@@ -485,4 +485,45 @@ else if (what === 'stats') {
   s = s.replace(a, "fx: [{ t: 'buffAll', k: 'strength', v: 2 }]");
   writeFileSync(p, s, 'utf8');
   console.log('已把守碑人的加成改成 buffAll（会喂到全体，包括自己）');
-} else console.log('用法: stats | guard | lowhp | paldmg | evdeath | split | mawfx | drain | bossbrood | ondamaged | exhausted | pierce | powercap | dexenemy | enemydmg | relicsprite | fintip | snapmods | snapcounters | readmedoc | cardblock | vulncost | vulntype | palhp | vhpbeforeblock | vhpclear | prestige5 | thronegate | thronevhp | prestige1cost | debtorder | debtdecay | debtnodomain | debtshield | gradientcap | saveover | retryveteran | batbite | squadatk | comboall | restore | clean');
+} else if (what === 'debtundef') {
+  /* 复原债务牌打死目标时的 `onStatus(foes[0])` 空数组崩溃。AN11 应该红。 */
+  backup('battle');
+  const p = R + '/core/battle.js';
+  let s = readFileSync(p, 'utf8');
+  const a = '      if (foes.length) this.view.onStatus?.(foes[0]);';
+  if (!s.includes(a)) throw new Error('没找到债务的 onStatus');
+  s = s.replace(a, '      this.view.onStatus?.(foes[0]);   // TEMP 无条件');
+  writeFileSync(p, s, 'utf8');
+  console.log('已恢复"债务无条件刷状态"（目标被打死时会传 undefined）');
+} else if (what === 'busyfreeze') {
+  /* 复原 `play()` 里裸的 `busy = true / busy = false`。AQ 应该红。 */
+  backup('sceneBattle');
+  const p = R + '/ui/scene-battle.js';
+  let s = readFileSync(p, 'utf8');
+  /* ⚠️ 这里必须把**整段 try/finally + if (err)** 一起换掉。
+     我第一次只换了 try/finally，留下了 `if (err) {...}`，
+     于是改坏后的文件里 `err` 未定义 → 测试**进程直接崩掉**（ReferenceError），
+     而不是输出一条红色的断言。崩掉的进程"看起来像没结果"，
+     比一条红还难判断 —— 改坏脚本本身也要保证"改完仍能跑"。 */
+  const full = `    let err = null;
+    try {
+      await B.playCard(card, target);
+    } catch (e) {
+      err = e;
+    } finally {
+      busy = false;
+    }
+    sync();
+    if (err) {
+      // 只记一次并要求玩家重新出一张，不把整场战斗废掉
+      console.error('[abyss] 出牌过程中出错：', err);
+      try { toast('这张牌结算时出错了，请换一张', 2000); } catch {}
+      return;
+    }`;
+  if (!s.includes(full)) throw new Error('没找到 play() 的 try/finally 整段');
+  s = s.replace(full, `    await B.playCard(card, target);
+    busy = false;
+    sync();`);
+  writeFileSync(p, s, 'utf8');
+  console.log('已把 play() 的 finally 与兜底整段去掉（一次异常就永久卡死）');
+} else console.log('用法: stats | guard | lowhp | paldmg | evdeath | split | mawfx | drain | bossbrood | ondamaged | exhausted | pierce | powercap | dexenemy | enemydmg | relicsprite | fintip | snapmods | snapcounters | readmedoc | cardblock | vulncost | vulntype | palhp | vhpbeforeblock | vhpclear | prestige5 | thronegate | thronevhp | prestige1cost | debtorder | debtdecay | debtnodomain | debtshield | gradientcap | saveover | retryveteran | batbite | squadatk | comboall | debtundef | busyfreeze | restore | clean');

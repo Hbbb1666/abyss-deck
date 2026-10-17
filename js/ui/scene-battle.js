@@ -483,9 +483,29 @@ export function battleScene(B, { onFinish, onQuit, resumed }) {
 
   async function play(card, target) {
     busy = true; cancelSelect();
-    await B.playCard(card, target);
-    busy = false;
+    /* 🔴 `busy` 必须在 finally 里复位（2026-10-17 修）。
+       以前是裸的 `busy = true; await B.playCard(...); busy = false;` ——
+       引擎里任何一处抛出异常（例如债芈牌打死目标时那句 `onStatus(foes[0])`），
+       异常会冒过整个函数体，`busy` 永远停在 true：
+       **整手牌点不动、结束回合按钮也点不动**，而玩家看到的是
+       "还剩 1 点能量却出不了牌"（能量在异常之前已经扣掉了）。
+       这类"一次异常把界面永久卡死"的问题不该只靠"上游别抛"来兜 ——
+       界面自己的状态机必须能自愈，所以这里两层一起改。 */
+    let err = null;
+    try {
+      await B.playCard(card, target);
+    } catch (e) {
+      err = e;
+    } finally {
+      busy = false;
+    }
     sync();
+    if (err) {
+      // 只记一次并要求玩家重新出一张，不把整场战斗废掉
+      console.error('[abyss] 出牌过程中出错：', err);
+      try { toast('这张牌结算时出错了，请换一张', 2000); } catch {}
+      return;
+    }
     if (finished) return;
     if (B.over) return;
     // 敌人全死 -> 结束
@@ -496,8 +516,14 @@ export function battleScene(B, { onFinish, onQuit, resumed }) {
     if (busy || finished) return;
     busy = true;
     endTurnBtn.classList.add('disabled');
-    await B.endTurn();
-    busy = false;
+    // 同样必须在 finally 里复位：否则一次异常之后再也点不了结束回合
+    try {
+      await B.endTurn();
+    } catch (e) {
+      console.error('[abyss] 结束回合处理出错：', e);
+    } finally {
+      busy = false;
+    }
     sync();
   }
 

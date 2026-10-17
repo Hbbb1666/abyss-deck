@@ -1242,7 +1242,14 @@ export class Battle {
         this.add(t, 'debt', this.num(card.debt, card));
         this.pushLog(`${t.name} 的债务 +${this.num(card.debt, card)}`);
       }
-      this.view.onStatus?.(foes[0]);
+      /* 🔴 这里以前写的是无条件的 `this.view.onStatus?.(foes[0])` —— 而 `foes` 可能是**空数组**：
+         当这张牌的直接伤害**打死了目标**（但场上还有别的怪，所以 `this.over` 仍是 false），
+         过滤之后 `foes[0]` 是 `undefined`，界面那边 `e.isPlayer` 直接抛 TypeError。
+         后果比"少刷一次状态"严重得多：异常冒到 scene-battle 的 `play()` 里，
+         那句 `busy = true` 再也没被复位 → **整手牌点不动、结束回合也点不动**，
+         而玩家看到的正是"还剩 1 点能量却出不了牌"（能量已经扣掉了）。
+         现在只在确实加到目标时才刷状态。 */
+      if (foes.length) this.view.onStatus?.(foes[0]);
     }
 
     /* 「登基」的两条效果（2026-10-17，太子职业）：
