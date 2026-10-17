@@ -314,6 +314,14 @@ i { color: var(--dim); font-style: normal; }
   opacity: 0; transition: opacity .15s; box-shadow: 0 0 10px #6fa8dc40;
 }
 .blockbadge.on { opacity: 1; }
+/* 虚血徽章（太子职业）：和护甲并列但颜色不同 —— 它是**独立的一层缓冲**，
+   不清除、不受护甲规则影响，玩家必须能一眼分辨"这层不是甲"。 */
+.vhpbadge {
+  display: inline-flex; align-items: center; gap: 4px; font-size: 15px; color: #fff3c4;
+  background: #4a3a12e0; border: 2px solid #ffd76a90; border-radius: 5px; padding: 2px 9px; min-height: 28px;
+  opacity: 0; transition: opacity .15s; box-shadow: 0 0 10px #ffd76a40;
+}
+.vhpbadge.on { opacity: 1; }
 
 /* 能量 / 牌堆 */
 .piles { display: flex; align-items: center; justify-content: space-between; padding: 2px 12px 4px; gap: 8px; flex: none; }
@@ -402,6 +410,9 @@ i { color: var(--dim); font-style: normal; }
 .c-alchemist, .card.c-alchemist { --cc-hi:#d7f7dd; --cc-mid:#7ee787; --cc-lo:#4a8a52; --cc-bd:#35633b; --cc-fg:#0a2818; --cc-glow:#7ee78766; }
 /* 奥术法师：浅紫。刻意比刺客的中紫更浅（ΔRGB≈83），小尺寸下也分得开 */
 .c-arcanist, .card.c-arcanist { --cc-hi:#efe0ff; --cc-mid:#d8b4ff; --cc-lo:#7a6394; --cc-bd:#5a496b; --cc-fg:#0a2838; --cc-glow:#d8b4ff66; }
+/* 太子：白金。冠的金（--cc-mid）与圣骑士的金黄刻意拉开 —— 圣骑士是 #ffcc00 的暖金，
+   太子偏冷的白金 #ffe9a8，且它的立绘是白袍金冠，小尺寸下靠"更亮更白"区分。 */
+.c-prince,  .card.c-prince  { --cc-hi:#fffbe8; --cc-mid:#ffe9a8; --cc-lo:#a08a4a; --cc-bd:#7a6733; --cc-fg:#2a1f00; --cc-glow:#ffe9a866; }
 
 .card .cost {
   position: absolute; top: -10px; left: -10px; width: 28px; height: 28px; border-radius: 50%;
@@ -527,6 +538,7 @@ i { color: var(--dim); font-style: normal; }
 .fx-float.heal { color: #8bf0a8; }
 .fx-float.big { font-size: calc(34px * var(--k)); }
 .fx-float.st { font-size: calc(19px * var(--k)); }
+.fx-float.vhp { color: #ffd76a; }
 @keyframes floatUp { 0% { opacity: 0; transform: translate(-50%,-30%) scale(.6); } 25% { opacity: 1; transform: translate(-50%,-60%) scale(1.15); } 100% { opacity: 0; transform: translate(-50%,-170%) scale(1); } }
 
 .shake { animation: shk .32s; }

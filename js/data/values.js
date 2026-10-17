@@ -48,6 +48,15 @@ export const VAL = {
   extra_draw: 6.5,    // 洞察：每回合额外抽 N 张
   artifact: 6,        // 抵挡：免疫下 N 次减益
   barricade: 6,       // 壁垒：护甲不再消失（一次性开关）
+  /* ---- 「太子」职业（2026-10-17）----
+     威望：产品定价 **4 点/层**。它是"通往太子/登基的门票"，
+       本身当回合没有任何战力 —— 4 点相当于"一层的价格里有一半是为未来付的"。
+     虚血：**1.5 点/点**。比护甲（1 点）贵，因为它**不清除**、能跨回合吃伤害，
+       相当于"当场的临时生命"；但比回血便宜一点 —— 回血进了血条就是永久的。
+     太子 / 登基：**不参与计价**（同冰冻）。它们是"攒够就自动发生"的阶段奖励，
+       硬定价会让终结牌与相关卡牌的门禁乱报。 */
+  prestige: 4,
+  vhp: 1.5,
 };
 
 /** 冰霜只允许出现在这个费用及以上的牌上（产品硬约束） */
@@ -88,7 +97,7 @@ export const PER_STACK = {
  * 它们的效果无法折成"点数"去和伤害比较（冰冻是剥夺一次行动，
  * 能量枯竭是按层扣下回合能量），硬定价只会让门禁乱报。
  */
-export const SPECIAL = new Set(['drained', 'freeze']);
+export const SPECIAL = new Set(['drained', 'freeze', 'crownprince', 'throne']);
 
 /** 每一档（费用 × 稀有度）的预算。'1-basic' 沿用普通档 —— 基础牌就是普通强度。
  *
@@ -184,6 +193,13 @@ export function valueOf(card) {
     else if (f.t === 'gold') v += fv(f) * VAL.gold;
     else if (f.t === 'discard') v += fv(f) * -0.8;                    // 弃牌是代价
     else if (f.t === 'loseHp') v += fv(f) * -0.9;                     // 自伤是代价
+    /* 「太子」的两个专属效果（2026-10-17）：
+         vhp     —— 虚血，1 点 = 1.5（不清除，比护甲贵）
+         buffUp  —— "自身所有增益 +v 层"：按**当时已持有**的增益计价，
+                    静态算不出来（取决于场上状态），所以按"至少 2 项 × 1 层"保守估。
+                    与 dmgBlock 同类，属于模型算不准的效果。 */
+    else if (f.t === 'vhp') v += fv(f) * VAL.vhp;
+    else if (f.t === 'buffUp') v += 2 * fv(f) * 4;
     // ---- 增益 ----
     else if (f.t === 'buff' && f.k === 'strength') v += n('str') * sv('strength');
     else if (f.t === 'buff' && f.k === 'dexterity') v += n('dex') * sv('dexterity');
@@ -211,6 +227,8 @@ export function valueOf(card) {
     else if (f.t === 'debuff' && f.k === 'bleed') v += fv(f) * sv('bleed');
     else if (f.t === 'debuff' && f.k === 'frost') v += fv(f) * sv('frost');
     else if (f.t === 'debuff' && f.k === 'truth') v += fv(f) * sv('truth');
+    // 威望（太子职业）：1 层 4 点，见 VAL.prestige 的说明
+    else if (f.t === 'buff' && f.k === 'prestige') v += fv(f) * sv('prestige');
     else if (f.t === 'debuff' && SPECIAL.has(f.k)) v += 0;
     else if (f.t === 'debuffAll' && f.k === 'weak') v += fv(f) * sv('weak') * ALL_MULT;
     else if (f.t === 'debuffAll' && f.k === 'poison') v += fv(f) * sv('poison') * ALL_MULT;

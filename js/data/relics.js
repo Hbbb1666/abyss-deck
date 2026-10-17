@@ -14,6 +14,7 @@
  *   healAfterBattle 战斗结束回 N 血
  *   cardBlockMult  **卡牌**产出的护盾 ×N（向上取整；遗物/药水给的护盾不算）
  *   vulnOnAttack   打出**费用 ≥1 的攻击牌**命中后，对命中的敌人施加 N 层易伤
+ *   royalPath      开启「太子」的王朝路线（威望 → 太子 → 登基，见 battle.js 的 checkRoyalPath）
  * hooks —— 事件钩子（B = 战斗上下文）
  *   battleStart(B) / turnStart(B) / turnEnd(B) / cardPlayed(B, card)
  *   kill(B, enemy) / battleWin(B) / onDamaged(B, dmg)
@@ -80,8 +81,16 @@ export const RELICS = {
     desc: '打出<b>费用 ≥1</b> 的攻击牌命中敌人后，对其施加 <b>1</b> 层易伤。',
     mods: { vulnOnAttack: 1 },
   },
-  venom_fang: {
-    name: '血牙', sprite: 'r_fang', rarity: 'starter',
+  /* 「太子」职业的起始遗物（2026-10-17）。
+     它本身**没有数值**，开的是整个王朝路线：威望 5 层 → 太子（+20 虚血）；
+     太子 + 6 层威望 → 登基（+20 虚血、每张牌 +1 虚血、≥3 费牌随机涨一层增益）。
+     路线逻辑在 battle.js 的 checkRoyalPath()。 */
+  heir_crown: {
+    name: '储君之冠', sprite: 'r_crown', rarity: 'starter',
+    desc: '你获得<b>威望</b>：攒够 <b>5</b> 层转为「太子」（+<b>20</b> 虚血）；太子再攒 <b>6</b> 层威望即<b>登基</b>。',
+    mods: { royalPath: 1 },
+  },
+  venom_fang: {    name: '血牙', sprite: 'r_fang', rarity: 'starter',
     // 游侠的设计核心改成"流血"：攻击牌自带 1 层流血，靠持续掉血滚雪球。
     desc: '你打出的<b>攻击牌</b>会为目标附加 <b>1</b> 层流血。',
     mods: { bleedOnAttack: 1 },

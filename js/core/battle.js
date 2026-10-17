@@ -120,11 +120,25 @@ export const ST = {
   frail: { pri: 76, name: '脆弱', icon: '▽', color: '#c07bff',
            desc: `每层使受到的<b>每一段</b>伤害 +${FRAIL_PCT}%，最多 ${FRAIL_MAX_STACKS} 层，自身回合结束时 -1` },
   artifact: { pri: 55, name: '抵挡', icon: '◈', desc: '免疫下 N 次减益', buff: true, color: '#ffcc52' },
+  /* ============ 「太子」职业的三个专属状态（2026-10-17）============
+     王朝路线：威望 5 层 → 太子；太子 + 威望 6 层 → 登基。
+     三者都是 `buff: true`：它们是**自己攒的进度**，不该被「抵挡」吃掉，
+     也不该被任何"清除减益"的效果碰。转化逻辑见 checkRoyalPath()。 */
+  prestige: { pri: 87, name: '威望', icon: '♛', color: '#ffd76a', buff: true,
+              desc: '攒够 <b>5</b> 层转化为「太子」（清空后重新开始）。' },
+  crownprince: { pri: 93, name: '太子', icon: '♚', color: '#ffe9a8', buff: true,
+                 desc: '获得时立刻得到 <b>20</b> 点虚血。再攒 <b>6</b> 层威望即「登基」。' },
+  throne: { pri: 94, name: '登基', icon: '♔', color: '#fff3c4', buff: true,
+            desc: '每打出 <b>1</b> 张牌获得 <b>1</b> 点虚血；打出费用 <b>≥3</b> 的牌后随机获得 1 层力量/敏捷/真理' },
 };
 
 /** 战斗内怪物数量硬上限。再多战场就挤不下意图栏了（实测 8 只是能全部看清的上限）。
     放在 spawn() 这个唯一入口上，任何召唤路径都绕不过去。 */
 export const MAX_ENEMIES = 8;
+
+/** 王朝路线本身的三个状态。它们**不参与**「所有增益 +1 层」这类群体加成 ——
+ *  否则终结牌会把自己往上叠，形成循环强化。 */
+export const ROYAL_PROGRESS = new Set(['prestige', 'crownprince', 'throne']);
 
 export class Battle {
   constructor(encounter, opts = {}) {
@@ -141,7 +155,7 @@ export class Battle {
     const m = relicMods();
     this.mods = m;
 
-    const p = { hp: G.hp, maxHp: G.maxHp, block: 0, st: {}, isPlayer: true, name: '你' };
+    const p = { hp: G.hp, maxHp: G.maxHp, block: 0, vhp: 0, st: {}, isPlayer: true, name: '你' };
     this.player = p;
 
     this.enemies = [];
@@ -185,7 +199,7 @@ export class Battle {
       turn: this.turn,
       energy: this.energy,
       energyMax: this.energyMax,
-      player: { hp: this.player.hp, maxHp: this.player.maxHp, block: this.player.block, st: { ...this.player.st } },
+      player: { hp: this.player.hp, maxHp: this.player.maxHp, block: this.player.block, vhp: this.player.vhp || 0, st: { ...this.player.st } },
       enemies: this.enemies.map(e => ({
         defId: e.defId, hp: e.hp, maxHp: e.maxHp, block: e.block, st: { ...e.st },
         turn: e.turn, moveId: e.moveId, dead: !!e.dead, attacked: e.attacked || 0,
@@ -222,6 +236,9 @@ export class Battle {
     this.energyMax = s.energyMax || 3;
     Object.assign(this.player, {
       hp: s.player.hp, maxHp: s.player.maxHp, block: s.player.block || 0, st: { ...(s.player.st || {}) },
+      // 虚血必须跟着快照走：它是一层**实打实的减伤缓冲**，丢了就等于读档白掉血
+      // （老快照没有这个字段时按 0 处理，与"那会儿还没有虚血"一致）。
+      vhp: s.player.vhp || 0,
     });
     {
       // 先按快照顺序把敌人重建出来（uid 会重新分配）
@@ -336,6 +353,12 @@ export class Battle {
       this.pushLog(`${e.name} 的「神器」抵消了 ${ST[k]?.name || k}`);
       return 0;
     }
+    /* 登基之后**本场战斗不再获得威望**（产品口径）。
+       必须在写入之前拦：写成"加完再删"会让 checkRoyalPath 误判一次。 */
+    if (k === 'prestige' && n > 0 && e.isPlayer && this.get(e, 'throne') > 0) {
+      this.pushLog('已经登基，威望不再累积');
+      return 0;
+    }
     e.st[k] = (e.st[k] || 0) + n;
     if (e.st[k] <= 0) delete e.st[k];
     // 冰霜集满 → 消耗**全部**层数，转化成 1 层冰冻。
@@ -346,6 +369,63 @@ export class Battle {
       this.add(e, 'freeze', 1);
       this.pushLog(`${e.name} 被冻住了！`);
     }
+    /* 太子 / 登基：**获得时**立刻给 20 点虚血。
+       放在 add() 里而不是卡牌 fx 里 —— 这样"任何来源的太子都发钱"
+       （卡牌、遗物、将来别的机制），不会漏掉某一条路径。 */
+    if (n > 0 && e.isPlayer && (k === 'crownprince' || k === 'throne')) {
+      this.gainVhp(20);
+    }
+    if (e.isPlayer && (k === 'prestige' || k === 'crownprince')) this.checkRoyalPath(e);
+    return n;
+  }
+
+  /* ================= 「太子」职业的王朝路线 =================
+     威望 5 层 → 清空威望、得 1 层太子（+20 虚血）
+     太子 + 威望 6 层 → 清空两者、得 1 层登基（+20 虚血，此后不再涨威望）
+
+     ⚠️ 口径按产品原文：**清空**，溢出的层数直接丢弃
+     （例：已有 4 层威望、再打一张 +4 层 → 8 层，转化后归零，丢 3 层）。
+     这不是 bug，是"攒够就兑现"的语义；写在这里免得后来的人当成算式错误去"修"。
+     幂等：每次 add 之后调一次，条件不满足就什么都不做；递归深度最多 2 层
+     （太子 → 再检查登基，而那时威望已是 0）。 */
+  checkRoyalPath(e) {
+    if (!this.mods.royalPath || !e || !e.isPlayer) return;
+    if (this.get(e, 'throne') > 0) return;                 // 已登基，不再变化
+    const pres = this.get(e, 'prestige');
+    // ① 攒到 5 层 → 太子
+    if (this.get(e, 'crownprince') === 0) {
+      if (pres < 5) return;
+      if (pres > 5) this.pushLog(`威望溢出 ${pres - 5} 层（转化只认 5 层）`);
+      delete e.st.prestige;
+      this.view.onStatus?.(e);
+      this.pushLog('威望已成 —— 获得「太子」');
+      this.add(e, 'crownprince', 1);                       // 递归：发 20 虚血
+      return;
+    }
+    // ② 太子 + 6 层 → 登基
+    if (pres < 6) return;
+    if (pres > 6) this.pushLog(`威望溢出 ${pres - 6} 层（转化只认 6 层）`);
+    delete e.st.prestige;
+    delete e.st.crownprince;
+    this.view.onStatus?.(e);
+    this.pushLog('太子登基！此后本场不再获得威望');
+    this.add(e, 'throne', 1);
+  }
+
+  /** 是否已经"有了名分"（太子或登基）。储君之刃这类牌的 `ifRoyal` 用它判定。 */
+  royalReady() {
+    return this.get(this.player, 'crownprince') > 0 || this.get(this.player, 'throne') > 0;
+  }
+
+  /** 获得虚血。虚血是**独立于护甲的第二层缓冲**：   *   · 不受回合结束清甲影响（playerTurn 只清 block）
+   *   · 不吃「敏捷」「壁垒」「护盾加成」等任何作用于护甲的规则
+   *   · 受伤时结算顺序：护甲 → 虚血 → 生命
+   *   · 本场战斗内累积、无上限；战斗结束随战斗实例消失（不进 G，不跨战斗） */
+  gainVhp(n) {
+    if (!n) return 0;
+    const p = this.player;
+    p.vhp = Math.max(0, (p.vhp || 0) + n);
+    this.view.onVhp?.(p, n);
     return n;
   }
 
@@ -478,13 +558,26 @@ export class Battle {
       this.view.sync?.();
     }
     const blocked = Math.min(target.block, dmg);
-    const real = dmg - blocked;
     target.block -= blocked;
+    /* 虚血：**第二层缓冲**，结算顺序 护甲 → 虚血 → 生命（产品口径）。
+       它绕开了 `calcBlock()` 与所有护甲相关的规则：「敏捷」不加它、
+       「壁垒」不影响它（本来就不会被清）、「护盾加成」不放大它。
+       对外的 `blocked` 把两层缓冲合在一起报（对玩家来说都是"没掉血"），
+       但会额外回调一次 `onVhp` 让界面能单独画出虚血的变化。 */
+    let rest = dmg - blocked;
+    let vhpAbsorbed = 0;
+    if (rest > 0 && (target.vhp || 0) > 0) {
+      vhpAbsorbed = Math.min(target.vhp, rest);
+      target.vhp -= vhpAbsorbed;
+      rest -= vhpAbsorbed;
+      if (vhpAbsorbed > 0) this.view.onVhp?.(target, -vhpAbsorbed);
+    }
+    const real = rest;
     if (real > 0) {
       target.hp -= real;
       if (target.isPlayer) { G.stats.dmgTaken += real; } else { G.stats.dmgDealt += real; }
     }
-    this.view.onDamage?.(target, real, blocked, dmg);
+    this.view.onDamage?.(target, real, blocked + vhpAbsorbed, dmg);
     await this.view.step?.();
     /* 「受伤」钩子（`onDamaged`）—— 遗物文档里**早就写了这个名字，但引擎从没调过**，
        等于一个声明了却无法生效的能力（和 `ifBlock` 那次是同一类问题）。
@@ -666,6 +759,9 @@ export class Battle {
           //   额外伤害一次都没触发过 —— 和 `execute` 是同一类坑。）
           let hit = v;
           if (f.ifBlock != null && this.player.block > 0) hit += this.num(f.ifBlock, card);
+          /* 王朝进度加伤（`ifRoyal`）：「储君之刃」用它。
+             条件 = 已立储（太子）或已登基 —— 两者都算"有了名分"。 */
+          if (f.ifRoyal != null && this.royalReady()) hit += this.num(f.ifRoyal, card);
           if (f.ifVulnerable != null && target && this.get(target, 'vulnerable') > 0) {
             hit += this.num(f.ifVulnerable, card);
           }
@@ -794,6 +890,24 @@ export class Battle {
         // 旧代码是 `this.view.requestDiscard?.(v)`：界面根本没实现这个回调，
         // 可选链把整条静默跳过 → 卡面写着"弃 1 张牌"却什么也没发生。
         case 'discard': await this.discardFromHand(v || 1); break;
+        /* 虚血（太子职业）：直接加一层**独立于护甲**的缓冲，见 gainVhp()。 */
+        case 'vhp': await this.gainVhp(v); break;
+        /* 自身**所有增益** +v 层（太子终结牌「太·登基」用）。
+           只加 ST 表里标了 `buff: true` 的状态，并且**排除王朝进度本身**
+           （威望/太子/登基）—— 否则这张牌会把自己往上叠一层，那是循环强化。
+           先复制 key 列表再遍历：add() 会写回 st，边遍历边改会漏项。 */
+        case 'buffUp': {
+          const keys = Object.keys(this.player.st || {});
+          let n2 = 0;
+          for (const k of keys) {
+            if (!ST[k]?.buff || ROYAL_PROGRESS.has(k)) continue;
+            this.add(this.player, k, v); n2++;
+          }
+          this.view.onStatus?.(this.player);
+          this.pushLog(`王朝加冕：${n2} 项增益 +${v} 层`);
+          await this.view.step?.();
+          break;
+        }
       }
     }
   }
@@ -963,6 +1077,23 @@ export class Battle {
     await this.view.step?.(120);
 
     await this.resolve(card.fx || [], { card, target: target || this.aliveEnemies()[0], melee: card.type === 'attack' });
+
+    /* 「登基」的两条效果（2026-10-17，太子职业）：
+         · 每打出**一张**牌 → 获得 1 点虚血
+         · 打出**费用 ≥3** 的牌之后 → 从 力量/敏捷/真理 里随机得 1 层
+       顺序刻意放在 fx **之后**：这张牌自己的加伤按打出前的状态算，
+       不会因为"打完自己顺手涨了力量"而回头改判（那会让卡面与实际不符）。
+       用 `paidCost` 而不是卡面 `cost`：终结牌是"吃掉全部能量"，
+       它到底算不算 ≥3 费取决于当时有多少能量。 */
+    if (!this.over && this.get(this.player, 'throne') > 0) {
+      this.gainVhp(1);
+      if (paidCost >= 3) {
+        const pick = this.rng.pick(['strength', 'dexterity', 'truth']);
+        this.add(this.player, pick, 1);
+        this.view.onStatus?.(this.player);
+        this.pushLog(`登基之威：获得 1 层${ST[pick].name}`);
+      }
+    }
 
     // 职业特性（做在起始遗物里，和遗物/难度走同一条 mod 通路）：
     //   burnOnSkill  火焰法师 —— 打出的技能牌给受影响的敌人挂 N 层点燃

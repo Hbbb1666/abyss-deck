@@ -120,6 +120,7 @@
     7
   ],
   "hero_paladin": "recolor:hero_knight/paladin",
+  "hero_prince": "custom:tools/make-sprites.mjs",
   "hero_rogue": [
     4,
     9
@@ -209,6 +210,7 @@
   "r_butcher": "custom:tools/make-sprites.mjs",
   "r_clover": "custom:tools/make-sprites.mjs",
   "r_coin": "custom:tools/make-sprites.mjs",
+  "r_crown": "custom:tools/make-sprites.mjs",
   "r_crystal_fire": "custom:tools/make-sprites.mjs",
   "r_demon_eye": "custom:tools/make-sprites.mjs",
   "r_energy_core": "custom:tools/make-sprites.mjs",

@@ -4200,7 +4200,11 @@ section('Z. 影刃 2 层（产品改动）+ 易伤/虚弱对玩家对称');
     };
 
     // 1 费攻击命中 → 挂 1 层
+    /* ⚠️ 目标必须先改成打不死：史莱姆只有 10~14 血，两发打击（5 + 6）就可能把它打死，
+       而 `playCard` 里"挂易伤"那段有 `if (!this.over)` 守卫 —— 战斗一结束就不再挂，
+       读数停在 1，看起来像"没有累积"。这条不是产品行为，是测试没控制变量。 */
     const e0 = B.aliveEnemies()[0];
+    e0.hp = e0.maxHp = 9999;
     await hitWith('strike', e0);
     ok(B.get(e0, 'vulnerable') === 1, `1 费攻击命中后 +1 层易伤（实测 ${B.get(e0, 'vulnerable')}）`);
 
@@ -5228,7 +5232,11 @@ section('AF. 遗物扩容（57 件 / 每件独立贴图）+ 为此补的引擎�
 
     // 起始遗物（职业专属）必须各有独立造型 —— 产品明确点名要画
     const starters = Object.values(RELICS).filter(r => r.rarity === 'starter');
-    ok(starters.length === 8, `8 个职业各有 1 件起始遗物（实际 ${starters.length}）`);
+    /* 起始遗物数量要跟着职业表走，别再写死 —— 每加一个职业这条就得改一次，
+       而漏改的表现是"新职业没有专属起始遗物"这种需要人眼才能发现的问题。 */
+    const { CLASSES } = await import('file://' + join(ROOT, 'js/data/classes.js'));
+    const nCls = Object.keys(CLASSES).length;
+    ok(starters.length === nCls, `${nCls} 个职业各有 1 件起始遗物（实际 ${starters.length}）`);
     const starterSprites = new Set(starters.map(r => r.sprite));
     ok(starterSprites.size === starters.length, '起始遗物之间没有共用贴图');
   }
@@ -5244,11 +5252,15 @@ section('AF. 遗物扩容（57 件 / 每件独立贴图）+ 为此补的引擎�
     ok(bad.length === 0, '每件遗物都有 desc，且至少有一个 mods 或 hooks', bad.join(' | '));
 
     // 静态 mods 的数字要出现在 desc 里（钩子型无法静态核对，跳过）
+    /* 这些键是**开关**，值是 1 只是"开启"的意思，不是玩家看得见的数字 ——
+       要求它们写进文案会逼着文案写"1"，纯属噪音。 */
+    const FLAG_KEYS = new Set(['potionSlots', 'royalPath', 'eliteWeightUp', 'restAsEvent',
+      'curseOnShop', 'shopNoPotion', 'shopHalfCard', 'pierce']);
     const numMismatch = [];
     for (const [id, r] of Object.entries(RELICS)) {
       if (!r.mods || r.hooks) continue;
       for (const [k, v] of Object.entries(r.mods)) {
-        if (typeof v !== 'number' || k === 'potionSlots') continue;   // potionSlots 的文案写法不统一
+        if (typeof v !== 'number' || FLAG_KEYS.has(k)) continue;
         /* 乘区型（`xxxMult`，如 cardBlockMult: 1.25）在文案里写的是**百分比增量**：
            1.25 → 「提升 25%」。所以这类键要按 (v-1)×100 去找，
            而不是找字面量 "1.25"（玩家看到的从来不是 1.25）。 */
@@ -5596,7 +5608,15 @@ section('AH. 终结牌条件提示 = 真实触发边界');
      真理牌条件从 3 层提到 7 层后，提示还写着"需要 3 层以上真理"——
      玩家照着提示攒到 3 层，点下去只会被拒绝。
      现在提示读卡牌自己的 `condText`，卡面也读同一个字段，所以两边不可能再分叉。 */
-  ok(fins.length === 8, `终结牌 8 张（实际 ${fins.length}）`);
+  /* 数量跟着职业数走：每个职业一张终结牌，写死 8 会让"新职业没终结牌"这种
+     问题只能靠人眼发现（而产品对每个职业都要求有一张）。 */
+  {
+    const { CLASSES } = await import('file://' + join(ROOT, 'js/data/classes.js'));
+    const nCls = Object.keys(CLASSES).length;
+    ok(fins.length === nCls, `终结牌 ${nCls} 张（每职业 1 张，实际 ${fins.length}）`);
+    const lack = Object.keys(CLASSES).filter(id => !fins.some(c => c.cls === id));
+    ok(lack.length === 0, '每个职业都有一张终结牌', lack.join(','));
+  }
   const miss = fins.filter(c => !c.condText).map(c => c.id);
   ok(miss.length === 0, '每张终结牌都有 condText', miss.join(','));
   const hintMismatch = [];
@@ -5669,6 +5689,13 @@ section('AH. 终结牌条件提示 = 真实触发边界');
       below: B => { const e = B.aliveEnemies()[0]; delete e.st.vulnerable; B.add(e, 'vulnerable', 4); },
       at:    B => { const e = B.aliveEnemies()[0]; delete e.st.vulnerable; B.add(e, 'vulnerable', 5); },
     },
+    /* 「太·登基」：条件是**存在性**（有登基就行），文案里没有数字。
+       差一点 = 只有太子没登基；正好 = 已登基。 */
+    finisher_enthronement: {
+      shown: null,
+      below: B => { delete B.player.st.throne; },
+      at:    B => { B.add(B.player, 'throne', 1); },
+    },
   };
   ok(Object.keys(BOUND).length === fins.length,
      `边界表覆盖全部 ${fins.length} 张终结牌（实际 ${Object.keys(BOUND).length}）`);
@@ -5709,6 +5736,224 @@ section('AH. 终结牌条件提示 = 真实触发边界');
   ok(judge.cond(Bh), '正好半血时条件成立（与文案的 ≤ 一致，不是 <）');
   Bh.player.hp = 51;
   ok(!judge.cond(Bh), '半血以上一点点就不成立');
+}
+
+/* ================= AL. 「太子」职业：威望 → 太子 → 登基 / 虚血 ================= */
+section('AL. 太子：王朝路线 + 虚血');
+{
+  const { makeCard } = await import('file://' + join(ROOT, 'js/data/cards.js'));
+  const { CLASSES } = await import('file://' + join(ROOT, 'js/data/classes.js'));
+  const noopP = { step: async () => {}, sync() {}, log() {} };
+  const mkP = async (enemies = ['golem']) => {
+    A.startRun('prince');
+    A.G.act = 1;
+    const B = new A.Battle(enemies, { kind: 'battle' });
+    B.view = { ...noopP };
+    B.rollIntents();
+    await B.start();
+    B.energy = 99;
+    B.player.hp = 200; B.player.maxHp = 200;   // 别让测试角色先死
+    return B;
+  };
+
+  /* --- AL1. 职业数据 --- */
+  ok(CLASSES.prince.hp === 55, `太子初始生命 55（实测 ${CLASSES.prince.hp}）`);
+  ok(CLASSES.prince.unlockScore === 27, `解锁难度分 27（实测 ${CLASSES.prince.unlockScore}）`);
+  ok(CLASSES.prince.relic === 'heir_crown', '起始遗物是「储君之冠」');
+  ok(A.RELICS.heir_crown.mods.royalPath === 1, '储君之冠开了 royalPath');
+
+  /* --- AL2. 威望 5 层 → 太子（清空威望、+20 虚血） --- */
+  {
+    const B = await mkP();
+    B.add(B.player, 'prestige', 4);
+    ok(B.get(B.player, 'crownprince') === 0, '4 层威望还不够');
+    ok(B.player.vhp === 0, '还没拿到虚血');
+    B.add(B.player, 'prestige', 1);            // 第 5 层
+    ok(B.get(B.player, 'crownprince') === 1, `5 层威望转化为 1 层太子（实测 ${B.get(B.player, 'crownprince')}）`);
+    ok(B.get(B.player, 'prestige') === 0, `转化时威望被清空（实测 ${B.get(B.player, 'prestige')}）`);
+    ok(B.player.vhp === 20, `获得太子时立刻 +20 虚血（实测 ${B.player.vhp}）`);
+  }
+
+  /* --- AL3. 溢出层数丢弃（产品口径：清空，不是"保留余数"） --- */
+  {
+    const B = await mkP();
+    B.add(B.player, 'prestige', 4);
+    B.add(B.player, 'prestige', 4);            // 8 层
+    ok(B.get(B.player, 'crownprince') === 1, '8 层也能转成太子');
+    ok(B.get(B.player, 'prestige') === 0, '溢出部分被丢弃（威望归零）');
+  }
+
+  /* --- AL4. 太子 + 6 层威望 → 登基（再 +20 虚血，累计 40） --- */
+  {
+    const B = await mkP();
+    B.add(B.player, 'prestige', 5);
+    ok(B.player.vhp === 20, '先到太子：20 虚血');
+    B.add(B.player, 'prestige', 5);
+    ok(B.get(B.player, 'throne') === 0, '太子只有 5 层威望时还不登基');
+    B.add(B.player, 'prestige', 1);            // 第 6 层
+    ok(B.get(B.player, 'throne') === 1, `太子 + 6 层 → 登基（实测 ${B.get(B.player, 'throne')}）`);
+    ok(B.get(B.player, 'crownprince') === 0, '登基时太子被消耗掉');
+    ok(B.get(B.player, 'prestige') === 0, '登基时威望清空');
+    ok(B.player.vhp === 40, `登基再 +20 虚血，累计 40（实测 ${B.player.vhp}）`);
+  }
+
+  /* --- AL5. 登基后本场不再获得威望 --- */
+  {
+    const B = await mkP();
+    B.add(B.player, 'prestige', 5);
+    B.add(B.player, 'prestige', 6);
+    ok(B.get(B.player, 'throne') === 1, '已登基');
+    const before = B.get(B.player, 'prestige');
+    B.add(B.player, 'prestige', 9);
+    ok(B.get(B.player, 'prestige') === before,
+       `登基后威望不再增长（${before} → ${B.get(B.player, 'prestige')}）`);
+  }
+
+  /* --- AL6. 虚血：优先级 护甲 → 虚血 → 生命；不吃敏捷/护盾倍数 --- */
+  {
+    const B = await mkP(['golem']);
+    const e = B.aliveEnemies()[0];
+    e.hp = e.maxHp = 9999;
+    B.player.hp = 100; B.player.maxHp = 100;
+    B.player.block = 0; B.player.vhp = 30;
+
+    // ① 先吃护甲
+    B.player.block = 10;
+    await B.damage(B.player, 6, '测试', { attacker: e, raw: true });
+    ok(B.player.block === 4 && B.player.vhp === 30 && B.player.hp === 100,
+       `6 点伤害全被护甲吃掉（甲 ${B.player.block} / 虚 ${B.player.vhp} / 血 ${B.player.hp}）`);
+
+    // ② 护甲不够时，溢出的部分吃虚血
+    B.player.block = 4; B.player.vhp = 30; B.player.hp = 100;
+    await B.damage(B.player, 10, '测试', { attacker: e, raw: true });
+    ok(B.player.block === 0 && B.player.vhp === 24 && B.player.hp === 100,
+       `10 伤：4 甲 + 6 虚血（甲 ${B.player.block} / 虚 ${B.player.vhp} / 血 ${B.player.hp}）`);
+
+    // ③ 虚血也会被耗尽，剩下的才掉血
+    B.player.block = 0; B.player.vhp = 5; B.player.hp = 100;
+    await B.damage(B.player, 12, '测试', { attacker: e, raw: true });
+    ok(B.player.vhp === 0 && B.player.hp === 93,
+       `12 伤：5 虚血 + 7 掉血（虚 ${B.player.vhp} / 血 ${B.player.hp}）`);
+
+    // ④ 虚血不受敏捷/护盾加成影响（它压根不走 calcBlock）
+    const B2 = await mkP();
+    B2.add(B2.player, 'dexterity', 5);
+    B2.player.vhp = 10;
+    await B2.gainVhp(10);
+    ok(B2.player.vhp === 20, `敏捷不影响虚血（+10 → ${B2.player.vhp}）`);
+  }
+
+  /* --- AL7. 虚血不会被回合结束清除（这是它和护甲的本质区别）--- */
+  {
+    const B = await mkP();
+    B.player.vhp = 25;
+    B.player.block = 12;
+    await B.endTurn();                      // 走完一整轮
+    ok(B.player.vhp === 25, `回合结束后虚血仍在（实测 ${B.player.vhp}）`);
+    ok(B.player.block === 0, `同回合里护甲已被清空（实测 ${B.player.block}）`);
+  }
+
+  /* --- AL8. 登基：每打一张牌 +1 虚血；费用 ≥3 的牌额外随机涨一层增益 --- */
+  {
+    const B = await mkP();
+    B.add(B.player, 'prestige', 5);
+    B.add(B.player, 'prestige', 6);
+    ok(B.get(B.player, 'throne') === 1, '已登基');
+    const vhp0 = B.player.vhp;
+
+    const one = makeCard('strike');
+    B.hand = [one]; B.energy = 99;
+    await B.playCard(one, B.aliveEnemies()[0]);
+    ok(B.player.vhp === vhp0 + 1, `打出 1 费牌 → 虚血 +1（${vhp0} → ${B.player.vhp}）`);
+
+    // 3 费牌：再 +1 虚血，并且随机涨一层力量/敏捷/真理
+    const before3 = { v: B.player.vhp, s: B.get(B.player, 'strength'), d: B.get(B.player, 'dexterity'), t: B.get(B.player, 'truth') };
+    const three = makeCard('heavy_scepter');   // 2 费…… 换成 3 费的牌
+    const threeCost = Object.values(A.CARDS).find(c => c.cls === 'prince' && c.cost === 3 && !c.finisher && !c.costN);
+    const c3 = makeCard(threeCost.id);
+    B.hand = [c3]; B.energy = 99;
+    await B.playCard(c3, B.aliveEnemies()[0]);
+    const gained = B.get(B.player, 'strength') - before3.s
+                 + B.get(B.player, 'dexterity') - before3.d
+                 + B.get(B.player, 'truth') - before3.t;
+    ok(B.player.vhp === before3.v + 1, `打出 3 费牌 → 虚血再 +1（实测 ${B.player.vhp}）`);
+    ok(gained === 1, `3 费牌随机涨 1 层增益（实测 +${gained}）`);
+  }
+
+  /* --- AL9. 没有登基时，打牌不给虚血、3 费牌也不涨增益 --- */
+  {
+    const B = await mkP();
+    const c = makeCard('royal_slash');
+    B.hand = [c]; B.energy = 99;
+    const v0 = B.player.vhp;
+    await B.playCard(c, B.aliveEnemies()[0]);
+    ok(B.player.vhp === v0, '未登基时打牌不给虚血');
+  }
+
+  /* --- AL10. 终结牌「太·登基」：所有增益 +1 层（但不含王朝进度本身） --- */
+  {
+    const B = await mkP();
+    B.add(B.player, 'prestige', 5);
+    B.add(B.player, 'prestige', 6);            // 登基
+    B.add(B.player, 'strength', 2);
+    B.add(B.player, 'dexterity', 1);
+    const fin = makeCard('finisher_enthronement');
+    B.hand = [fin];
+    /* ⚠️ 能量设成 0 是为了**隔离变量**：终结牌是 `costN`（吃掉全部能量），
+       若给它 99 点能量，`paidCost=99 ≥ 3` 会额外触发登基的"随机涨一层增益" ——
+       于是敏捷可能从 1 变 3，看起来像 buffUp 多加了一层。
+       那条效果本身已在 AL8 单独验过，这里只验 buffUp。 */
+    B.energy = 0;
+    const vhp0 = B.player.vhp;
+    await B.playCard(fin, B.aliveEnemies()[0]);
+    ok(B.get(B.player, 'strength') === 3, `力量 2 → 3（实测 ${B.get(B.player, 'strength')}）`);
+    ok(B.get(B.player, 'dexterity') === 2, `敏捷 1 → 2（实测 ${B.get(B.player, 'dexterity')}）`);
+    ok(B.get(B.player, 'throne') === 1,
+       `登基层数没有被自己加成（仍是 1，实测 ${B.get(B.player, 'throne')}）`);
+    // 虚血：终结牌自己 +10，登基每张牌 +1 → 总计 +11
+    ok(B.player.vhp === vhp0 + 11, `虚血 +10（终结牌）+1（登基）（实测 +${B.player.vhp - vhp0}）`);
+
+    // 反向：真的有"≥3 费额外涨一层"这回事（同一个终结牌给足能量就会多涨）
+    const B2 = await mkP();
+    B2.add(B2.player, 'prestige', 5);
+    B2.add(B2.player, 'prestige', 6);
+    const f2 = makeCard('finisher_enthronement');
+    B2.hand = [f2]; B2.energy = 99;
+    const sum0 = B2.get(B2.player, 'strength') + B2.get(B2.player, 'dexterity') + B2.get(B2.player, 'truth');
+    await B2.playCard(f2, B2.aliveEnemies()[0]);
+    const sum1 = B2.get(B2.player, 'strength') + B2.get(B2.player, 'dexterity') + B2.get(B2.player, 'truth');
+    ok(sum1 === sum0 + 1,
+       `终结牌吃掉 ≥3 能量时，登基额外随机涨 1 层（${sum0} → ${sum1}）`);
+  }
+
+  /* --- AL11. 其他职业没有这条路线 --- */
+  {
+    A.startRun('knight');
+    const K = new A.Battle(['slime'], { kind: 'battle' });
+    K.view = { ...noopP }; K.rollIntents(); await K.start();
+    K.add(K.player, 'prestige', 9);
+    ok(K.get(K.player, 'crownprince') === 0 && K.player.vhp === 0,
+       '骑士攒威望不会变成太子（royalPath 未开启）');
+  }
+
+  /* --- AL12. 卡池规则：1 费没有威望；2 费 ≤2 层；3 费 ≤4 层且满 4 层那张纯威望+消耗 --- */
+  {
+    const prince = Object.values(A.CARDS).filter(c => c.cls === 'prince');
+    const withPrestige = prince.filter(c => (c.fx || []).some(f => f.t === 'buff' && f.k === 'prestige'));
+    const bad = [];
+    for (const c of withPrestige) {
+      const n = c.pre || 0;
+      if (c.cost === 1) bad.push(`${c.name}: 1 费不许给威望`);
+      else if (c.cost === 2 && n > 2) bad.push(`${c.name}: 2 费给了 ${n} 层（上限 2）`);
+      else if (c.cost === 3 && n > 4) bad.push(`${c.name}: 3 费给了 ${n} 层（上限 4）`);
+      if (c.cost === 3 && n === 4) {
+        if (!c.exhaust) bad.push(`${c.name}: 给满 4 层必须消耗`);
+        if ((c.dmg || c.blk || c.draw || 0) !== 0) bad.push(`${c.name}: 给满 4 层不许带其它数值`);
+      }
+    }
+    ok(bad.length === 0, '太子的威望卡遵守产品的三条费用约束', bad.join(' | '));
+    ok(withPrestige.length >= 6, `至少 6 张牌能给威望（实测 ${withPrestige.length}）`);
+  }
 }
 
 /* ================= AI. 读档续战必须如实还原"战斗内状态"（不许白捡便宜） ================= */

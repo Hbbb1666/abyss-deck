@@ -299,4 +299,78 @@ else if (what === 'stats') {
   s = s.replace(a, "unlockScore: 9, hp: 73, gold: 99, relic: 'holy_oath',");
   writeFileSync(p, s, 'utf8');
   console.log('已把圣骑士血量改回 73（削弱前的值）');
-} else console.log('用法: stats | guard | lowhp | paldmg | evdeath | split | mawfx | drain | bossbrood | ondamaged | exhausted | pierce | powercap | dexenemy | enemydmg | relicsprite | fintip | snapmods | snapcounters | readmedoc | cardblock | vulncost | vulntype | palhp | restore | clean');
+} else if (what === 'vhpbeforeblock') {
+  /* 把虚血放到**护甲之前**结算（复原"顺序搞反"）。
+     AL6 段第一条断言会红：6 点伤害本该全被护甲吃掉。 */
+  backup('battle');
+  const p = R + '/core/battle.js';
+  let s = readFileSync(p, 'utf8');
+  const a = '    const blocked = Math.min(target.block, dmg);';
+  if (!s.includes(a)) throw new Error('没找到护甲结算');
+  s = s.replace(a,
+    '    let _vfa = 0; if ((target.vhp||0) > 0) { _vfa = Math.min(target.vhp, dmg); target.vhp -= _vfa; }\n' +
+    '    const blocked = Math.min(target.block, dmg - _vfa);');
+  writeFileSync(p, s, 'utf8');
+  console.log('已把虚血挪到护甲**之前**结算（复原顺序错误）');
+} else if (what === 'vhpclear') {
+  /* 让回合开始把虚血也清掉（复原"虚血被当成护甲"）。
+     AL7 段会红。 */
+  backup('battle');
+  const p = R + '/core/battle.js';
+  let s = readFileSync(p, 'utf8');
+  const a = '    if (!this.get(this.player, \'barricade\')) this.player.block = 0;';
+  if (!s.includes(a)) throw new Error('没找到玩家清甲');
+  s = s.replace(a, a + '\n    this.player.vhp = 0;   // TEMP 回合开始也清虚血');
+  writeFileSync(p, s, 'utf8');
+  console.log('已让回合开始清空虚血（复原"虚血被当作护甲"）');
+} else if (what === 'prestige5') {
+  /* 把太子门槛从 5 层改成 4 层（AL2 段会红）。 */
+  backup('battle');
+  const p = R + '/core/battle.js';
+  let s = readFileSync(p, 'utf8');
+  const a = '      if (pres < 5) return;';
+  if (!s.includes(a)) throw new Error('没找到太子门槛');
+  s = s.replace(a, '      if (pres < 4) return;   // TEMP 门槛改成 4');
+  writeFileSync(p, s, 'utf8');
+  console.log('已把太子门槛改成 4 层');
+} else if (what === 'thronegate') {
+  /* 把登基门槛从 6 层改成 3 层（AL4 段会红）。 */
+  backup('battle');
+  const p = R + '/core/battle.js';
+  let s = readFileSync(p, 'utf8');
+  const a = '    if (pres < 6) return;';
+  if (!s.includes(a)) throw new Error('没找到登基门槛');
+  s = s.replace(a, '    if (pres < 3) return;   // TEMP 门槛改成 3');
+  writeFileSync(p, s, 'utf8');
+  console.log('已把登基门槛改成 3 层');
+} else if (what === 'thronevhp') {
+  /* 登基后不再给"每张牌 +1 虚血"（AL8 段会红）。 */
+  backup('battle');
+  const p = R + '/core/battle.js';
+  let s = readFileSync(p, 'utf8');
+  const a = '      this.gainVhp(1);';
+  const i = s.indexOf(a);
+  if (i < 0) throw new Error('没找到登基的 +1 虚血');
+  s = s.slice(0, i) + '      /* TEMP 登基不给虚血 */' + s.slice(i + a.length);
+  writeFileSync(p, s, 'utf8');
+  console.log('已去掉登基的"每张牌 +1 虚血"');
+} else if (what === 'prestige1cost') {
+  /* 给一张 1 费牌塞上威望（违反产品约束），AL12 应该红。
+     ⚠️ 必须**同时**加 fx 条目 —— 只加 `pre` 字段是无效改动：
+     引擎根本不读它，那张牌不会给威望，于是断言"正确地"不红。
+     我第一次就写成那样，白跑一轮（这跟"改坏要改到真生效"是同一条纪律）。 */
+  backup('cards');
+  const p = R + '/data/cards.js';
+  let s = readFileSync(p, 'utf8');
+  const a = `    art: 'sword_long', dmg: 6, up: { dmg: 9 },
+    text: c => \`造成 <b>\${c.dmg}</b> 点伤害。\`,
+    fx: [{ t: 'dmg', v: 'dmg' }],
+  },`;
+  if (!s.includes(a)) throw new Error('没找到王室斩击的完整定义');
+  s = s.replace(a, `    art: 'sword_long', dmg: 6, pre: 1, up: { dmg: 9 },
+    text: c => \`造成 <b>\${c.dmg}</b> 点伤害。\`,
+    fx: [{ t: 'dmg', v: 'dmg' }, { t: 'buff', k: 'prestige', v: 'pre' }],
+  },`);
+  writeFileSync(p, s, 'utf8');
+  console.log('已让 1 费的「王室斩击」真的给威望（含 fx，违反产品约束）');
+} else console.log('用法: stats | guard | lowhp | paldmg | evdeath | split | mawfx | drain | bossbrood | ondamaged | exhausted | pierce | powercap | dexenemy | enemydmg | relicsprite | fintip | snapmods | snapcounters | readmedoc | cardblock | vulncost | vulntype | palhp | vhpbeforeblock | vhpclear | prestige5 | thronegate | thronevhp | prestige1cost | restore | clean');

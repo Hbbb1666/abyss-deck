@@ -228,7 +228,10 @@ export function battleScene(B, { onFinish, onQuit, resumed }) {
   const playerSprite = el('div', { class: 'player-sprite', style: { backgroundImage: `url(${SPR(classSprite(G.cls))})` } });
   const playerSts = el('div', { class: 'sts' });
   const blockBadge = el('div', { class: 'blockbadge' });
-  playerZone.append(playerSprite, el('div', { class: 'col center gap4' }, playerSts), blockBadge);
+  /* 虚血徽章：和护甲**分开显示**（产品要求它是独立的一层缓冲）。
+     平时隐藏，有虚血时才出现；颜色用亮金，与护甲的淡蓝区分开。 */
+  const vhpBadge = el('div', { class: 'vhpbadge' });
+  playerZone.append(playerSprite, el('div', { class: 'col center gap4' }, playerSts), blockBadge, vhpBadge);
   playerSprite.addEventListener('click', () => { if (playerSprite.style.outline) {} });
 
   /* ---------- 能量 / 牌堆 ---------- */
@@ -337,6 +340,9 @@ export function battleScene(B, { onFinish, onQuit, resumed }) {
     playerStsRef = s;
     blockBadge.classList.toggle('on', B.player.block > 0);
     blockBadge.innerHTML = `⛨ ${B.player.block}`;
+    const vhp = B.player.vhp || 0;
+    vhpBadge.classList.toggle('on', vhp > 0);
+    vhpBadge.innerHTML = `♔ ${vhp}`;
   }
   let playerStsRef = playerSts;
 
@@ -608,6 +614,13 @@ export function battleScene(B, { onFinish, onQuit, resumed }) {
     onBlock(e, n) {
       const node = e.isPlayer ? playerSprite : enemyNodes.get(e.uid)?.sprite;
       fxFloat(node, '⛨+' + n, 'blk');
+    },
+    /** 虚血变化：单独一类飘字（金色 ♔），玩家要能分清"这层不是护甲" */
+    onVhp(e, n) {
+      const node = e.isPlayer ? playerSprite : enemyNodes.get(e.uid)?.sprite;
+      fxFloat(node, (n > 0 ? '♔+' : '♔') + n, 'vhp');
+      renderPlayer();
+      sfx.block();
     },
     onStatus(e) {
       const refs = e.isPlayer ? null : enemyNodes.get(e.uid);

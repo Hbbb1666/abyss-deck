@@ -1456,6 +1456,189 @@ text: c => `<i>${c.condText}</i><br>回复 <b>${c.heal}</b>，全体 <b>${c.dmg}
 text: c => `<i>${c.condText}</i><br><b>${c.dmg}</b> 伤，+<b>${c.vul}</b> 易伤。`,
     fx: [{ t: 'dmg', v: 'dmg' }, { t: 'debuff', k: 'vulnerable', v: 'vul' }],
   },
+
+  /* ============================================================================
+   * 「太子」职业（2026-10-17 新增）
+   * ----------------------------------------------------------------------------
+   * 设计核心是**威望的获取节奏**，产品为它定了三条硬约束（低于它们就会破坏平衡）：
+   *   ① **1 费牌一律不给威望** —— 否则"低费连刷"就能一回合攒满，
+   *      太子/登基会变成每场必出的标配，而不是"专门构筑才攒得出来的东西"。
+   *   ② 2 费最多 2 层威望（可以配数值）。
+   *   ③ 3 费最多 4 层；而**给满 4 层的那张不许带任何其它数值**，且必须「消耗」
+   *      （本场战斗不能再被抽到）—— 它是纯粹的"快速通道"，代价是它本身毫无战力。
+   * 价值口径见 values.js：威望 4 点/层，虚血 1.5 点/点。
+   * ========================================================================== */
+
+  /* ---------- 基础牌（起始卡组，不进奖励池）---------- */
+  heir_blade: {
+    /* 必须和「打击」区分开：同费同稀有度、又只写"造成 5 点伤害"的话，
+       就是一张换皮的基础牌（测试里有"不许同形同值"的断言）。
+       这里给它一个和身份绑定的条件加伤：王朝进度越深，这把刀越利。 */
+    name: '储君之刃', cls: 'prince', type: 'attack', rarity: 'basic', cost: 1, target: 'enemy',
+    art: 'sword_short', dmg: 5, bonus: 3, up: { dmg: 8 },
+    text: c => `造成 <b>${c.dmg}</b> 点伤害。若你已<b>立储</b>或<b>登基</b>，额外造成 <b>${c.bonus}</b> 点。`,
+    fx: [{ t: 'dmg', v: 'dmg', ifRoyal: 'bonus' }],
+  },
+
+  /* ---------- 普通（7 张）---------- */
+  crown_guard: {
+    // 6 点（不是 5）—— 否则与「防御」完全同形同值
+    name: '王庭侍卫', cls: 'prince', type: 'skill', rarity: 'common', cost: 1, target: 'self',
+    art: 'portcullis', blk: 6, up: { blk: 9 },
+    text: c => `获得 <b>${c.blk}</b> 点护甲。`,
+    fx: [{ t: 'block', v: 'blk' }],
+  },
+  royal_slash: {
+    // 6 点（不是 5）—— 否则与「打击」「储君之刃」同形
+    name: '王室斩击', cls: 'prince', type: 'attack', rarity: 'common', cost: 1, target: 'enemy',
+    art: 'sword_long', dmg: 6, up: { dmg: 9 },
+    text: c => `造成 <b>${c.dmg}</b> 点伤害。`,
+    fx: [{ t: 'dmg', v: 'dmg' }],
+  },
+  double_edge: {
+    // 1 费 8 伤 + 失 3 血 = 8 − 2.7 ≈ 5.3 / 5。低费高攻，用生命换节奏。
+    name: '双刃誓约', cls: 'prince', type: 'attack', rarity: 'common', cost: 1, target: 'enemy',
+    art: 'sword_dagger', dmg: 8, selfdmg: 3, up: { dmg: 11 },
+    text: c => `造成 <b>${c.dmg}</b> 点伤害，失去 <b>${c.selfdmg}</b> 点生命。`,
+    fx: [{ t: 'dmg', v: 'dmg' }, { t: 'loseHp', v: 'selfdmg' }],
+  },
+  herald: {
+    // 2 费：2 层威望（8）+ 抽 1（5）= 13 / 13
+    name: '传令官', cls: 'prince', type: 'skill', rarity: 'common', cost: 2, target: 'self',
+    art: 'poleaxe', pre: 2, draw: 1, up: { pre: 3 },
+    text: c => `获得 <b>${c.pre}</b> 层威望，抽 <b>${c.draw}</b> 张牌。`,
+    fx: [{ t: 'buff', k: 'prestige', v: 'pre' }, { t: 'draw', v: 'draw' }],
+  },
+  royal_aegis: {
+    name: '御前甲胄', cls: 'prince', type: 'skill', rarity: 'common', cost: 2, target: 'self',
+    art: 'bars', blk: 13, up: { blk: 17 },
+    text: c => `获得 <b>${c.blk}</b> 点护甲。`,
+    fx: [{ t: 'block', v: 'blk' }],
+  },
+  heavy_scepter: {
+    name: '沉重权杖', cls: 'prince', type: 'attack', rarity: 'common', cost: 2, target: 'enemy',
+    art: 'hammer', dmg: 13, up: { dmg: 17 },
+    text: c => `造成 <b>${c.dmg}</b> 点伤害。`,
+    fx: [{ t: 'dmg', v: 'dmg' }],
+  },
+  royal_assembly: {
+    /* 3 费 4 层威望 —— 产品口径下这张**不许带任何其它数值**，
+       且必须自带上限（消耗 = 本场不再抽到）。
+       价值 16 / 21（**刻意低于预算**）：它买到的是"提前 1~2 回合登基"，
+       代价是这一回合完全不做事 —— 门禁只拦超预算，欠模是它应有的样子。 */
+    name: '王庭议会', cls: 'prince', type: 'skill', rarity: 'common', cost: 3, target: 'self',
+    art: 'gate', pre: 4, exhaust: true,
+    text: c => `获得 <b>${c.pre}</b> 层威望。<i>消耗</i>`,
+    fx: [{ t: 'buff', k: 'prestige', v: 'pre' }],
+  },
+
+  /* ---------- 罕见（7 张）---------- */
+  royal_levy: {
+    // 7 点（不是 6）—— 否则与普通的「王庭侍卫」同形同值（门禁要求同池不许重复）
+    name: '征召', cls: 'prince', type: 'skill', rarity: 'uncommon', cost: 1, target: 'self',
+    art: 'crate', blk: 7, up: { blk: 10 },
+    text: c => `获得 <b>${c.blk}</b> 点护甲。`,
+    fx: [{ t: 'block', v: 'blk' }],
+  },
+  crown_blade: {
+    // 7 点（不是 6）—— 同理，与普通的「王室斩击」区分开
+    name: '冠冕之锋', cls: 'prince', type: 'attack', rarity: 'uncommon', cost: 1, target: 'enemy',
+    art: 'sword_broad', dmg: 7, up: { dmg: 10 },
+    text: c => `造成 <b>${c.dmg}</b> 点伤害。`,
+    fx: [{ t: 'dmg', v: 'dmg' }],
+  },  royal_decree: {
+    // 1 层威望（4）+ 9 护甲 = 13 / 15（欠 2，在容差内）
+    name: '御令', cls: 'prince', type: 'skill', rarity: 'uncommon', cost: 2, target: 'self',
+    art: 'stone_platform', pre: 1, blk: 9, up: { blk: 12 },
+    text: c => `获得 <b>${c.pre}</b> 层威望与 <b>${c.blk}</b> 点护甲。`,
+    fx: [{ t: 'buff', k: 'prestige', v: 'pre' }, { t: 'block', v: 'blk' }],
+  },
+  vanguard: {
+    // 1 层威望（4）+ 11 伤害 = 15 / 15
+    name: '先锋亲卫', cls: 'prince', type: 'attack', rarity: 'uncommon', cost: 2, target: 'enemy',
+    art: 'poleaxe', pre: 1, dmg: 11, up: { dmg: 14 },
+    text: c => `获得 <b>${c.pre}</b> 层威望，造成 <b>${c.dmg}</b> 点伤害。`,
+    fx: [{ t: 'buff', k: 'prestige', v: 'pre' }, { t: 'dmg', v: 'dmg' }],
+  },
+  throne_guard: {
+    // 2 层威望（8）+ 7 护甲 = 15 / 15
+    name: '储君卫队', cls: 'prince', type: 'skill', rarity: 'uncommon', cost: 2, target: 'self',
+    art: 'portcullis', pre: 2, blk: 7, up: { blk: 10 },
+    text: c => `获得 <b>${c.pre}</b> 层威望与 <b>${c.blk}</b> 点护甲。`,
+    fx: [{ t: 'buff', k: 'prestige', v: 'pre' }, { t: 'block', v: 'blk' }],
+  },
+  phantom_shield: {
+    // 10 虚血 × 1.5 = 15 / 15
+    name: '虚影护壁', cls: 'prince', type: 'skill', rarity: 'uncommon', cost: 2, target: 'self',
+    art: 'key_bone', vhp: 10, up: { vhp: 15 },
+    text: c => `获得 <b>${c.vhp}</b> 点虚血（不会被回合结束清除）。`,
+    fx: [{ t: 'vhp', v: 'vhp' }],
+  },
+  succession: {
+    // 3 层威望（12）+ 13 护甲 = 25 / 25
+    name: '继位大典', cls: 'prince', type: 'skill', rarity: 'uncommon', cost: 3, target: 'self',
+    art: 'gate', pre: 3, blk: 13, up: { pre: 3, blk: 16 },
+    text: c => `获得 <b>${c.pre}</b> 层威望与 <b>${c.blk}</b> 点护甲。`,
+    fx: [{ t: 'buff', k: 'prestige', v: 'pre' }, { t: 'block', v: 'blk' }],
+  },
+  edict_of_blood: {
+    // 3 层威望（12）+ 13 伤害 = 25 / 25
+    name: '血诏', cls: 'prince', type: 'attack', rarity: 'uncommon', cost: 3, target: 'enemy',
+    art: 'sword_broad', pre: 3, dmg: 13, up: { dmg: 17 },
+    text: c => `获得 <b>${c.pre}</b> 层威望，造成 <b>${c.dmg}</b> 点伤害。`,
+    fx: [{ t: 'buff', k: 'prestige', v: 'pre' }, { t: 'dmg', v: 'dmg' }],
+  },
+
+  /* ---------- 稀有（6 张）---------- */
+  phantom_crown: {
+    // 11 虚血 × 1.5 = 16.5 ≈ 17 / 17
+    name: '虚冕', cls: 'prince', type: 'skill', rarity: 'rare', cost: 2, target: 'self',
+    art: 'chest_gem', vhp: 11, up: { vhp: 17 },
+    text: c => `获得 <b>${c.vhp}</b> 点虚血（不会被回合结束清除）。`,
+    fx: [{ t: 'vhp', v: 'vhp' }],
+  },
+  crimson_edict: {
+    // 1 层威望（4）+ 9 伤害 + 1 易伤（4）= 17 / 17
+    name: '赤色敕令', cls: 'prince', type: 'attack', rarity: 'rare', cost: 2, target: 'enemy',
+    art: 'sword_long', pre: 1, dmg: 9, vul: 1, up: { dmg: 12, vul: 2 },
+    text: c => `获得 <b>${c.pre}</b> 层威望，造成 <b>${c.dmg}</b> 点伤害并施加 <b>${c.vul}</b> 层易伤。`,
+    fx: [{ t: 'buff', k: 'prestige', v: 'pre' }, { t: 'dmg', v: 'dmg' }, { t: 'debuff', k: 'vulnerable', v: 'vul' }],
+  },
+  royal_might: {
+    // 1 层力量（4）+ 3 护甲 = 7 / 7
+    name: '王室威严', cls: 'prince', type: 'power', rarity: 'rare', cost: 1, target: 'self',
+    art: 'key_red', str: 1, blk: 3, up: { str: 2 },
+    text: c => `获得 <b>${c.str}</b> 层力量与 <b>${c.blk}</b> 点护甲。`,
+    fx: [{ t: 'buff', k: 'strength', v: 'str' }, { t: 'block', v: 'blk' }],
+  },
+  hollow_throne: {
+    // 18 虚血 × 1.5 = 27 / 28
+    name: '虚位王座', cls: 'prince', type: 'skill', rarity: 'rare', cost: 3, target: 'self',
+    art: 'gate', vhp: 18, up: { vhp: 26 },
+    text: c => `获得 <b>${c.vhp}</b> 点虚血（不会被回合结束清除）。`,
+    fx: [{ t: 'vhp', v: 'vhp' }],
+  },
+  scepter_of_dawn: {
+    // 3 层威望（12）+ 16 伤害 = 28 / 28
+    name: '晨曦权杖', cls: 'prince', type: 'attack', rarity: 'rare', cost: 3, target: 'enemy',
+    art: 'poleaxe', pre: 3, dmg: 16, up: { dmg: 21 },
+    text: c => `获得 <b>${c.pre}</b> 层威望，造成 <b>${c.dmg}</b> 点伤害。`,
+    fx: [{ t: 'buff', k: 'prestige', v: 'pre' }, { t: 'dmg', v: 'dmg' }],
+  },
+
+  /* ---------- 终结牌（前提：登基）---------- */
+  finisher_enthronement: {
+    name: '太·登基', cls: 'prince', type: 'skill', rarity: 'finisher', cost: 3, costN: true,
+    finisher: true, unique: true, target: 'all',
+    /* 价值：全体 10 伤（10×1.3=13）+ 10 虚血（15）= 28；
+       "所有增益 +1 层" 模型只按 2 项保守估（+8）→ 36，接近参考值 40。
+       实际收益随已叠增益线性上升 —— 这正是终结牌该有的样子（铺垫越厚越强）。 */
+    art: 'chest_gem', dmg: 10, vhp: 10,
+    condText: '需登基',
+    cond: B => B.get(B.player, 'throne') > 0,
+    text: c => `<i>${c.condText}</i><br>自身所有<b>增益 +1 层</b>，全体 <b>${c.dmg}</b> 伤，获得 <b>${c.vhp}</b> 虚血。`,
+    fx: [{ t: 'buffUp', v: 1 }, { t: 'dmgAll', v: 'dmg' }, { t: 'vhp', v: 'vhp' }],
+  },
 };
 
 // 注入 id
