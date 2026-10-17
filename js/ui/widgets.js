@@ -108,31 +108,52 @@ export function cardEl(card, opts = {}) {
 }
 
 /* ---------------- 血条 ---------------- */
-export function hpBar(hp, maxHp, block = 0, cls = '') {
+export function hpBar(hp, maxHp, block = 0, cls = '', vhp = 0) {
   const pct = Math.max(0, Math.min(100, hp / maxHp * 100));
   const bar = el('div', { class: 'hpbar ' + cls },
     el('div', { class: 'fill', style: { width: pct + '%' } }),
   );
+  if (vhp > 0) {
+    const b = el('div', { class: 'fill vhp', style: { width: Math.min(100, vhp / maxHp * 100) + '%' } });
+    bar.insertBefore(b, bar.firstChild);
+  }
   if (block > 0) {
     const b = el('div', { class: 'fill blk', style: { width: Math.min(100, block / maxHp * 100) + '%' } });
     bar.insertBefore(b, bar.firstChild);
   }
-  bar.append(el('div', { class: 'txt', text: block > 0 ? `${hp}/${maxHp} ⛨${block}` : `${hp}/${maxHp}` }));
+  bar.append(el('div', { class: 'txt', text: hpText(hp, maxHp, block, vhp) }));
   return bar;
 }
 
+/** 血条上的数字。虚血单独用 ⛨ 括起来、护甲用 ⛨ 前缀 —— 两者图标相同、位置不同，
+ *  都与产品的"虚血是第二层缓冲"口径一致（颜色在 CSS 里区分）。 */
+function hpText(hp, maxHp, block, vhp) {
+  let t = `${hp}/${maxHp}`;
+  if (block > 0) t += ` ⛨${block}`;
+  if (vhp > 0) t += ` (+${vhp})`;
+  return t;
+}
+
 /** 只更新已有血条节点，避免整块重绘导致动画丢失 */
-export function updateHpBar(bar, hp, maxHp, block = 0) {
+export function updateHpBar(bar, hp, maxHp, block = 0, vhp = 0) {
   const pct = Math.max(0, Math.min(100, hp / maxHp * 100));
   const fills = bar.querySelectorAll('.fill');
   const red = fills[fills.length - 1];
   if (red) red.style.width = pct + '%';
+  // 虚血层（在护甲之下、红条之上）
+  let v = bar.querySelector('.fill.vhp');
+  if (vhp > 0) {
+    if (!v) { v = el('div', { class: 'fill vhp' }); bar.insertBefore(v, bar.firstChild); }
+    v.style.width = Math.min(100, vhp / maxHp * 100) + '%';
+  } else if (v) v.remove();
   let blk = bar.querySelector('.fill.blk');
   if (block > 0) {
     if (!blk) { blk = el('div', { class: 'fill blk' }); bar.insertBefore(blk, bar.firstChild); }
     blk.style.width = Math.min(100, block / maxHp * 100) + '%';
   } else if (blk) blk.remove();
-  bar.querySelector('.txt').textContent = block > 0 ? `${hp}/${maxHp} ⛨${block}` : `${hp}/${maxHp}`;
+  // 护甲永远盖在虚血之上（绘制顺序：blk 在前，vhp 在后）
+  if (blk && v) bar.insertBefore(blk, v);
+  bar.querySelector('.txt').textContent = hpText(hp, maxHp, block, vhp);
 }
 
 /* ---------------- 状态图标 ---------------- */

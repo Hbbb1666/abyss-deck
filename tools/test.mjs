@@ -5048,10 +5048,14 @@ section('AE. 最终 Boss 砍召唤 + 第三/四层新怪（能量掠夺 / 护甲
       ok(appears(id, 3), `${ENEMIES[id].name} 出现在第 3 层`);
       ok(!appears(id, 1) && !appears(id, 2), `${ENEMIES[id].name} 不会在第 1/2 层出现`);
     }
-    for (const id of ['void_shard', 'abyss_maw']) {
-      ok(appears(id, 4), `${ENEMIES[id].name} 出现在第 4 层`);
-      ok(!appears(id, 1) && !appears(id, 2) && !appears(id, 3), `${ENEMIES[id].name} 不会在更低的层出现`);
-    }
+    /* 深渊之喉 2026-10-17 **从第 4 层搬到第 3 层**（产品要求，数值已按第 3 层重配）。
+       所以它现在归第 3 层，不该再出现在第 4 层 —— 这条断言随之改写，
+       否则它会一直红，而红的原因是"需求变了"而不是"代码错了"。 */
+    ok(appears('abyss_maw', 3), `${ENEMIES.abyss_maw.name} 出现在第 3 层（2026-10-17 搬来）`);
+    ok(!appears('abyss_maw', 1) && !appears('abyss_maw', 2) && !appears('abyss_maw', 4),
+       `${ENEMIES.abyss_maw.name} 只在第 3 层出现`);
+    ok(appears('void_shard', 4) && !appears('void_shard', 1) && !appears('void_shard', 2)
+       && !appears('void_shard', 3), `${ENEMIES.void_shard.name} 只出现在第 4 层`);
     // 每只新怪都有自己的贴图（不是借别人的）
     const { SPRITES } = await import('file://' + join(ROOT, 'tools/make-sprites.mjs'));
     for (const id of ['soul_lantern', 'abyss_priest', 'void_shard', 'abyss_maw']) {
@@ -5502,6 +5506,11 @@ section('AG. 一击伤害参考表 + 敏捷对怪物生效（产品查证项）'
             e.attacked = 0;
             if (!best) continue;
             checked++;
+            /* 深渊之眼的「连环撕裂」是产品 2026-10-17 明确指定的 **7×3**（基础值）。
+               第 4 层 ×1.51 缩放后显示 11×3 = **33**，超出旧档位表的 Boss 上限 28。
+               这是**产品指令优先于旧表**的有意例外，不是漏改 —— 记在这里，
+               免得后来的人看到 33 > 28 就"顺手"把它压回去。 */
+            if (e.defId === 'boss_abyss' && bestMv === 'onslaught') continue;
             if (best > hi) bad.push(`act${act} ${e.name}.${bestMv} ${best}>${hi}`);
             else if (best < lo) bad.push(`act${act} ${e.name}.${bestMv} ${best}<${lo}（偏低）`);
           }
@@ -5511,15 +5520,22 @@ section('AG. 一击伤害参考表 + 敏捷对怪物生效（产品查证项）'
     ok(bad.length === 0, `${checked} 个「敌人×出现层」的一击伤害都落在产品给的档内`, bad.slice(0, 8).join(' | '));
   }
 
-  /* --- AG2. 多段招式不超过 2 段（3 段会被力量吃 3 倍收益）--- */
+  /* --- AG2. 多段招式一般不超过 2 段（3 段会被力量吃 3 倍收益）---
+     例外：深渊之眼的 `连环撕裂` 是产品 2026-10-17 明确要求的 **7×3**。
+     机制上已经不怕"多段统治"了 —— `POWER_STACK_CAP = 2` 让第 3 段起不吃力量
+     （见 calcDamage），所以 3 段只影响"对护甲/荆棘的手感"，不再放大力量收益。 */
   {
+    const ALLOW_3 = new Set(['boss_abyss.onslaught']);
     const over = [];
     for (const [id, d] of Object.entries(ENEMIES)) {
       for (const [mv, m] of Object.entries(d.moves)) {
-        if ((m.hits || 1) > 2) over.push(`${d.name}.${mv}×${m.hits}`);
+        if ((m.hits || 1) > 3) over.push(`${d.name}.${mv}×${m.hits}`);
+        else if ((m.hits || 1) === 3 && !ALLOW_3.has(`${id}.${mv}`)) over.push(`${d.name}.${mv}×3（未授权的 3 段）`);
       }
     }
-    ok(over.length === 0, '敌人没有 3 段以上的招式（多段统治的根源已削）', over.join(', '));
+    ok(over.length === 0, '除了深渊之眼被授权的那一手，敌人没有 3 段以上的招式', over.join(', '));
+    ok(ENEMIES.boss_abyss.moves.onslaught.dmg === 6 && ENEMIES.boss_abyss.moves.onslaught.hits === 3,
+       '深渊之眼的「连环撕裂」是 6×3（产品定 7×3 后按"稍微压一下"下调基础值）');
   }
 
   /* --- AG3. 第 3 段起不再吃力量加成（POWER_STACK_CAP）---

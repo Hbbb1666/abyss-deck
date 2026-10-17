@@ -141,6 +141,10 @@ i { color: var(--dim); font-style: normal; }
 .hpbar .fill::after { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 36%; background: #ffffff2e; }
 .hpbar .fill.blk { background: linear-gradient(#b0dcff, #6fa8dc 45%, #3f6f9c); z-index: 2; }
 .hpbar .fill.blk::after { background: #ffffff35; }
+/* 虚血层：与护甲同形状但金色 —— 它不清空、不吃敏捷，必须能一眼分清。
+   绘制顺序是 blk 在最前（盖住 vhp），所以两者同时存在时看到的是"甲 + 一条金边"。 */
+.hpbar .fill.vhp { background: linear-gradient(#fff3c4, #ffd76a 45%, #a8862e); z-index: 1; }
+.hpbar .fill.vhp::after { background: #ffffff30; }
 .hpbar .txt {
   position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
   font-size: 13px; letter-spacing: .5px; z-index: 3;

@@ -20,7 +20,7 @@ export function battleScene(B, { onFinish, onQuit, resumed }) {
   const topbar = el('div', { class: 'topbar' });
   const avatar = el('div', { class: 'avatar', style: { backgroundImage: `url(${SPR(classSprite(G.cls))})` } });
   const hpWrap = el('div', { class: 'grow' });
-  const playerBar = hpBar(B.player.hp, B.player.maxHp, B.player.block);
+  const playerBar = hpBar(B.player.hp, B.player.maxHp, B.player.block, '', 0);
   hpWrap.append(playerBar);
   const goldStat = el('div', { class: 'stat' }, goldIcon(), el('span', { class: 'gold', text: G.gold }));
   const floorStat = el('div', { class: 'stat', html: `<span class="dim">第</span>${G.act}<span class="dim">层</span>` });
@@ -108,7 +108,7 @@ export function battleScene(B, { onFinish, onQuit, resumed }) {
       },
     });
     body.append(sprite);
-    const ebar = hpBar(e.hp, e.maxHp, e.block, 'ebar');
+    const ebar = hpBar(e.hp, e.maxHp, e.block, 'ebar', e.vhp || 0);
     const nm = el('div', { class: 'name', text: e.name });
     // 名字 + 血条包在一个深色名牌里，保证任何背景上都看得清
     const plate = el('div', { class: 'plate' }, nm, ebar);
@@ -322,7 +322,7 @@ export function battleScene(B, { onFinish, onQuit, resumed }) {
   function renderEnemy(e) {
     const refs = enemyNodes.get(e.uid);
     if (!refs) return;
-    updateHpBar(refs.ebar, Math.max(0, e.hp), e.maxHp, e.block);
+    updateHpBar(refs.ebar, Math.max(0, e.hp), e.maxHp, e.block, e.vhp || 0);
     const s = statusRow(e);
     refs.sts.replaceWith(s);
     refs.sts = s;
@@ -334,7 +334,7 @@ export function battleScene(B, { onFinish, onQuit, resumed }) {
   }
 
   function renderPlayer() {
-    updateHpBar(playerBar, Math.max(0, B.player.hp), B.player.maxHp, 0);
+    updateHpBar(playerBar, Math.max(0, B.player.hp), B.player.maxHp, B.player.block, 0);
     const s = statusRow(B.player);
     playerStsRef.replaceWith(s);
     playerStsRef = s;
@@ -592,7 +592,7 @@ export function battleScene(B, { onFinish, onQuit, resumed }) {
     log() {},
     onDamage(target, real, blocked, total, isDot) {
       if (target.isPlayer) {
-        updateHpBar(playerBar, Math.max(0, B.player.hp), B.player.maxHp, 0);
+        updateHpBar(playerBar, Math.max(0, B.player.hp), B.player.maxHp, B.player.block, 0);
         if (real > 0) {
           fxFloat(playerSprite, '-' + real, 'dmg' + (real >= 12 ? ' big' : ''));
           playerSprite.classList.add('hurt'); setTimeout(() => playerSprite.classList.remove('hurt'), 340);
@@ -601,7 +601,7 @@ export function battleScene(B, { onFinish, onQuit, resumed }) {
       } else {
         const refs = enemyNodes.get(target.uid);
         if (refs) {
-          updateHpBar(refs.ebar, Math.max(0, target.hp), target.maxHp, target.block);
+          updateHpBar(refs.ebar, Math.max(0, target.hp), target.maxHp, target.block, target.vhp || 0);
           if (real > 0) {
             fxFloat(refs.sprite, '-' + real, 'dmg' + (real >= 12 ? ' big' : ''));
             refs.sprite.classList.add('hurt'); setTimeout(() => refs.sprite.classList.remove('hurt'), 340);

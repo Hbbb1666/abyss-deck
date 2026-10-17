@@ -290,16 +290,95 @@ export const ENEMIES = {
   },
   /* 精英「深渊之喉」—— 机制：**护甲溶解**。
      每次出招前先吞掉你**一半护甲**，然后再打。它专门惩罚"叠满甲慢慢磨"，
-     所以它的血量很厚（逼你没法速杀），你必须一边防守一边输出。 */
+     所以它的血量很厚（逼你没法速杀），你必须一边防守一边输出。
+     ⚠️ 2026-10-17 从第 4 层搬到第 3 层，数值按第 3 层重配：
+        原 70~82 血 / 囫囵吞下 15 是照第 4 层调的，搬到第 3 层会显示 105~123 血、
+        单体重击 20，比同层精英（巫妖 55~64 血、峰值 19）高出一截。
+        现在：血 58~68 → 显示 87~102，磨牙 6×2 → 显示 8×2=16，囫囵吞下 12 → 显示 16。
+        机制（吞 50% 护甲 + 脆化 2 层）原样保留。 */
   abyss_maw: {
-    name: '深渊之喉', sprite: 'abyss_maw', hp: [70, 82], act: 4, elite: true, body: 1.6,
+    name: '深渊之喉', sprite: 'abyss_maw', hp: [58, 68], act: 3, elite: true, body: 1.6,
     moves: {
-      devour: { name: '吞噬甲胄', intent: 'attack', dmg: 13, preFx: [{ t: 'eatBlock', pct: 50 }] },
-      grind: { name: '磨牙', intent: 'attack', dmg: 7, hits: 2, preFx: [{ t: 'eatBlock', pct: 50 }] },
-      swallow: { name: '囫囵吞下', intent: 'attack_debuff', dmg: 15, preFx: [{ t: 'eatBlock', pct: 50 }], fx: [{ t: 'debuff', k: 'frail', v: 2 }] },
-      gorge: { name: '饱食', intent: 'heal', fx: [{ t: 'healSelf', v: 14 }] },
+      devour: { name: '吞噬甲胄', intent: 'attack', dmg: 11, preFx: [{ t: 'eatBlock', pct: 50 }] },
+      grind: { name: '磨牙', intent: 'attack', dmg: 6, hits: 2, preFx: [{ t: 'eatBlock', pct: 50 }] },
+      swallow: { name: '囫囵吞下', intent: 'attack_debuff', dmg: 12, preFx: [{ t: 'eatBlock', pct: 50 }], fx: [{ t: 'debuff', k: 'frail', v: 2 }] },
+      gorge: { name: '饱食', intent: 'heal', fx: [{ t: 'healSelf', v: 10 }] },
     },
     ai: (e, t) => ['devour', 'grind', 'gorge', 'swallow'][t % 4],
+  },
+
+  /* ================= 2026-10-17 新增的普通怪 =================
+     产品要求：第 1/2 层各新增 1 种普通怪，第 3/4 层各新增 2 种。
+     统一的定值纪律（与既有 33 只一致）：
+       · 单体最重一击照该层的**普通档**给（第1层 5~9 / 第2层 10~15 / 第3层 15~18 / 第4层 18~21）
+       · 血量照该层普通怪的量级（不越级到精英）
+       · 每只都要有**一个自己的机制**，不能只是换皮数字
+       · 登记进 ENCOUNTERS 的 weak/strong —— 否则**永远不会出现，而且测试不报错**
+         （这是本项目最容易漏的一步，见开发与维护指南 §4(b)）
+     ============================================================ */
+
+  /* ---- 第 1 层：墓鼠（血量线低、会翻找）---- */
+  grave_rat: {
+    name: '墓鼠', sprite: 'bat', hp: [10, 13], act: 1,
+    moves: {
+      // 显示 6（第 1 层普通档 5~9）+ 1 层虚弱：教玩家"代价牌"的概念
+      gnaw: { name: '啃噬', intent: 'attack', dmg: 6, fx: [{ t: 'debuff', k: 'weak', v: 1 }] },
+      scatter: { name: '四散', intent: 'defend', blk: 5 },
+    },
+    ai: (e, t) => (t % 3 === 0 ? 'scatter' : 'gnaw'),
+  },
+
+  /* ---- 第 2 层：沼行尸（慢，但每轮回一点血，逼你快打）---- */
+  bog_walker: {
+    name: '沼行尸', sprite: 'undead', hp: [24, 30], act: 2,
+    moves: {
+      // 基础 11 → 第 2 层显示 13（普通档 10~15，且低于强档峰值 14）
+      slam: A('腐臂重击', 11),
+      mend: { name: '淤愈', intent: 'heal', blk: 4, fx: [{ t: 'healSelf', v: 5 }] },
+    },
+    ai: (e, t) => (t % 4 === 3 ? 'mend' : 'slam'),
+  },
+
+  /* ---- 第 3 层：两只是"反单一打法"的对照 ----
+     一只惩罚纯物理（抗打但会给你挂虚弱），一只惩罚纯拖（越拖越痛）。 */
+  bone_choir: {
+    name: '骨唱诗班', sprite: 'undead', hp: [34, 42], act: 3,
+    moves: {
+      wail: { name: '哀嚎', intent: 'debuff', fx: [{ t: 'debuff', k: 'frail', v: 2 }, { t: 'debuff', k: 'weak', v: 1 }] },
+      // 基础 12 → 第 3 层显示 16（普通档 15~18）
+      toll: A('丧钟', 12),
+    },
+    ai: (e, t) => (t % 3 === 0 ? 'wail' : 'toll'),
+  },
+  cinder_wraith: {
+    name: '烬火怨魂', sprite: 'witch', hp: [30, 36], act: 3,
+    moves: {
+      // 基础 12 → 显示 16，并挂 2 层点燃：让"只叠甲不打"的构筑难受
+      sear: { name: '灼烧', intent: 'attack_debuff', dmg: 12, fx: [{ t: 'debuff', k: 'burn', v: 2 }] },
+      flare: { name: '复燃', intent: 'buff', fx: [{ t: 'buff', k: 'strength', v: 2 }] },
+    },
+    ai: (e, t) => (t % 4 === 2 ? 'flare' : 'sear'),
+  },
+
+  /* ---- 第 4 层：两只都要求"你不能只守" ---- */
+  void_herald: {
+    name: '虚空传令', sprite: 'noble', hp: [40, 48], act: 4,
+    moves: {
+      // 基础 13 → 第 4 层显示 20（普通档 18~21）
+      decree: A('虚空诏令', 13),
+      // 每 4 轮往你弃牌堆塞 1 张眩晕：稀释抽牌质量
+      edict: { name: '敕令', intent: 'debuff', fx: [{ t: 'addCard', id: 'status_dazed', to: 'discard', n: 1 }, { t: 'debuff', k: 'vulnerable', v: 2 }] },
+    },
+    ai: (e, t) => (t % 4 === 3 ? 'edict' : 'decree'),
+  },
+  abyss_spawn: {
+    name: '深渊孽生', sprite: 'slime', hp: [38, 44], act: 4,
+    moves: {
+      // 基础 13 → 显示 20，并每轮自加 1 力量（拖不得）
+      surge: { name: '孽潮', intent: 'attack_debuff', dmg: 13, fx: [{ t: 'buff', k: 'strength', v: 1 }] },
+      fester: { name: '溃烂', intent: 'defend', blk: 8, fx: [{ t: 'buff', k: 'strength', v: 1 }] },
+    },
+    ai: (e, t) => (t % 3 === 2 ? 'fester' : 'surge'),
   },
 
   /* ================= Boss ================= */
@@ -319,10 +398,38 @@ export const ENEMIES = {
     moves: {
       crush: A('碾压', 12),
       petrify: { name: '石化诅咒', intent: 'debuff', fx: [{ t: 'debuff', k: 'weak', v: 3 }, { t: 'debuff', k: 'vulnerable', v: 3 }] },
-      armor: { name: '磐石之躯', intent: 'defend', blk: 16 },
+      armor: { name: '磐石之躯', intent: 'defend', blk: 12 },
       quake: { name: '大地震击', intent: 'attack', dmg: 8, hits: 2 },
     },
     ai: (e, t) => ['petrify', 'crush', 'armor', 'quake', 'crush', 'quake'][t % 6],
+  },
+  /* 第 2 层 Boss 之二（2026-10-17 新增，与石像暴君**平分出现概率**）。
+     产品指定机制：**它的回合结束后获得 2 点虚血**。
+     为什么这条机制有意义：虚血是"护甲之后、生命之前"的第二层缓冲，
+     而它**不被回合结束清空**（见 battle.js 的 gainVhp）。所以这一场不是
+     "拼一回合的输出"，而是"你每回合必须打穿它的虚血、还要压得过它的积累" ——
+     拖得越久、它的虚血越厚，逼你不要留牌等大招。
+     数值口径（0 难度分、第 2 层）：基础 10 → 层内 ×1.2 ≈ 12，与暴君的碾压 12/大地震击 8×2 同档。 */
+  boss_hollow: {
+    name: '空洞守望者', sprite: 'boss_hollow', hp: [96, 96], act: 2, boss: true, body: 1.9,
+    moves: {
+      /* 2026-10-17 产品定值（**基础值**，第 2 层再吃 ×1.17 缩放 → 显示约 20）：
+         基础攻击力 17；buff 意图**固定**为「赐予自身 1 层力量 + 1 层敏捷」；护盾 10。
+         之所以要"固定"：原来 buff 分成加虚血/召唤/减益三种，抽到哪一手全看运气，
+         强度方差太大。现在它的成长路线只有一条 —— 每轮稳定 +1 力 +1 敏，
+         而敏捷会让它的护盾越长越厚，逼你尽早打掉它。 */
+      crush: A('穿空', 17),
+      loom: { name: '虚影叠生', intent: 'buff', blk: 10, fx: [{ t: 'buff', k: 'strength', v: 1 }, { t: 'buff', k: 'dexterity', v: 1 }] },
+      guard: { name: '虚壁', intent: 'defend', blk: 10 },
+      /* 保留一手减益：让它有"逼你算账"的时刻，但不抢 buff 的位置 */
+      wither: { name: '枯萎凝视', intent: 'debuff', fx: [{ t: 'debuff', k: 'vulnerable', v: 2 }] },
+    },
+    /* AI 严格交替：每两轮必出一次 buff（固定成长），中间夹一次攻击/护盾/减益。
+       用固定 pattern 而不是 rng —— 成长型 Boss 一旦靠运气滚起来，方差会失控。 */
+    ai: (e, t) => ['crush', 'loom', 'guard', 'loom', 'wither', 'loom'][t % 6],
+    /* 产品指定：**每轮行动结束后**获得 2 点虚血。与招式无关 —— 哪怕这轮它在加甲/减益也照拿。
+       见 battle.js 的 enemyTurn 里 `afterAct` 那一段。 */
+    afterAct: { vhp: 2 },
   },
   boss_lord: {
     name: '深渊之主', sprite: 'boss_gargoyle', hp: [144, 144], act: 3, boss: true, body: 2.1,
@@ -373,7 +480,7 @@ export const ENEMIES = {
       rend: A('撕裂虚空', 16),
       mark: { name: '湮灭印记', intent: 'debuff', fx: [{ t: 'debuff', k: 'vulnerable', v: 4 }, { t: 'debuff', k: 'weak', v: 2 }] },
       bulwark: { name: '深渊壁垒', intent: 'defend', blk: 21 },
-      onslaught: { name: '连环撕裂', intent: 'attack', dmg: 9, hits: 2 },
+      onslaught: { name: '连环撕裂', intent: 'attack', dmg: 6, hits: 3 },
       reap: { name: '收割灵魂', intent: 'attack', dmg: 13, fx: [{ t: 'healSelf', v: 16 }] },
       ascend: { name: '终极宣告', intent: 'unknown', fx: [{ t: 'buff', k: 'strength', v: 5 }] },
     },
@@ -401,30 +508,34 @@ export const ENCOUNTERS = {
   1: {
     /* 第 1 层合计上限 14（`ENCOUNTER_DMG_CAP`）。这里的每个组合都是按
        "最重一击 × 层级倍率，逐只相加 ≤ 14" 算过的 —— 改数值请重跑测试 AM2。
-       注意 weak 档里 already 有 slime(9)/spider(9) 这两个单体峰值，
+       注意 weak 档里已经有 slime(9)/spider(9) 这两个单体峰值，
        所以 strong 档必须至少保持 9 的单体，否则 AM1（单体递增）会红。 */
-    weak: [['slime'], ['bat'], ['spider'], ['worm'], ['ghost', 'bat'], ['worm', 'worm']],
+    weak: [['slime'], ['bat'], ['spider'], ['worm'], ['ghost', 'bat'], ['grave_rat']],
     strong: [['slime', 'ghost'], ['guard'], ['spider', 'ghost'], ['ghost', 'spider'], ['worm', 'guard']],
     elite: [['slime_big'], ['skeleton_king'], ['skeleton_king', 'ghost']],
     boss: [['boss_eye']],
   },
   2: {
-    weak: [['crabdemon'], ['monk'], ['witch'], ['spider', 'spider']],
+    weak: [['crabdemon'], ['monk'], ['witch'], ['bog_walker']],
     strong: [['golem'], ['dwarf'], ['guard_elite'], ['crabdemon', 'witch'], ['witch', 'witch']],
     elite: [['spider_queen'], ['lich'], ['witch', 'witch']],
-    boss: [['boss_tyrant']],
+    /* 第 2 层两个 Boss **平分出现概率**（与第 3 层同一套做法：
+       往这个列表里加条目即可继续平分）。 */
+    boss: [['boss_tyrant'], ['boss_hollow']],
   },
   3: {
-    weak: [['demonling'], ['noble'], ['statue'], ['soul_lantern']],
+    weak: [['demonling'], ['noble'], ['statue'], ['bone_choir'], ['cinder_wraith']],
     strong: [['warrior', 'demonling'], ['statue', 'noble'], ['warrior', 'warrior'], ['gargoyle'], ['soul_lantern', 'noble']],
-    elite: [['gargoyle'], ['lich'], ['statue', 'demonling'], ['abyss_priest']],
+    /* 深渊之喉 2026-10-17 从第 4 层搬到这里（数值已按第 3 层重配）。 */
+    elite: [['gargoyle'], ['lich'], ['statue', 'demonling'], ['abyss_priest'], ['abyss_maw']],
     // 第 3 层的两个 Boss **平分出现概率** —— 往这个列表里加条目即可继续平分
     boss: [['boss_lord'], ['boss_frostqueen']],
   },
   4: {
-    weak: [['demonling', 'demonling'], ['noble', 'demonling'], ['statue'], ['void_shard']],
+    weak: [['demonling', 'demonling'], ['noble', 'demonling'], ['void_herald'], ['abyss_spawn']],
     strong: [['warrior', 'noble'], ['gargoyle'], ['statue', 'warrior'], ['warrior', 'demonling'], ['void_shard', 'demonling']],
-    elite: [['gargoyle', 'demonling'], ['spider_queen', 'lich'], ['gargoyle', 'statue'], ['abyss_maw']],
+    // 深渊之喉搬去第 3 层后，这里补一个"双精英"维持精英池数量
+    elite: [['gargoyle', 'demonling'], ['spider_queen', 'lich'], ['gargoyle', 'statue'], ['warrior', 'gargoyle']],
     boss: [['boss_abyss']],
   },
 };

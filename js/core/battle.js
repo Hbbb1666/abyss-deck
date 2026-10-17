@@ -249,7 +249,7 @@ export class Battle {
       energyMax: this.energyMax,
       player: { hp: this.player.hp, maxHp: this.player.maxHp, block: this.player.block, vhp: this.player.vhp || 0, st: { ...this.player.st } },
       enemies: this.enemies.map(e => ({
-        defId: e.defId, hp: e.hp, maxHp: e.maxHp, block: e.block, st: { ...e.st },
+        defId: e.defId, hp: e.hp, maxHp: e.maxHp, block: e.block, vhp: e.vhp || 0, st: { ...e.st },
         turn: e.turn, moveId: e.moveId, dead: !!e.dead, attacked: e.attacked || 0,
         /* `splitDone` 必须存：否则"虚空裂片已经裂过一次"这件事会在读档后丢失，
            而玩家**随时可能切后台**（手机端每次切走都会落盘）。那样一个已经裂开的
@@ -305,7 +305,7 @@ export class Battle {
         if (!d) return null;
         return {
           uid: 'e' + (++this.uid), defId: e.defId, def: d, name: d.name, sprite: d.sprite,
-          hp: e.hp, maxHp: e.maxHp, block: e.block || 0, st: { ...(e.st || {}) },
+          hp: e.hp, maxHp: e.maxHp, block: e.block || 0, vhp: e.vhp || 0, st: { ...(e.st || {}) },
           turn: e.turn || 0, moveId: e.moveId || null, body: d.body || 1,
           // 层级攻击倍率必须一起恢复：漏了它，读档续战会突然变回未缩放的原始伤害，
           // 而且界面预告会跟着一起变小（看起来"正常"，实则玩家白捡便宜）。
@@ -386,7 +386,7 @@ export class Battle {
     const hp = Math.max(1, Math.round(raw * sc.hp * bossHpX));
     const e = {
       uid: 'e' + (++this.uid), defId: id, def: d, name: d.name, sprite: d.sprite,
-      hp, maxHp: hp, block: 0, st: {}, turn: 0, moveId: null, body: d.body || 1,
+      hp, maxHp: hp, block: 0, vhp: 0, st: {}, turn: 0, moveId: null, body: d.body || 1,
       atkMult: sc.atk,                               // 这一场的攻击倍率（该敌人的所有招式共用）
       elite: !!d.elite, boss: !!d.boss, dead: false,
       attacked: 0,                                   // 已经挥出过几次攻击（Boss 首击减伤靠它判定）
@@ -518,9 +518,9 @@ export class Battle {
    *   · 不吃「敏捷」「壁垒」「护盾加成」等任何作用于护甲的规则
    *   · 受伤时结算顺序：护甲 → 虚血 → 生命
    *   · 本场战斗内累积、无上限；战斗结束随战斗实例消失（不进 G，不跨战斗） */
-  gainVhp(n) {
+  gainVhp(n, target = null) {
     if (!n) return 0;
-    const p = this.player;
+    const p = target || this.player;
     p.vhp = Math.max(0, (p.vhp || 0) + n);
     this.view.onVhp?.(p, n);
     return n;
@@ -1060,6 +1060,11 @@ export class Battle {
         case 'buffAll': for (const e of this.aliveEnemies()) { this.add(e, f.k, v); this.view.onStatus?.(e); } break;
         case 'debuff': this.applyDebuff(this.player, f.k, v); this.view.onStatus?.(this.player); break;
         case 'healSelf': await this.heal(enemy, v); break;
+        /* 敌人给自己加**虚血**（第 2 层 Boss「空洞守望者」）。
+           虚血是"护甲之后、生命之前"的第二层缓冲，且**不会被回合结束清空** ——
+           所以给敌人加虚血的效果就是"你的输出必须打穿它"，见 gainVhp 的说明。
+           `gainVhp` 现在支持传任意目标（以前只给玩家）。 */
+        case 'vhp': await this.gainVhp(v, enemy); break;
         case 'block': await this.gainBlock(enemy, v); break;
         case 'summon':
           for (let i = 0; i < (f.n || 1); i++) {
@@ -1573,6 +1578,20 @@ export class Battle {
       }
       if (def.selfDamage) await this.loseHp(e, def.selfDamage, { credit: 'none' });
       if (def.fx) await this.resolveEnemyFx(def.fx, e);
+      /* 敌人的 `afterAct`：**它这一轮行动结束之后**结算一次（与招式无关）。
+         目前只有第 2 层 Boss「空洞守望者」用它给自己加 2 点虚血 ——
+         放在这里而不是某个招式 fx 里，是因为产品要求"**回合结束后**获得"，
+         不管这轮它在加甲、召唤还是纯减益，都照拿。
+         时机刻意在 tickEnd 之前、enemyActed 钩子之前：
+         这一轮它自己受到的 DoT 已经算过，下一轮玩家的输出会先撞上这层新虚血。 */
+      if (e.def.afterAct && !e.dead) {
+        const aa = e.def.afterAct;
+        if (aa.vhp) {
+          await this.gainVhp(aa.vhp, e);
+          this.pushLog(`${e.name} 的虚影凝实：虚血 +${aa.vhp}`);
+        }
+        this.view.sync?.();
+      }
       this.tickEnd(e);
       // 流血：**行动之后**才结算（和中毒/灼烧的"行动前"刻意错开）
       if (!e.dead) await this.settleBleed(e);
@@ -1628,7 +1647,11 @@ export class Battle {
       if (f.t === 'eatBlock') out.notes.push(`出招前先吞噬你 <b>${f.pct != null ? f.pct : 50}%</b> 护甲`);
       else if (f.t === 'drainEnergy') out.notes.push(`夺走你 <b>${f.n || 1}</b> 点能量`);
       else if (f.t === 'summon') out.notes.push('召唤援军');
+      else if (f.t === 'vhp') out.notes.push(`给自己 <b>${f.v || 0}</b> 点虚血（不清空、先抵伤害）`);
     }
+    /* 被动型成长也要写进预告 —— 否则玩家只会觉得"它怎么越打越肉"。
+       `afterAct` 是"每轮行动结束后"结算的，不属于任何一招，所以单独补一条。 */
+    if (e.def.afterAct?.vhp) out.notes.push(`每轮行动后获得 <b>${e.def.afterAct.vhp}</b> 点虚血`);
     return out;
   }
 

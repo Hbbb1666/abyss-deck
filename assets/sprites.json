@@ -29,6 +29,7 @@
   "boss_demon": "custom:tools/make-sprites.mjs",
   "boss_frostqueen": "custom:tools/make-sprites.mjs",
   "boss_gargoyle": "custom:tools/make-sprites.mjs",
+  "boss_hollow": "custom:tools/make-sprites.mjs",
   "boss_stone": "custom:tools/make-sprites.mjs",
   "box": [
     1,
