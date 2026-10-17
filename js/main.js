@@ -132,7 +132,7 @@ function buildScene(name, args) {
       case 'intro': node = eventScene({ onDone: afterIntro, onFight: () => startBattle('elite', 'elite'), ev: actIntro(G.act), intro: true }); break;
       case 'rest': node = restScene({ onDone: afterRoom }); break;
       case 'treasure': node = treasureScene({ onDone: afterRoom }); break;
-      case 'end': node = endScene(args[0], { onMenu: () => go('menu'), onRetry: beginNewRun }); break;
+      case 'end': node = endScene(args[0], { onMenu: () => go('menu'), onRetry: retryRun }); break;
       default: node = el('div', { class: 'screen center' }, el('div', { text: '未知场景: ' + name }));
   }
   return node;
@@ -152,6 +152,16 @@ function beginNewRun() {
   const meta = loadMeta();
   if (meta.wins > 0) { go('difficulty'); return; }   // 已通关 = 默认老手
   go('veteran');
+}
+
+/** 结算页的「再来一局」。
+ *  **直接进难度页**，不再问「新手还是老手」（2026-10-17 修）：
+ *  那句询问是给"第一次打开游戏、还没玩过"的人用的。刚打完一整局（哪怕是陨落）
+ *  的玩家显然已经熟悉规则 —— 再问一次既多余，还会让人以为流程错乱。
+ *  ⚠️ 这里**不能**复用 beginNewRun：它按 `meta.wins > 0` 判断，
+ *     而陨落的局 wins 不增加，于是刚输完的人仍会被打回那个询问页。 */
+function retryRun() {
+  go('difficulty');
 }
 
 function startRun(clsId, picks = []) {

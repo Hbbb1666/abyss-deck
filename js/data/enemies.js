@@ -51,7 +51,13 @@ export const ENEMIES = {
   bat: {
     name: '吸血蝙蝠', sprite: 'bat', hp: [8, 11], act: 1,
     moves: {
-      bite: A('双咬', 4, { hits: 2 }),
+      /* 2026-10-17 玩家反馈：第 1 层**第 2 关**就遇到 4×2 的攻击，对 27 难度分太高了。
+         4×2 = 8 点/回合，而那时玩家手里只有 5 张起始牌、还没拿到任何遗物。
+         多段攻击的伤害应该是"从很小起步、逐步加压"，而不是一上来就打满。
+         这里下调到 **3×2**（合计 6，落在产品给的 5~9 档下限附近），
+         再靠 `innerScale`（层内进度 ×0.88~×1.12）与 `actScale`（层间 +17%）
+         把它在地图后段和深层抬上去 —— 复杂度不靠单只怪的起点撑。 */
+      bite: A('双咬', 3, { hits: 2 }),
       screech: { name: '尖啸', intent: 'debuff', fx: [{ t: 'debuff', k: 'weak', v: 1 }] },
     },
     ai: (e, t) => (t % 3 === 2 ? 'screech' : 'bite'),
@@ -160,7 +166,8 @@ export const ENEMIES = {
   monk: {
     name: '苦修武僧', sprite: 'monk', hp: [22, 28], act: 2,
     moves: {
-      flurry: A('三连击', 6, { hits: 2 }),
+      // 6×2 = 12 → **5×2 = 10**：与吸血蝙蝠同样的理由（多段怪起手别打满）
+      flurry: A('三连击', 5, { hits: 2 }),
       meditate: { name: '打坐', intent: 'heal', fx: [{ t: 'healSelf', v: 5 }, { t: 'buff', k: 'block_next', v: 5 }] },
     },
     ai: (e, t) => (t % 3 === 2 ? 'meditate' : 'flurry'),
@@ -403,7 +410,7 @@ export const ENCOUNTERS = {
   },
   2: {
     weak: [['crabdemon'], ['monk'], ['witch'], ['spider', 'spider']],
-    strong: [['golem'], ['dwarf', 'bat'], ['guard_elite'], ['crabdemon', 'witch'], ['golem', 'bat']],
+    strong: [['golem'], ['dwarf'], ['guard_elite'], ['crabdemon', 'witch'], ['witch', 'witch']],
     elite: [['spider_queen'], ['lich'], ['witch', 'witch']],
     boss: [['boss_tyrant']],
   },

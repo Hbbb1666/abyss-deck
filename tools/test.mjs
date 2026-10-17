@@ -4915,12 +4915,16 @@ section('AD. 战斗外不能死（0 血续玩 bug）+ 炼金师前期 + Boss 可
     }));
     const g = A.loadSave();
     ok(!!g && g.hp === 1, `未结束的 0 血存档被补到 1 点（实测 ${g && g.hp}）`);
-    // 已结束的存档不动（那时 hp=0 是合法的）
+    /* 已结束的一局**不该被当成可续的存档**（2026-10-17 语义变更）。
+       以前这条断言的是「over 有值的存档原样读回、hp 保持 0」——
+       现在语义反过来了：死局根本不该出现在「继续游戏」里。
+       事故路径见 state.js 的 save() 注释（陨落→再来一局→返回，会以 0 血续玩）。
+       所以现在 loadSave 遇到 over 直接返回 null，hasSave 也返回 false。 */
     window.localStorage.setItem(KEY, JSON.stringify({
       cls: 'knight', seed: 1, act: 1, hp: 0, maxHp: 60, over: 'dead', deck: [{ id: 'strike', up: false }],
     }));
-    const g2 = A.loadSave();
-    ok(!!g2 && g2.hp === 0, '已结束（over 有值）的存档不动它的 hp');
+    ok(A.loadSave() === null, '已结束（over 有值）的存档不再被当作可续存档（读回 null）');
+    ok(A.hasSave() === false, '已结束的存档不会让主菜单出现「继续游戏」');
     window.localStorage.removeItem(KEY);
     A.go('menu'); await sleep(120);
   }
@@ -6027,8 +6031,11 @@ section('AM. 遭遇战梯度：单体递增 + 每层合计封顶');
     ok(Math.abs(mid - 1) < 1e-9, `层中正好 ×1.00（实测 ${mid}），所以层平均值不变`);
     ok(Math.abs((start + end) / 2 - 1) < 1e-9,
        `两端围绕 1.00 对称（${start} / ${end}），产品定的伤害档位表仍然成立`);
-    // 偏差必须小：它只用来做斜率，不该盖过层间 +17% 的主曲线
-    ok(end - 1 <= 0.10, `层内增幅不超过 10%（实测 ${((end - 1) * 100).toFixed(0)}%）`);
+    // 偏差必须小到不盖过层间主曲线 —— 但**取整**逼得它不能太小（见 ACT_INNER_STEP 注释）
+    ok(end - 1 <= 0.25, `层内增幅不超过 25%（实测 ${((end - 1) * 100).toFixed(0)}%）`);
+    ok(end - 1 >= 0.17,
+       `层内增幅至少要有 ±17%（实测 ${((end - 1) * 100).toFixed(0)}%）—— ` +
+       '再小就会被 Math.round 抹平，小怪（单段 3 点）一整层都是同一个数字');
   }
 }
 
@@ -6208,6 +6215,97 @@ section('AN. 死神：债务 → 血线终结');
       .map(c => `${c.name} ${c.dmg}≥${pure.dmg}`);
     ok(overDmg.length === 0, '带债务的攻击牌直接伤害**低于**同费纯伤害牌（债务是"换来的收益"）',
        overDmg.join(' | '));
+  }
+}
+
+/* ================= AO. 三条玩家反馈（2026-10-17 第二轮） ================= */
+section('AO. 陨落后再战流程 + 多段怪起手数值');
+{
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const KEY = 'abyss_deck_save_v1';
+  const META = 'abyss_deck_meta_v1';
+
+  /* --- AO1. 「陨落后点再来一局」必须直接进**难度页**，不能再问新老手 ---
+     产品口径：那句询问只给"第一次打开游戏、还没玩过"的人。刚打完一整局
+     （哪怕是陨落）的玩家显然已经熟悉规则。
+     ⚠️ 这里刻意让 meta.wins = 0：陨落不增加 wins，
+        所以旧的 `beginNewRun()`（按 wins > 0 判断）会把刚输完的人打回询问页 ——
+        这正是玩家报的那条。 */
+  {
+    window.localStorage.setItem(META, JSON.stringify({ runs: 1, wins: 0, best: 2, totalKills: 5 }));
+    A.clearSave();
+    A.go('end', 'lose');
+    await sleep(150);
+    const retry = [...window.document.querySelectorAll('.screen .btn')].find(b => b.textContent.includes('再来一局'));
+    ok(!!retry, '结算页有「再来一局」按钮');
+    retry.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    await sleep(250);
+    const txt = window.document.querySelector('.screen')?.textContent || '';
+    ok(!txt.includes('新手还是老手'), `点「再来一局」不再问新老手（当前：${txt.slice(0, 30)}）`);
+    ok(txt.includes('选择难度与增益'), '直接进入难度选择页');
+  }
+
+  /* --- AO2. 已结束的一局绝不能出现在「继续游戏」里 ---
+     事故路径（玩家实测）：陨落 → 结算页「再来一局」→ go('veteran') →
+     `go()` 末尾那句通用的 `save()` 把内存里那局**已结束**的 G 写回存档
+     → 返回主菜单出现「继续游戏」→ 点进去**以 0 血回到死掉的那局**。
+     这是「0 血还能续玩」第三次换路径复发，所以堵在最底层：save() 直接拒绝写死局。 */
+  {
+    window.localStorage.removeItem(KEY);
+    window.localStorage.setItem(META, JSON.stringify({ runs: 1, wins: 0, best: 2, totalKills: 5 }));
+    A.startRun('knight');
+    await sleep(150);
+    ok(A.hasSave(), '开局后确实有可续存档');
+
+    // 模拟陨落：把 G 标成结束并 0 血，然后**再调一次 save()**（就是那条事故路径）
+    A.G.over = 'dead';
+    A.G.hp = 0;
+    A.save();
+    ok(window.localStorage.getItem(KEY) === null,
+       'save() 拒绝把已结束的一局写进存档');
+    ok(A.hasSave() === false, '陨落后主菜单不会出现「继续游戏」');
+
+    // 就算 localStorage 里**已经**躺着一条死局（旧版本写进去的），也不能续
+    window.localStorage.setItem(KEY, JSON.stringify({
+      cls: 'knight', seed: 7, act: 1, hp: 0, maxHp: 60, over: 'dead',
+      deck: [{ id: 'strike', up: false }], relics: [], picks: [], potions: [], stats: {},
+    }));
+    ok(A.hasSave() === false, '已存在的死局存档也不会让「继续游戏」出现');
+    ok(A.loadSave() === null, '已存在的死局存档读回 null（不会以 0 血续玩）');
+    window.localStorage.removeItem(KEY);
+  }
+
+  /* --- AO3. 多段攻击怪的**起手**数值不能再打满 ---
+     玩家报：第 1 层第 2 关就遇到 4×2 的吸血蝙蝠（8 点/回合），
+     而那时玩家只有 5 张起始牌。多段怪应该"从小起步、靠层内/层间缩放加压"，
+     而不是单只怪的起点就拉满。 */
+  {
+    const { ENEMIES, actScale } = await import('file://' + join(ROOT, 'js/data/enemies.js'));
+    const multi = [];
+    for (const [id, d] of Object.entries(ENEMIES)) {
+      for (const [mv, m] of Object.entries(d.moves)) {
+        if ((m.hits || 1) >= 2 && m.dmg) {
+          multi.push({ id, name: d.name, mv, per: m.dmg, hits: m.hits, total: m.dmg * m.hits, act: d.act });
+        }
+      }
+    }
+    // 第 1 层（act 1）的多段招式，单段不得超过 3、合计不得超过 6
+    const act1Bad = multi.filter(m => m.act === 1 && (m.per > 3 || m.total > 6))
+      .map(m => `${m.name}.${m.mv} ${m.per}×${m.hits}`);
+    ok(act1Bad.length === 0, '第 1 层的多段招式单段 ≤3、合计 ≤6', act1Bad.join(' | '));
+
+    // 蝙蝠具体验一遍：最重一击应该是 6（3×2）
+    const bat = ENEMIES.bat.moves.bite;
+    ok(bat.dmg === 3 && bat.hits === 2, `吸血蝙蝠是 3×2（实测 ${bat.dmg}×${bat.hits}）`);
+
+    // 但层内/层间缩放**仍然会把它抬上去** —— 不是"改小就完事"
+    const { innerScale } = await import('file://' + join(ROOT, 'js/core/battle.js'));
+    const startTotal = Math.round(3 * innerScale(0) * actScale(1).atk) * 2;
+    const endTotal = Math.round(3 * innerScale(1) * actScale(1).atk) * 2;
+    const deepTotal = Math.round(3 * innerScale(1) * actScale(4).atk) * 2;
+    ok(startTotal < endTotal, `同一层内：地图开头 ${startTotal} < 临近 Boss ${endTotal}`);
+    ok(endTotal < deepTotal, `层间还在加压：第1层末 ${endTotal} < 第4层末 ${deepTotal}`);
+    ok(deepTotal >= 8, `到深层仍然打出量级（第4层末 ${deepTotal}）`);
   }
 }
 

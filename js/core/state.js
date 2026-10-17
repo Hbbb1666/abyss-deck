@@ -270,7 +270,16 @@ export function rollPotion() {
 
 /* ---------- 存档 ---------- */
 export function save() {
-  if (!G) return;
+  /* 🔴 已经结束的一局**绝不能留在存档里**（2026-10-17 修）。
+     事故路径：陨落 → 结算页点「再来一局」→ go('veteran') → `go()` 末尾那句
+     通用的 `save()` 把**内存里那局已结束的 G**（hp=0、over='dead'）又写回去了
+     → 返回主菜单时「继续游戏」出现 → 点进去就**以 0 血回到死掉的那一局**。
+     这已经是「0 血还能续玩」这个 bug 的第三次以不同路径出现（前两次：
+     事件扣血允许归零、老存档缺字段），所以这次堵在最底层的写入口上。
+     ⚠️ 光 `return` 不够：**上一份"未结束"的存档还躺在 localStorage 里**
+        （战斗中途 persist 过），hasSave() 照样为 true → 照样能续。
+        所以这里必须**清掉**它。 */
+  if (!G || G.over) { clearSave(); return; }
   try {
     const snap = { ...G, rngState: G.rng.getState(), rng: undefined };
     localStorage.setItem(SAVE_KEY, JSON.stringify(snap));
@@ -278,7 +287,14 @@ export function save() {
 }
 
 export function hasSave() {
-  try { return !!localStorage.getItem(SAVE_KEY); } catch { return false; }
+  try {
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (!raw) return false;
+    /* 已结束的一局不算"有存档可续" —— 光看"有没有这个 key"是不够的，
+       旧版本可能已经把结束的局写进去过（见 save() 的说明）。 */
+    const s = JSON.parse(raw);
+    return !s.over;
+  } catch { return false; }
 }
 
 export function loadSave() {
@@ -286,6 +302,9 @@ export function loadSave() {
     const raw = localStorage.getItem(SAVE_KEY);
     if (!raw) return null;
     const s = JSON.parse(raw);
+    /* 已经结束的一局不是"可继续的存档"，直接当没有（见 save() 的说明）。
+       放在最前面：后面的"0 血修补"只针对**未结束**的局，不该给死局续命。 */
+    if (s.over) { return null; }
     s.rng = makeRng(s.seed);
     if (s.rngState != null) s.rng.setState(s.rngState);
     // JSON 反序列化后 map.nodes 与 map.byRow 是两份互不相干的对象，

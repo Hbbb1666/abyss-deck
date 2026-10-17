@@ -434,4 +434,34 @@ else if (what === 'stats') {
   s = s.replace(a, "    weak: [['slime'], ['bat', 'bat'], ['spider'], ['worm'], ['ghost', 'bat'], ['worm', 'worm']],");
   writeFileSync(p, s, 'utf8');
   console.log('已把「两只吸血蝙蝠」塞回第 1 层弱怪表（复原玩家遇到的开局失衡）');
-} else console.log('用法: stats | guard | lowhp | paldmg | evdeath | split | mawfx | drain | bossbrood | ondamaged | exhausted | pierce | powercap | dexenemy | enemydmg | relicsprite | fintip | snapmods | snapcounters | readmedoc | cardblock | vulncost | vulntype | palhp | vhpbeforeblock | vhpclear | prestige5 | thronegate | thronevhp | prestige1cost | debtorder | debtdecay | debtnodomain | debtshield | gradientcap | restore | clean');
+} else if (what === 'saveover') {
+  /* 让 save() 又把"已结束的一局"写进存档（复原陨落后以 0 血续玩的 bug）。 */
+  backup('state');
+  const p = R + '/core/state.js';
+  let s = readFileSync(p, 'utf8');
+  const a = '  if (!G || G.over) { clearSave(); return; }';
+  if (!s.includes(a)) throw new Error('没找到 save() 的死局守卫');
+  s = s.replace(a, '  if (!G) return;   // TEMP 死局也照写成存档');
+  writeFileSync(p, s, 'utf8');
+  console.log('已让 save() 把已结束的一局也写进存档（复原 0 血续玩）');
+} else if (what === 'retryveteran') {
+  /* 让结算页的「再来一局」又回到 beginNewRun（会问新老手）。 */
+  backup('main');
+  const p = R + '/main.js';
+  let s = readFileSync(p, 'utf8');
+  const a = 'onRetry: retryRun }';
+  if (!s.includes(a)) throw new Error('没找到 onRetry: retryRun');
+  s = s.replace(a, 'onRetry: beginNewRun }');
+  writeFileSync(p, s, 'utf8');
+  console.log('已让结算页「再来一局」回到 beginNewRun（陨落后会被问新老手）');
+} else if (what === 'batbite') {
+  /* 把蝙蝠改回 4×2（复原玩家在第 1 层第 2 关撞到的那一击）。 */
+  backup('enemies');
+  const p = R + '/data/enemies.js';
+  let s = readFileSync(p, 'utf8');
+  const a = "bite: A('双咬', 3, { hits: 2 }),";
+  if (!s.includes(a)) throw new Error('没找到蝙蝠双咬');
+  s = s.replace(a, "bite: A('双咬', 4, { hits: 2 }),");
+  writeFileSync(p, s, 'utf8');
+  console.log('已把吸血蝙蝠改回 4×2（8 点/回合）');
+} else console.log('用法: stats | guard | lowhp | paldmg | evdeath | split | mawfx | drain | bossbrood | ondamaged | exhausted | pierce | powercap | dexenemy | enemydmg | relicsprite | fintip | snapmods | snapcounters | readmedoc | cardblock | vulncost | vulntype | palhp | vhpbeforeblock | vhpclear | prestige5 | thronegate | thronevhp | prestige1cost | debtorder | debtdecay | debtnodomain | debtshield | gradientcap | saveover | retryveteran | batbite | restore | clean');
