@@ -4896,6 +4896,190 @@ section('AD. 战斗外不能死（0 血续玩 bug）+ 炼金师前期 + Boss 可
   }
 }
 
+section('AE. 最终 Boss 砍召唤 + 第三/四层新怪（能量掠夺 / 护甲溶解 / 分裂）');
+{
+  const { ENEMIES, ENCOUNTERS } = await import('file://' + join(ROOT, 'js/data/enemies.js'));
+  const noop = { step: async () => {}, sync() {}, log() {}, onDamage() {}, onHeal() {}, onBlock() {},
+    onStatus() {}, onDraw() {}, onPlay() {}, onExhaust() {}, onEnergy() {}, onGold() {},
+    onTurnStart() {}, onEnemyAct() {}, onSummon() {}, onDeath() {}, onEnd() {}, onPotion() {}, onExecute() {} };
+  const mkB = async (enc, kind = 'battle', act = 1) => {
+    A.startRun('knight');
+    A.G.act = act;
+    const B = new A.Battle(enc, { kind });
+    B.view = { ...noop };
+    B.rollIntents();
+    await B.start();
+    return B;
+  };
+
+  /* --- AE1. 最终 Boss 不再召唤 --- */
+  {
+    const boss = ENEMIES.boss_abyss;
+    const summonMoves = Object.entries(boss.moves).filter(([, m]) =>
+      (m.fx || []).some(f => f.t === 'summon'));
+    ok(summonMoves.length === 0, '最终 Boss 没有任何召唤招式',
+       summonMoves.map(([k]) => k).join(', '));
+    // AI 里也不能再引用召唤那手（引用不存在的招式会在 pickMove 时崩）
+    const aiSrc = boss.ai.toString();
+    ok(!/brood/.test(aiSrc), 'AI 循环里也不再引用 brood');
+    // 攻击数值下调
+    ok(boss.moves.rend.dmg === 22, `撕裂虚空 22 点（实测 ${boss.moves.rend.dmg}）`);
+    ok(boss.moves.onslaught.dmg === 9, `连环撕裂每段 9 点（实测 ${boss.moves.onslaught.dmg}）`);
+    ok(boss.moves.reap.dmg === 12, `收割灵魂 12 点（实测 ${boss.moves.reap.dmg}）`);
+    ok(boss.moves.reap.fx[0].v === 16, '收割灵魂的吸血量没被顺手砍掉（仍 16）');
+    // 打满 12 个回合，确认它真的不召唤、且不会崩
+    {
+      const B = await mkB(['boss_abyss'], 'boss', 4);
+      B.player.hp = B.player.maxHp = 99999;      // 撑住别被打死
+      for (let i = 0; i < 12; i++) { B.turn++; await B.enemyTurn(); }
+      ok(B.enemies.length === 1, `打 12 回合后场上仍只有 1 个敌人（实际 ${B.enemies.length}）`);
+    }
+  }
+
+  /* --- AE2. 新怪都进表、且只出现在自己那一层 --- */
+  {
+    ok(!!ENEMIES.soul_lantern && !!ENEMIES.abyss_priest, '第 3 层新怪已加入数据表');
+    ok(!!ENEMIES.void_shard && !!ENEMIES.abyss_maw, '第 4 层新怪已加入数据表');
+    const appears = (id, act) => JSON.stringify(ENCOUNTERS[act]).includes(`"${id}"`);
+    for (const id of ['soul_lantern', 'abyss_priest']) {
+      ok(appears(id, 3), `${ENEMIES[id].name} 出现在第 3 层`);
+      ok(!appears(id, 1) && !appears(id, 2), `${ENEMIES[id].name} 不会在第 1/2 层出现`);
+    }
+    for (const id of ['void_shard', 'abyss_maw']) {
+      ok(appears(id, 4), `${ENEMIES[id].name} 出现在第 4 层`);
+      ok(!appears(id, 1) && !appears(id, 2) && !appears(id, 3), `${ENEMIES[id].name} 不会在更低的层出现`);
+    }
+    // 每只新怪都有自己的贴图（不是借别人的）
+    const { SPRITES } = await import('file://' + join(ROOT, 'tools/make-sprites.mjs'));
+    for (const id of ['soul_lantern', 'abyss_priest', 'void_shard', 'abyss_maw']) {
+      ok(!!SPRITES[ENEMIES[id].sprite], `${ENEMIES[id].name} 的贴图 ${ENEMIES[id].sprite} 存在`);
+      ok(!ENEMIES[id].tint, `${ENEMIES[id].name} 不靠改色蹭别人的图`);
+    }
+  }
+
+  /* --- AE3. 能量掠夺：扣当前能量，且不会扣成负数 --- */
+  {
+    const B = await mkB(['soul_lantern'], 'battle', 3);
+    const e = B.aliveEnemies()[0];
+    B.energy = 3;
+    await B.resolveEnemyFx([{ t: 'drainEnergy', n: 1 }], e);
+    ok(B.energy === 2, `吸走后能量 3 → 2（实际 ${B.energy}）`);
+    B.energy = 0;
+    await B.resolveEnemyFx([{ t: 'drainEnergy', n: 1 }], e);
+    ok(B.energy === 0, `没能量时不会被扣成负数（实际 ${B.energy}）`);
+    /* 真实对局：走一遍完整的 enemyTurn。
+       ⚠️ 不能断言"回合结束时能量变少"：敌人行动完会 endTurn → 下个玩家回合
+       能量被重置回上限。所以要看**日志**（引擎自己写的"夺走了你 N 点能量"）。
+       也**不能靠 rollIntents 拿到 drain** —— `start()` 已经把回合推进过，
+       这时 moveId 可能是别的招式；显式指定才是在测这一手的机制本身。 */
+    {
+      const B2 = await mkB(['soul_lantern'], 'battle', 3);
+      B2.player.hp = B2.player.maxHp = 9999;
+      B2.energy = 3;
+      const e2 = B2.aliveEnemies()[0];
+      e2.moveId = 'drain';
+      await B2.enemyTurn();
+      const allLogs = B2.log.join(' ');
+      ok(/夺走了你 \d+ 点能量/.test(allLogs),
+         `敌人的「吸魂」真的生效（日志：${(allLogs.match(/夺走了你 \d+ 点能量/) || ['无'])[0]}）`);
+      ok(B2.energy === B2.energyMax, `敌人回合结束后能量被重置回上限（${B2.energy}）`);
+    }
+  }
+
+  /* --- AE4. 护甲溶解：**出招之前**吞掉护甲，所以那一击打在残甲上 --- */
+  {
+    const B = await mkB(['abyss_maw'], 'elite', 4);
+    const e = B.aliveEnemies()[0];
+    B.player.maxHp = 9999;
+    B.player.hp = 9999;
+    B.player.block = 20;
+    e.moveId = 'devour';
+    /* 期望值**从实现算**：伤害走层级缩放（第 4 层 ×1.39），吞掉一半护甲（10），
+       剩下的 10 点甲去挡。所以掉血 = max(0, 真实伤害 - 10)。
+       写死 14/4 会在任何数值调整后静默过期（我上一版就是写死的，直接假红）。 */
+    const dmg = B.intentOf(e).dmg;
+    const eaten = Math.ceil(20 * 50 / 100);
+    const expectLoss = Math.max(0, dmg - (20 - eaten));
+    await B.enemyTurn();
+    ok(B.player.block === 0, `护甲被消耗干净（实际剩 ${B.player.block}）`);
+    ok(9999 - B.player.hp === expectLoss,
+       `实际掉 ${expectLoss} 点血（20 甲 → 吞 ${eaten} → 挡 ${20 - eaten} → 吃 ${dmg}），实测掉了 ${9999 - B.player.hp}`);
+    // 关键对照：如果不吞护甲，这一击本该被完全挡住
+    ok(dmg <= 20, `这一击的伤害(${dmg}) 本来挡得住 —— 掉血全是因为护甲被吞`);
+    // 没有护甲时不能崩、也不该报错
+    B.player.block = 0;
+    const hpBefore = B.player.hp;
+    e.moveId = 'devour';
+    await B.enemyTurn();
+    ok(B.player.block === 0, '没有护甲时「吞噬」不会把护甲弄成负数');
+    ok(B.player.hp < hpBefore, '没有护甲时照常吃伤害');
+  }
+
+  /* --- AE5. 分裂：降到一半 → 裂成 2 个；只触发一次；打死不分裂 --- */
+  {
+    const B = await mkB(['void_shard'], 'battle', 4);
+    const e = B.aliveEnemies()[0];
+    e.maxHp = 100; e.hp = 100;
+    await B.damage(e, 60, 'test', { raw: true });     // 100 → 40（跌破一半）
+    ok(B.aliveEnemies().length === 3, `跌破一半后场上变成 3 个（原 1 + 2 个裂片），实际 ${B.aliveEnemies().length}`);
+    const kids = B.aliveEnemies().filter(x => x.uidsummonedBy ? false : x.summonedBy === e.uid);
+    ok(kids.length === 2, `两个裂片都记着"由本体裂出"（实际 ${kids.length}）`);
+    ok(kids.every(k => k.maxHp === Math.round(100 * 0.4)),
+       `裂片血量是父体最大生命的 40%（实际 ${kids.map(k => k.maxHp).join('/')}）`);
+    ok(kids.every(k => k.splitDone), '裂片自己不会再分裂');
+    // 只剩 2 个时（分身在场）再打本体也不会继续裂
+    const before = B.aliveEnemies().length;
+    await B.damage(e, 5, 'test', { raw: true });
+    ok(B.aliveEnemies().length === before, '同一个敌人只分裂一次');
+    // 直接打死不分裂
+    {
+      const B2 = await mkB(['void_shard'], 'battle', 4);
+      const e2 = B2.aliveEnemies()[0];
+      e2.maxHp = 100; e2.hp = 100;
+      await B2.damage(e2, 999, 'test', { raw: true });
+      ok(e2.dead && B2.aliveEnemies().length === 0, '一击打死就不分裂（不然高爆发反而被惩罚）');
+    }
+    // 读档后不会二次分裂（切后台会落盘，这是手机端的常态）
+    {
+      const B3 = await mkB(['void_shard'], 'battle', 4);
+      const e3 = B3.aliveEnemies()[0];
+      e3.maxHp = 100; e3.hp = 100;
+      await B3.damage(e3, 60, 'test', { raw: true });
+      const n1 = B3.aliveEnemies().length;
+      const snap = JSON.parse(JSON.stringify(B3.serialize()));
+      ok(snap.enemies[0].splitDone === true, '快照里记住了"已经裂过"');
+      A.startRun('knight'); A.G.act = 4;
+      const B4 = new A.Battle([], { kind: 'battle', restore: snap });
+      B4.view = { ...noop };
+      ok(B4.aliveEnemies().length === n1, `读档后敌人数量一致（${n1}）`);
+      const body = B4.enemies[0];
+      await B4.damage(body, 5, 'test', { raw: true });
+      ok(B4.aliveEnemies().length === n1, '读档后不会再裂一次');
+    }
+  }
+
+  /* --- AE6. 新机制的意图预告不能"藏着不说" --- */
+  {
+    const B = await mkB(['abyss_maw'], 'elite', 4);
+    const e = B.aliveEnemies()[0];
+    e.moveId = 'devour';
+    let it = B.intentOf(e);
+    ok((it.notes || []).some(n => /护甲/.test(n)),
+       `「吞噬甲胄」的预告写明了吞护甲（实际 ${JSON.stringify(it.notes)}）`);
+    const B2 = await mkB(['soul_lantern'], 'battle', 3);
+    const e2 = B2.aliveEnemies()[0];
+    e2.moveId = 'drain';
+    it = B2.intentOf(e2);
+    ok((it.notes || []).some(n => /能量/.test(n)),
+       `「吸魂」的预告写明了夺能量（实际 ${JSON.stringify(it.notes)}）`);
+    // 老敌人不受影响（不该凭空多出提示）
+    const B3 = await mkB(['slime'], 'battle', 1);
+    const e3 = B3.aliveEnemies()[0];
+    e3.moveId = 'tackle';
+    ok((B3.intentOf(e3).notes || []).length === 0, '普通攻击不会多出多余提示');
+  }
+}
+
 /* ================= 汇总 ================= */
 console.log(`\n\x1b[1m========== 测试汇总 ==========\x1b[0m`);
 console.log(`  通过 \x1b[32m${pass}\x1b[0m   失败 \x1b[31m${fail}\x1b[0m`);

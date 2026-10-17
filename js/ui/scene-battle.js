@@ -281,6 +281,9 @@ export function battleScene(B, { onFinish, onQuit, resumed }) {
 
   function intentDesc(it) {
     const p = [];
+    // 不在数字上体现的机制排在最前面 —— 「出招前先吞你一半护甲」这种话
+    // 必须比"造成 14 点伤害"更早被看到，否则玩家会以为自己还有 14 点护甲。
+    for (const n of (it.notes || [])) p.push(`<span class="gold">${n}</span>`);
     if (it.dmg) p.push(`将造成 <b>${it.dmg}</b> 点伤害${it.hits > 1 ? ` × ${it.hits} 次` : ''}`);
     if (it.blk) p.push(`将获得 <b>${it.blk}</b> 点护甲`);
     if (it.intent === 'buff') p.push('将强化自身');
@@ -763,6 +766,8 @@ export function showHelp() {
       ✹ 荆棘 · 被近战攻击时反弹伤害<br>
       ◈ 抵挡 · 免疫接下来 N 次减益<br><br>
       <b>地图</b>：每层选一条路往上走。🔥 营火回血或升级卡牌，🏪 商店买卡和遗物，💀 精英给遗物但很硬。<br>
+      <b>深层机制</b>：敌人招式里可能有 ⚠ 标记 —— <b>护甲溶解</b>（出招前先吞你一半护甲）、
+      <b>能量掠夺</b>（夺走你当前能量），它们的意图气泡里会写明，记得先看一眼。<br>
       <span class="dim">进度自动保存在本地，随时可以关掉浏览器。</span>
     </div>`,
     buttons: [{ label: '知道了', cls: 'primary' }],

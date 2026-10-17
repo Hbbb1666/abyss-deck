@@ -171,6 +171,10 @@ export class Battle {
       enemies: this.enemies.map(e => ({
         defId: e.defId, hp: e.hp, maxHp: e.maxHp, block: e.block, st: { ...e.st },
         turn: e.turn, moveId: e.moveId, dead: !!e.dead, attacked: e.attacked || 0,
+        /* `splitDone` 必须存：否则"虚空裂片已经裂过一次"这件事会在读档后丢失，
+           而玩家**随时可能切后台**（手机端每次切走都会落盘）。那样一个已经裂开的
+           裂片读回来会再裂一次 —— 场上凭空多两只、还是永久性的。 */
+        splitDone: !!e.splitDone,
         // 存下标而不是 uid：uid 每次读档都会重新分配，存 uid 对不上
         summonedBy: e.summonedBy ? this.enemies.findIndex(x => x.uid === e.summonedBy) : -1,
       })),
@@ -212,6 +216,8 @@ export class Battle {
           // 一起恢复：漏了它，读档续战会把已经打过的 Boss 当成"还没出过手"，
           // 白送一次减伤。
           attacked: e.attacked || 0,
+          // 「分裂」已经触发过就不能再触发（见 serialize 里的说明）
+          splitDone: !!e.splitDone,
           summonedBy: null,
         };
       }).filter(Boolean);
@@ -432,10 +438,41 @@ export class Battle {
       }
     }
     if (target.hp <= 0) await this.kill(target);
+    // 「分裂」：血量降到一半时裂成 2 个分身（2026-10-13 第 4 层新怪「虚空裂片」）。
+    // 放在伤害结算之后：如果这一击直接打死了就不分裂 —— 否则"高爆发/斩杀"
+    // 反而会被分裂惩罚，跟设计意图（惩罚纯单点、奖励铺场）正好相反。
+    if (!target.isPlayer) await this.maybeSplit(target);
     return real;
   }
 
-  /** 直接扣血（无视护甲）：中毒 / 狂战代价 / 生命消耗 / 敌人自伤都走这一条路径。
+  /** 分裂型敌人：`def.split = { n, hpPct }`。
+      只在**首次**跨过 50% 血量时触发一次（`e.splitDone` 标记），
+      否则每挨一次打都分裂，场上会瞬间爆满。 */
+  async maybeSplit(e) {
+    const cfg = e.def && e.def.split;
+    if (!cfg || e.splitDone || e.dead || this.over) return;
+    if (e.hp > e.maxHp * 0.5 || e.hp <= 0) return;
+    e.splitDone = true;
+    const n = cfg.n || 2;
+    const made = [];
+    for (let i = 0; i < n; i++) {
+      const child = this.spawn(e.defId, e);       // 记为"由它召唤"，它死了分身跟着消失
+      if (!child) break;
+      const hp = Math.max(1, Math.round(e.maxHp * (cfg.hpPct || 0.4)));
+      child.hp = hp;
+      child.maxHp = hp;
+      child.splitDone = true;                     // 分身不再分裂（否则指数爆炸）
+      made.push(child);
+      this.view.onSummon?.(child);
+    }
+    if (made.length) {
+      this.pushLog(`${e.name} 裂成了 ${made.length} 个裂片！`);
+      this.view.sync?.();
+      await this.view.step?.(220);
+    }
+  }
+
+  /** 直接扣血（无视护甲）：中毒 / 生命消耗 / 敌人自伤都走这一条路径。
       统计口径**只在这一处定义** —— 旧代码这些伤害直接在各自分支里 `hp -= n`，
       全都绕过了 damage() 的统计，于是结算面板的「造成/受到伤害」明显偏低
       （中毒流尤其离谱：一套毒打完，面板上几乎没涨）。
@@ -712,6 +749,39 @@ export class Battle {
           }
           this.pushLog(`${f.n || 1} 张「${CARDS[f.id].name}」被塞进了你的弃牌堆`);
           break;
+        /* 「能量掠夺」（2026-10-13 第 3 层新怪「窃魂灯」）：
+           直接扣玩家**当前**能量。它惩罚的是"攒着能量不打"这种打法，
+           所以扣的是能量本身，不是下回合上限（那是「能量枯竭」）。
+           下限 0：不会把能量扣成负数。 */
+        case 'drainEnergy': {
+          const take = Math.min(this.energy, f.n || 1);
+          if (take > 0) {
+            this.energy -= take;
+            this.pushLog(`${enemy.name} 夺走了你 ${take} 点能量`);
+            this.view.onEnergy?.();
+          } else {
+            this.pushLog(`${enemy.name} 想夺走你的能量，但你已经没有能量了`);
+          }
+          break;
+        }
+        /* 「护甲溶解」（2026-10-13 第 4 层精英「深渊之喉」）：
+           按百分比吞掉玩家**当前护甲**（默认一半）。它惩罚的是"纯防御拖回合" ——
+           叠再多甲也会被吃掉一半，逼你必须同时输出。
+           放在出招**之前**结算（见敌人在 enemyTurn 里的调用顺序），
+           所以那一击是真的打在你的"残甲"上。 */
+        case 'eatBlock': {
+          const pct = f.pct != null ? f.pct : 50;
+          const eaten = Math.min(this.player.block, Math.ceil(this.player.block * pct / 100));
+          if (eaten > 0) {
+            this.player.block -= eaten;
+            this.pushLog(`${enemy.name} 吞噬了你 ${eaten} 点护甲`);
+            this.view.onBlock?.(this.player, -eaten);
+            this.view.sync?.();
+          } else {
+            this.pushLog(`${enemy.name} 想吞噬你的护甲，但你身上没有护甲`);
+          }
+          break;
+        }
       }
       await this.view.step?.();
     }
@@ -1071,6 +1141,11 @@ export class Battle {
       this.view.onEnemyAct?.(e, def);
       await this.view.step?.(280);
 
+      /* `preFx`：在**加甲/出招之前**结算的效果。
+         为什么需要它（而不是全塞进 fx）：`fx` 是在 dmg **之后**跑的，
+         而「深渊之喉」的"先吞掉你一半护甲，再打你"必须在伤害之前生效 ——
+         否则那一击打的是"满甲"，吞噬就只是把残余护甲清掉，惩罚意义全无。 */
+      if (def.preFx) await this.resolveEnemyFx(def.preFx, e);
       if (def.blk) await this.gainBlock(e, def.blk);
       if (def.dmg) {
         const hits = def.hits || 1;
@@ -1127,13 +1202,22 @@ export class Battle {
   intentOf(e) {
     const mv = e.moveId || this.pickMove(e);
     const def = e.def.moves[mv];
-    const out = { intent: def.intent, name: def.name, dmg: 0, hits: def.hits || 1, blk: 0 };
+    const out = { intent: def.intent, name: def.name, dmg: 0, hits: def.hits || 1, blk: 0, notes: [] };
     // 护甲也必须走 calcBlock —— 原来直接取 def.blk，于是怪物身上有「敏捷」时
     // 预告显示原始值、实际却多加了敏捷层数（**预告撒谎**，和伤害那边是同一类 bug）。
     if (def.blk) out.blk = this.calcBlock(def.blk, e);
     // 和 enemyTurn 用**完全同一套**计算：先按层缩放基础伤害，再交给 calcDamage
     // 处理力量/虚弱/易伤。以前这里是手抄一遍公式，改一处忘另一处就会"预告撒谎"。
     if (def.dmg) out.dmg = this.calcDamage(defDamage(def, e), e, this.player);
+    /* 招式里"不在数字上体现"的额外机制必须**写进预告**，否则玩家只能靠挨打学会
+       （「深渊之喉」吞护甲、「窃魂灯」吸能量都属于这一类 —— 它们的名字里没有任何提示）。
+       这里直接从 def 的 preFx / fx 推导，不另建一套描述表：
+       多一份手写文案就多一次"改了机制忘了改文案"。 */
+    for (const f of [...(def.preFx || []), ...(def.fx || [])]) {
+      if (f.t === 'eatBlock') out.notes.push(`出招前先吞噬你 <b>${f.pct != null ? f.pct : 50}%</b> 护甲`);
+      else if (f.t === 'drainEnergy') out.notes.push(`夺走你 <b>${f.n || 1}</b> 点能量`);
+      else if (f.t === 'summon') out.notes.push('召唤援军');
+    }
     return out;
   }
 

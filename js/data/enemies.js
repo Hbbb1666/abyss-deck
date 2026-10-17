@@ -234,6 +234,62 @@ export const ENEMIES = {
     ai: (e, t) => ['petrify', 'dive', 'shell', 'dive'][t % 4],
   },
 
+  /* ================= 第三层专属（2026-10-13 新增） ================= */
+  /* 小怪「窃魂灯」—— 机制：**能量掠夺**。
+     灯里锁着上一个旅人的魂，它每 3 回合吸走你 1 点**当前**能量。
+     惩罚的是"攒着能量不打"（很多人喜欢留 3 能量等一张大招），
+     所以它的攻击很低 —— 它的威胁不在伤害，而在打断你的节奏。 */
+  soul_lantern: {
+    name: '窃魂灯', sprite: 'soul_lantern', hp: [30, 36], act: 3,
+    moves: {
+      drain: { name: '吸魂', intent: 'debuff', fx: [{ t: 'drainEnergy', n: 1 }, { t: 'debuff', k: 'weak', v: 1 }] },
+      flare: A('鬼火', 8),
+      guard: { name: '灯罩', intent: 'defend', blk: 10 },
+    },
+    ai: (e, t) => ['drain', 'flare', 'guard', 'flare'][t % 4],
+  },
+  /* 精英「深渊祭司」—— 机制：**拖时间惩罚**。
+     它自己几乎不打人（攻击只有 6），但每回合都在给全场加力量、往你牌堆塞诅咒。
+     你拖得越久，它养出来的力量越高 → 逼你**必须进攻**，
+     和前面那些"高攻低血、速战速决"的精英正好相反。 */
+  abyss_priest: {
+    name: '深渊祭司', sprite: 'abyss_priest', hp: [62, 72], act: 3, elite: true, body: 1.5,
+    moves: {
+      rite: { name: '血祭', intent: 'buff', fx: [{ t: 'buffAll', k: 'strength', v: 2 }] },
+      hex: { name: '深渊祷言', intent: 'debuff', fx: [{ t: 'addCard', id: 'curse_wound', to: 'discard', n: 1 }, { t: 'debuff', k: 'vulnerable', v: 2 }] },
+      smite: A('祭司之锤', 6),
+      mend: { name: '献祭自愈', intent: 'heal', fx: [{ t: 'healSelf', v: 12 }] },
+    },
+    ai: (e, t) => ['rite', 'hex', 'smite', 'mend', 'rite', 'smite'][t % 6],
+  },
+
+  /* ================= 第四层专属（2026-10-13 新增） ================= */
+  /* 小怪「虚空裂片」—— 机制：**分裂**（血量降到一半时裂成 2 个）。
+     一次只打一只（"单点爆发"）会被它反制：打掉一半 → 场上变 2 只；
+     而直接一波打死、或者用群攻，就不会触发。所以它逼玩家换打法。 */
+  void_shard: {
+    name: '虚空裂片', sprite: 'void_shard', hp: [34, 40], act: 4,
+    split: { n: 2, hpPct: 0.4 },
+    moves: {
+      slice: A('虚空切面', 11),
+      shatter: { name: '碎响', intent: 'debuff', fx: [{ t: 'debuff', k: 'weak', v: 2 }] },
+    },
+    ai: (e, t) => (t % 3 === 2 ? 'shatter' : 'slice'),
+  },
+  /* 精英「深渊之喉」—— 机制：**护甲溶解**。
+     每次出招前先吞掉你**一半护甲**，然后再打。它专门惩罚"叠满甲慢慢磨"，
+     所以它的血量很厚（逼你没法速杀），你必须一边防守一边输出。 */
+  abyss_maw: {
+    name: '深渊之喉', sprite: 'abyss_maw', hp: [70, 82], act: 4, elite: true, body: 1.6,
+    moves: {
+      devour: { name: '吞噬甲胄', intent: 'attack', dmg: 14, preFx: [{ t: 'eatBlock', pct: 50 }] },
+      grind: { name: '磨牙', intent: 'attack', dmg: 6, hits: 3, preFx: [{ t: 'eatBlock', pct: 50 }] },
+      swallow: { name: '囫囵吞下', intent: 'attack_debuff', dmg: 9, preFx: [{ t: 'eatBlock', pct: 50 }], fx: [{ t: 'debuff', k: 'frail', v: 2 }] },
+      gorge: { name: '饱食', intent: 'heal', fx: [{ t: 'healSelf', v: 14 }] },
+    },
+    ai: (e, t) => ['devour', 'grind', 'gorge', 'swallow'][t % 4],
+  },
+
   /* ================= Boss ================= */
   boss_eye: {
     name: '深渊魔眼', sprite: 'boss_demon', hp: [74, 74], act: 1, boss: true, body: 1.6,
@@ -286,21 +342,31 @@ export const ENEMIES = {
                    'blizzard', 'absolute_zero', 'frost_bolt', 'ice_lance'][t % 8],
   },
   /* 第 4 层 · 深渊之底的最终 Boss。
-     基础数值就照第 4 层写（这一层会再乘 1.6 倍攻击，所以这里不能按第 3 层的量级给）。
+     基础数值就照第 4 层写（这一层会再乘 1.39 倍攻击，所以这里不能按第 3 层的量级给）。
      立绘有**专属贴图**（`boss_abyss`）：以前它借的是「深渊之主」那张图 + 色相旋转，
-     两个 Boss 长得一模一样，最终决战毫无辨识度。 */
+     两个 Boss 长得一模一样，最终决战毫无辨识度。
+
+     2026-10-13 产品改动（两条）：
+       ① **砍掉召唤小弟**：原来 AI 里有一手 `brood`（召唤深渊，一次招 2 只深渊小鬼）。
+          最终 Boss 本来就有 5 层力量成长 + 三连击 + 吸血，再加"场上突然多两只"
+          会让最后一场变成"先清小怪、再打 Boss"的拉锯战，把决战节奏冲散。
+       ② **基础攻击各降 1~3 点**：撕裂虚空 24→**22**，连环撕裂每段 10→**9**，
+          收割灵魂 13→**12**。去掉召唤之后 Boss 少了一份压制力，
+          攻击下调是为了**顺手把"决策密度"还回来** —— 让玩家把注意力放在
+          "挡哪一手 / 什么时候爆发"，而不是被小怪分心。
+          注意：`收割灵魂` 的吸血量（16）没动，它的定位是"惩罚你不打断"。 */
   boss_abyss: {
     name: '深渊之眼', sprite: 'boss_abyss', hp: [168, 168], act: 4, boss: true, body: 2.2,
     moves: {
-      rend: A('撕裂虚空', 24),
+      rend: A('撕裂虚空', 22),
       mark: { name: '湮灭印记', intent: 'debuff', fx: [{ t: 'debuff', k: 'vulnerable', v: 4 }, { t: 'debuff', k: 'weak', v: 2 }] },
       bulwark: { name: '深渊壁垒', intent: 'defend', blk: 21 },
-      onslaught: { name: '连环撕裂', intent: 'attack', dmg: 10, hits: 3 },
-      brood: { name: '召唤深渊', intent: 'buff', fx: [{ t: 'summon', id: 'demonling', n: 2 }] },
-      reap: { name: '收割灵魂', intent: 'attack', dmg: 13, fx: [{ t: 'healSelf', v: 16 }] },
+      onslaught: { name: '连环撕裂', intent: 'attack', dmg: 9, hits: 3 },
+      reap: { name: '收割灵魂', intent: 'attack', dmg: 12, fx: [{ t: 'healSelf', v: 16 }] },
       ascend: { name: '终极宣告', intent: 'unknown', fx: [{ t: 'buff', k: 'strength', v: 5 }] },
     },
-    ai: (e, t) => ['mark', 'rend', 'brood', 'onslaught', 'reap', 'bulwark', 'ascend', 'rend'][t % 8],
+    // 去掉 brood 之后正好剩 6 手：先上印记（逼玩家挡）→ 大招 → 三连击 → 吸血 → 加甲 → 力量成长
+    ai: (e, t) => ['mark', 'rend', 'onslaught', 'reap', 'bulwark', 'ascend'][t % 6],
   },
 };
 
@@ -325,16 +391,16 @@ export const ENCOUNTERS = {
     boss: [['boss_tyrant']],
   },
   3: {
-    weak: [['demonling'], ['noble'], ['statue']],
-    strong: [['warrior', 'demonling'], ['statue', 'noble'], ['warrior', 'warrior'], ['gargoyle']],
-    elite: [['gargoyle'], ['lich', 'demonling'], ['spider_queen', 'gargoyle']],
+    weak: [['demonling'], ['noble'], ['statue'], ['soul_lantern']],
+    strong: [['warrior', 'demonling'], ['statue', 'noble'], ['warrior', 'warrior'], ['gargoyle'], ['soul_lantern', 'noble']],
+    elite: [['gargoyle'], ['lich', 'demonling'], ['spider_queen', 'gargoyle'], ['abyss_priest']],
     // 第 3 层的两个 Boss **平分出现概率** —— 往这个列表里加条目即可继续平分
     boss: [['boss_lord'], ['boss_frostqueen']],
   },
   4: {
-    weak: [['demonling', 'demonling'], ['noble', 'demonling'], ['statue']],
-    strong: [['warrior', 'noble'], ['gargoyle'], ['statue', 'warrior'], ['warrior', 'demonling', 'demonling']],
-    elite: [['gargoyle', 'demonling'], ['spider_queen', 'lich'], ['gargoyle', 'statue']],
+    weak: [['demonling', 'demonling'], ['noble', 'demonling'], ['statue'], ['void_shard']],
+    strong: [['warrior', 'noble'], ['gargoyle'], ['statue', 'warrior'], ['warrior', 'demonling', 'demonling'], ['void_shard', 'demonling']],
+    elite: [['gargoyle', 'demonling'], ['spider_queen', 'lich'], ['gargoyle', 'statue'], ['abyss_maw']],
     boss: [['boss_abyss']],
   },
 };

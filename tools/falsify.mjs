@@ -7,7 +7,7 @@ import { readFileSync, writeFileSync, copyFileSync, existsSync } from 'node:fs';
 const R = 'D:/网盘文件/OneDrive/文档/deepseek-harness/default-workspace/abyss-deck/js';
 const [what] = process.argv.slice(2);
 
-const FILES = { state: R + '/core/state.js', main: R + '/main.js', battle: R + '/core/battle.js', cards: R + '/data/cards.js', rooms: R + '/ui/scene-rooms.js' };
+const FILES = { state: R + '/core/state.js', main: R + '/main.js', battle: R + '/core/battle.js', cards: R + '/data/cards.js', rooms: R + '/ui/scene-rooms.js', enemies: R + '/data/enemies.js' };
 const BAK = {};
 for (const k of Object.keys(FILES)) BAK[k] = `C:/Users/Aaron-PC/AppData/Local/Temp/falsify-${k}.bak`;
 
@@ -84,4 +84,44 @@ else if (what === 'stats') {
   if (s.includes(b)) s = s.replace(b, '    /* TEMP 去掉安全网 */');
   writeFileSync(p, s, 'utf8');
   console.log('已复原"事件扣血允许归零"（0 血续玩 bug）');
-} else console.log('用法: stats | guard | lowhp | paldmg | evdeath | restore');
+} else if (what === 'split') {
+  backup('battle');
+  const p = R + '/core/battle.js';
+  let s = readFileSync(p, 'utf8');
+  const a = '    if (!target.isPlayer) await this.maybeSplit(target);';
+  if (!s.includes(a)) throw new Error('没找到分裂调用');
+  s = s.replace(a, '    /* TEMP 去掉分裂 */');
+  writeFileSync(p, s, 'utf8');
+  console.log('已去掉「分裂」机制');
+} else if (what === 'mawfx') {
+  backup('battle');
+  const p = R + '/core/battle.js';
+  let s = readFileSync(p, 'utf8');
+  const a = '      if (def.preFx) await this.resolveEnemyFx(def.preFx, e);';
+  if (!s.includes(a)) throw new Error('没找到 preFx 调用');
+  // 把"出招前吞甲"改成"出招后才吞"—— 等于那一击打在满甲上，机制失效
+  s = s.replace(a, '      /* TEMP 去掉 preFx */');
+  const b = '      if (def.fx) await this.resolveEnemyFx(def.fx, e);';
+  if (!s.includes(b)) throw new Error('没找到 fx 调用');
+  s = s.replace(b, '      if (def.preFx) await this.resolveEnemyFx(def.preFx, e);\n      if (def.fx) await this.resolveEnemyFx(def.fx, e);');
+  writeFileSync(p, s, 'utf8');
+  console.log('已把「吞护甲」挪到出招之后（那一击打在满甲上）');
+} else if (what === 'drain') {
+  backup('battle');
+  const p = R + '/core/battle.js';
+  let s = readFileSync(p, 'utf8');
+  const a = '          this.energy -= take;';
+  if (!s.includes(a)) throw new Error('没找到 drainEnergy 扣能量');
+  s = s.replace(a, '          /* TEMP 不扣能量 */');
+  writeFileSync(p, s, 'utf8');
+  console.log('已让「吸魂」不真的扣能量');
+} else if (what === 'bossbrood') {
+  backup('enemies');
+  const p = R + '/data/enemies.js';
+  let s = readFileSync(p, 'utf8');
+  const a = "      ascend: { name: '终极宣告', intent: 'unknown', fx: [{ t: 'buff', k: 'strength', v: 5 }] },";
+  if (!s.includes(a)) throw new Error('没找到最终 Boss 招式');
+  s = s.replace(a, a + "\n      brood: { name: '召唤深渊', intent: 'buff', fx: [{ t: 'summon', id: 'demonling', n: 2 }] },");
+  writeFileSync(p, s, 'utf8');
+  console.log('已把「召唤小弟」加回最终 Boss');
+} else console.log('用法: stats | guard | lowhp | paldmg | evdeath | split | mawfx | drain | bossbrood | restore');
