@@ -342,7 +342,10 @@ export function battleScene(B, { onFinish, onQuit, resumed }) {
     blockBadge.innerHTML = `⛨ ${B.player.block}`;
     const vhp = B.player.vhp || 0;
     vhpBadge.classList.toggle('on', vhp > 0);
-    vhpBadge.innerHTML = `♔ ${vhp}`;
+    /* 虚血徽章用**护甲同一个图标 ⛨**，只靠颜色区分 ——
+       它是一层通用的缓冲机制（将来别的角色也会用），不该借用「登基」的皇冠。
+       淡蓝 ⛨ = 护甲（会被清空）；金色 ⛨ = 虚血（不清空、不吃敏捷）。 */
+    vhpBadge.innerHTML = `⛨ ${vhp}`;
   }
   let playerStsRef = playerSts;
 
@@ -615,10 +618,11 @@ export function battleScene(B, { onFinish, onQuit, resumed }) {
       const node = e.isPlayer ? playerSprite : enemyNodes.get(e.uid)?.sprite;
       fxFloat(node, '⛨+' + n, 'blk');
     },
-    /** 虚血变化：单独一类飘字（金色 ♔），玩家要能分清"这层不是护甲" */
+    /** 虚血变化：与护甲同一个图标（⛨），但用金色、且单独一类飘字 ——
+        玩家要看懂"这层没掉"，同时也要能分清"这层不是甲"。 */
     onVhp(e, n) {
       const node = e.isPlayer ? playerSprite : enemyNodes.get(e.uid)?.sprite;
-      fxFloat(node, (n > 0 ? '♔+' : '♔') + n, 'vhp');
+      fxFloat(node, (n > 0 ? '⛨+' : '⛨') + n, 'vhp');
       renderPlayer();
       sfx.block();
     },
@@ -679,6 +683,31 @@ export function battleScene(B, { onFinish, onQuit, resumed }) {
     onDeath(e) {
       fadeOutEnemy(e);
       sfx.bell();
+    },
+    /** 债务到期处决（死神）。
+     *  产品要求：屏幕暗一秒 → 该怪身上闪过白色刀光 → 跳出「终结」字样 → 怪物死亡、布局重排。
+     *  多只同时被终结时**只暗屏一次**、刀光同时播（用同一个遮罩层，别叠 N 层变黑）。
+     *  `fromFinisher` 只是给音效和文案做区分。 */
+    onDebtExecute(list, fromFinisher) {
+      const nodes = list.map(e => enemyNodes.get(e.uid)?.sprite).filter(Boolean);
+      if (!nodes.length) return;
+      const dark = el('div', { class: 'death-dim' });
+      document.body.append(dark);
+      // 刀光：每只怪各自一道，但同时开始
+      for (const node of nodes) {
+        const slash = el('div', { class: 'death-slash' });
+        node.append(slash);
+        setTimeout(() => slash.remove(), 900);
+      }
+      sfx.bell();
+      setTimeout(() => {
+        const label = el('div', { class: 'death-label', text: '终结' });
+        document.body.append(label);
+        setTimeout(() => label.remove(), 1100);
+      }, 260);
+      // 一秒后撤掉暗屏（kill 里还有 600ms 的 step，所以这里不等待它）
+      setTimeout(() => dark.remove(), 1000);
+      if (fromFinisher) sfx.hitHeavy();
     },
     // 斩杀触发时给一次明显反馈 —— 不然玩家只看到敌人突然没了，不知道是效果生效
     onExecute(e, card) {

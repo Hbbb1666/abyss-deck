@@ -413,6 +413,49 @@ i { color: var(--dim); font-style: normal; }
 /* 太子：白金。冠的金（--cc-mid）与圣骑士的金黄刻意拉开 —— 圣骑士是 #ffcc00 的暖金，
    太子偏冷的白金 #ffe9a8，且它的立绘是白袍金冠，小尺寸下靠"更亮更白"区分。 */
 .c-prince,  .card.c-prince  { --cc-hi:#fffbe8; --cc-mid:#ffe9a8; --cc-lo:#a08a4a; --cc-bd:#7a6733; --cc-fg:#2a1f00; --cc-glow:#ffe9a866; }
+/* 死神：暗紫黑。与刺客的中紫刻意区分 —— 这个更暗、更冷（#6b4a8f），
+   配黑色斗篷的立绘；刺客的紫偏亮（#b06bff）。 */
+.c-reaper,  .card.c-reaper  { --cc-hi:#cbb4e0; --cc-mid:#6b4a8f; --cc-lo:#2e2140; --cc-bd:#1d1428; --cc-fg:#f0e6ff; --cc-glow:#6b4a8f66; }
+
+/* ---------------- 死神「债务到期」处决特效 ---------------- */
+/* 屏幕暗一秒：盖在关卡之上、但低于飘字层，且不拦点击（0.5 秒内玩家本来就动不了） */
+.death-dim {
+  position: fixed; inset: 0; z-index: 850; pointer-events: none;
+  background: #000; opacity: 0;
+  animation: deathDim 1s ease-out forwards;
+}
+@keyframes deathDim {
+  0% { opacity: 0; } 18% { opacity: .72; } 62% { opacity: .62; } 100% { opacity: 0; }
+}
+/* 白色刀光：斜向一道，短促划过再消失 */
+.death-slash {
+  position: absolute; left: 50%; top: 50%; width: 150%; height: 6px;
+  transform: translate(-50%, -50%) rotate(-38deg) scaleX(0);
+  background: linear-gradient(90deg, transparent, #fff 18%, #fff 82%, transparent);
+  box-shadow: 0 0 14px #fff, 0 0 28px #cfe6ff;
+  pointer-events: none;
+  animation: deathSlash .62s ease-out forwards;
+}
+@keyframes deathSlash {
+  0% { transform: translate(-50%,-50%) rotate(-38deg) scaleX(0); opacity: 0; }
+  22% { transform: translate(-50%,-50%) rotate(-38deg) scaleX(1); opacity: 1; }
+  70% { transform: translate(-50%,-50%) rotate(-38deg) scaleX(1); opacity: 1; }
+  100% { transform: translate(-50%,-50%) rotate(-38deg) scaleX(1.25); opacity: 0; }
+}
+/* 「终结」两个字 */
+.death-label {
+  position: fixed; left: 50%; top: 42%; z-index: 860; pointer-events: none;
+  transform: translate(-50%, -50%);
+  font-size: calc(46px * var(--k)); letter-spacing: calc(10px * var(--k));
+  color: #fff; text-shadow: 0 0 12px #000, 0 0 26px #b9d4ff, 0 3px 0 #000;
+  animation: deathLabel 1.1s ease-out forwards;
+}
+@keyframes deathLabel {
+  0% { opacity: 0; transform: translate(-50%,-50%) scale(1.6); }
+  25% { opacity: 1; transform: translate(-50%,-50%) scale(1); }
+  75% { opacity: 1; }
+  100% { opacity: 0; transform: translate(-50%,-50%) scale(.94); }
+}
 
 .card .cost {
   position: absolute; top: -10px; left: -10px; width: 28px; height: 28px; border-radius: 50%;

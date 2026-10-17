@@ -88,6 +88,19 @@ export const CLASSES = {
     desc: '攒够威望便立为太子、多出一条命；熬到登基，每出一张牌都在变强。慢热，但 BOSS 战越打越硬。',
     deck: [['heir_blade', 4], ['defend', 4], ['herald', 2]],
   },
+  /* ================= 「死神」（2026-10-17 新增，第 10 个职业）=================
+     设计核心：**债务线**。你的攻击不追求直接把血打空，而是把伤害"折成债务"压在怪身上；
+     债务不衰减、不挡护甲，等到**它自己的回合开始**（DoT 结算之后）检查血量 ——
+     只要当前生命 ≤ 债务层数，当场终结。所以这个职业的节奏是
+     "先削血到线附近，再用债务收人"，而不是纯输出。
+     解锁 18 分（产品定）：比太子/奥术的门槛低，属于中段解锁。 */
+  reaper: {
+    id: 'reaper', name: '死神', sprite: 'hero_reaper',
+    unlockScore: 18, hp: 62, gold: 99, relic: 'debt_ledger',
+    tagline: '债务缠身 · 血线收割',
+    desc: '伤害被折成「债务」压在敌人身上。等它的生命跌到债务线以下，那一击就由它自己的回合来收。',
+    deck: [['reap_strike', 4], ['defend', 4], ['bone_tally', 2]],
+  },
 };
 export const CLASS_LIST = Object.values(CLASSES);
 

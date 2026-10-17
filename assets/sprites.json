@@ -95,6 +95,7 @@
     5,
     5
   ],
+  "graveyard": "custom:tools/make-sprites.mjs",
   "guard": [
     0,
     8
@@ -121,6 +122,7 @@
   ],
   "hero_paladin": "recolor:hero_knight/paladin",
   "hero_prince": "custom:tools/make-sprites.mjs",
+  "hero_reaper": "custom:tools/make-sprites.mjs",
   "hero_rogue": [
     4,
     9
@@ -218,6 +220,7 @@
   "r_feather": "custom:tools/make-sprites.mjs",
   "r_frost_core": "custom:tools/make-sprites.mjs",
   "r_hourglass": "custom:tools/make-sprites.mjs",
+  "r_ledger": "custom:tools/make-sprites.mjs",
   "r_lightning_jar": "custom:tools/make-sprites.mjs",
   "r_lonewolf": "custom:tools/make-sprites.mjs",
   "r_mask": "custom:tools/make-sprites.mjs",

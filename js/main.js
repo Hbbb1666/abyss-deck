@@ -1,6 +1,6 @@
 import { el, clear, sleep, toast, fitStage, disposeScene } from './core/util.js';
 import { gainGold, G, newRun, save, hasSave, loadSave, clearSave, loadMeta, saveMeta, bumpMeta, addRelic, gainMaxHp, relicMods, relicHooks, rollCardChoices, rollRelic, rollPotion, FINISHER_WEIGHT, CLASS_CARD_WEIGHT } from './core/state.js';
-import { generateMap } from './core/map.js';
+import { generateMap, MAP_ROWS } from './core/map.js';
 import { Battle } from './core/battle.js';
 import { ENCOUNTERS, TOTAL_ACTS } from './data/enemies.js';
 import { actIntro } from './data/events.js';
@@ -234,10 +234,24 @@ function enterRoom(node) {
 
 function setPending(p) { G.pending = p ? { ...p, ts: Date.now() } : null; save(); }
 
+/** 这场战斗在地图上的"进度"（0 = 起点行，1 = Boss 前一行）。
+ *  Boss 固定 1（最强）；没有节点信息时 0.5（= 不做偏移，等价于旧行为）。 */
+function progressOf(node, kind) {
+  if (kind === 'boss') return 1;
+  if (!node || typeof node.r !== 'number') return 0.5;
+  // 地图行 0..MAP_ROWS-2 是普通行（最后一行是 Boss）
+  const top = MAP_ROWS - 2;
+  return Math.max(0, Math.min(1, node.r / Math.max(1, top)));
+}
+
 function startBattle(kind, type) {
   setPending({ scene: 'battle', kind, type });
   const enc = pickEncounter(kind);
-  const B = new Battle(enc, { kind: type });
+  /* 层内进度：按**当前所在节点在地图上的纵向位置**传给战斗。
+     这样同一层里"地图开头"和"临近 Boss"的怪强度不再是一条水平线 ——
+     详见 battle.js 的 ACT_INNER_STEP。Boss 战固定按 1.0（最强）。
+     `G.node` 为 null（比如从调试入口直接开战）时退回 0.5 = 不偏移。 */
+  const B = new Battle(enc, { kind: type, progress: progressOf(G.node, kind) });
   // 把当前战斗暴露出来（只给测试/排查用）。
   // 为什么需要：`battleScene` 把战斗实例关在自己的闭包里，外部（自动化测试、
   // 真机排查）**拿不到它**，只能靠模拟点击慢慢磨 —— 想验证"打死 Boss 之后

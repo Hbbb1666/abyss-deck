@@ -373,4 +373,65 @@ else if (what === 'stats') {
   },`);
   writeFileSync(p, s, 'utf8');
   console.log('已让 1 费的「王室斩击」真的给威望（含 fx，违反产品约束）');
-} else console.log('用法: stats | guard | lowhp | paldmg | evdeath | split | mawfx | drain | bossbrood | ondamaged | exhausted | pierce | powercap | dexenemy | enemydmg | relicsprite | fintip | snapmods | snapcounters | readmedoc | cardblock | vulncost | vulntype | palhp | vhpbeforeblock | vhpclear | prestige5 | thronegate | thronevhp | prestige1cost | restore | clean');
+} else if (what === 'debtorder') {
+  /* 把债务结算挪到 DoT **之前**（违反产品要求的"优先级最低"）。
+     ⚠️ 必须**同时删掉原来那段** —— 只在前面插一份的话，后面那份还在，
+     顺序其实没变，测试会"正确地"不红（我第一次就这么写的，白跑一轮）。
+     AN5 第二条会红：中毒本该先把血打到债务线以下。 */
+  backup('battle');
+  const p = R + '/core/battle.js';
+  let s = readFileSync(p, 'utf8');
+  const orig = `      if (this.get(e, 'debt') > 0) {
+        const killed = await this.settleDebt(e);            // 只判它自己
+        if (killed.some(v => v.uid === e.uid)) continue;   // 它已被终结，跳过行动
+        if (e.dead || e.hp <= 0) continue;
+        if (this.over) return;
+      }`;
+  if (!s.includes(orig)) throw new Error('没找到债务结算块');
+  s = s.replace(orig, '      /* TEMP 债务检查移走了 */');
+  const a = '      // 敌人中毒';
+  if (!s.includes(a)) throw new Error('没找到敌人中毒结算');
+  s = s.replace(a, `      if (this.get(e, 'debt') > 0) { await this.settleDebt(e); if (e.dead) continue; }   // TEMP 挪到毒之前\n` + a);
+  writeFileSync(p, s, 'utf8');
+  console.log('已把债务结算挪到中毒**之前**（真的挪了：原位置的检查已删除）');
+} else if (what === 'debtdecay') {
+  /* 让债务每回合 -1（违反"不衰减"）。AN3 会红。 */
+  backup('battle');
+  const p = R + '/core/battle.js';
+  let s = readFileSync(p, 'utf8');
+  const a = '      this.tickEnd(e);';
+  if (!s.includes(a)) throw new Error('没找到 tickEnd');
+  s = s.replace(a, a + '\n      if (this.get(e, \'debt\') > 0) this.add(e, \'debt\', -1);   // TEMP 债务衰减');
+  writeFileSync(p, s, 'utf8');
+  console.log('已让债务每回合衰减 1 层');
+} else if (what === 'debtnodomain') {
+  /* 去掉「死神领域」的 +2 层加成。AN6 会红。 */
+  backup('battle');
+  const p = R + '/core/battle.js';
+  let s = readFileSync(p, 'utf8');
+  const a = '    if (k === \'debt\' && n > 0 && !e.isPlayer && this.mods.debtBonus && !this._debtBonusApplied) {';
+  if (!s.includes(a)) throw new Error('没找到债务加成');
+  s = s.replace(a, '    if (false) {   // TEMP 去掉领域加成');
+  writeFileSync(p, s, 'utf8');
+  console.log('已去掉死神领域的 +2 层债务加成');
+} else if (what === 'debtshield') {
+  /* 让终结牌「终末清算」走普通伤害（会吃护甲/虚血）。AN8 会红。 */
+  backup('battle');
+  const p = R + '/core/battle.js';
+  let s = readFileSync(p, 'utf8');
+  const a = '            await this.loseHp(t, d, { isDot: true });';
+  if (!s.includes(a)) throw new Error('没找到债务清算');
+  s = s.replace(a, '            await this.damage(t, d, \'清算\', { attacker: this.player });   // TEMP 走普通伤害');
+  writeFileSync(p, s, 'utf8');
+  console.log('已让终结牌的清算走普通伤害（会吃护甲/虚血）');
+} else if (what === 'gradientcap') {
+  /* 把双蝙蝠塞回第 1 层（复原玩家遇到的那个问题）。AM2 会红。 */
+  backup('enemies');
+  const p = R + '/data/enemies.js';
+  let s = readFileSync(p, 'utf8');
+  const a = "    weak: [['slime'], ['bat'], ['spider'], ['worm'], ['ghost', 'bat'], ['worm', 'worm']],";
+  if (!s.includes(a)) throw new Error('没找到第 1 层 weak 表');
+  s = s.replace(a, "    weak: [['slime'], ['bat', 'bat'], ['spider'], ['worm'], ['ghost', 'bat'], ['worm', 'worm']],");
+  writeFileSync(p, s, 'utf8');
+  console.log('已把「两只吸血蝙蝠」塞回第 1 层弱怪表（复原玩家遇到的开局失衡）');
+} else console.log('用法: stats | guard | lowhp | paldmg | evdeath | split | mawfx | drain | bossbrood | ondamaged | exhausted | pierce | powercap | dexenemy | enemydmg | relicsprite | fintip | snapmods | snapcounters | readmedoc | cardblock | vulncost | vulntype | palhp | vhpbeforeblock | vhpclear | prestige5 | thronegate | thronevhp | prestige1cost | debtorder | debtdecay | debtnodomain | debtshield | gradientcap | restore | clean');

@@ -9,16 +9,39 @@ import { RELICS } from '../data/relics.js';
 import { sleep, clamp } from './util.js';
 
 /* ================= 状态效果定义 ================= */
+/** 层内（同一张地图）的渐进增幅：按地图行号从前往后**略微**加压。
+ *
+ *  为什么需要它（2026-10-17，玩家反馈）：
+ *    原来同一层地图上所有战斗都用同一个倍率，于是"开局第一格就撞上两只吸血蝙蝠"
+ *    （4×2 各一发 = 16/回合）和"临近 Boss"一样狠 —— 梯度只存在于**层与层之间**，
+ *    层内是一条水平线。玩家的体感是"开局随机抽到最狠的那一档"。
+ *
+ *  参数怎么取的（产品口径："不用一关一增，每几关略微增一下"）：
+ *    `progress` = 该场战斗在地图上的纵向位置（0 = 最底层起点，1 = Boss 前一行）。
+ *    取 **居中** 映射：progress 0.5 时正好 ×1.00（等于原来的基准），
+ *    两端各 ±8%（地图开头 ×0.92、Boss 前 ×1.08）。
+ *    居中的好处：**层平均值不变**，产品定的那份一览伤害档位表（每层的普通/精英/Boss 上限）
+ *    仍然成立，不需要重做；而地图前半段确实变轻了，"循序渐进"的感觉就出来了。
+ *    8% 是刻意的小数字 —— 它只用来做"斜率"，不该盖过层间 +17% 的主曲线。 */
+export const ACT_INNER_STEP = 0.08;
+
+/** 把地图纵向进度（0..1）换算成倍率。见 ACT_INNER_STEP 的说明。 */
+export const innerScale = (progress) => {
+  const p = Math.max(0, Math.min(1, Number(progress) || 0));
+  return 1 + ACT_INNER_STEP * (p - 0.5) * 2;      // 0 → 0.92, 0.5 → 1.00, 1 → 1.08
+};
+
 /** 敌人强度的层级缩放。基础曲线在 data/enemies.js 的 actScale()，
-    这里再叠加**难度选项**的"每层额外增幅"（enemyHpPerAct / enemyAtkPerAct），
-    并补一个兜底（act 缺失/非法时按第 1 层算）。
-    第 1 层不吃额外增幅（n=0）—— 否则"每层增幅"会变成"开局就变强"。 */
-const enemyScale = (act, mods = {}) => {
+    这里再叠加**难度选项**的"每层额外增幅"（enemyHpPerAct / enemyAtkPerAct）
+    与**层内进度增幅**（innerScale），并补一个兜底（act 缺失/非法时按第 1 层算）。
+    第 1 层不吃难度里的"每层额外增幅"（n=0）—— 否则它会变成"开局就变强"。 */
+const enemyScale = (act, mods = {}, progress = 0.5) => {
   const base = actScale(act || 1);
   const n = Math.max(0, (act | 0) - 1);          // 第 1 层不吃难度里的"每层额外增幅"
+  const inner = innerScale(progress);
   return {
-    hp: base.hp * (1 + (mods.enemyHpPerAct || 0) * n),
-    atk: base.atk * (1 + (mods.enemyAtkPerAct || 0) * n),
+    hp: base.hp * inner * (1 + (mods.enemyHpPerAct || 0) * n),
+    atk: base.atk * inner * (1 + (mods.enemyAtkPerAct || 0) * n),
   };
 };
 
@@ -130,6 +153,12 @@ export const ST = {
                  desc: '获得时立刻得到 <b>20</b> 点虚血。再攒 <b>6</b> 层威望即「登基」。' },
   throne: { pri: 94, name: '登基', icon: '♔', color: '#fff3c4', buff: true,
             desc: '每打出 <b>1</b> 张牌获得 <b>1</b> 点虚血；打出费用 <b>≥3</b> 的牌后随机获得 1 层力量/敏捷/真理' },
+  /* 「死神」的核心机制（2026-10-17）。债务是**血线刀**：怪物回合开始时，
+     若它的当前生命 ≤ 债务层数，直接终结它。
+     ⚠️ 它**不是**伤害也不是减益 —— 不挡护甲、不吃易伤、不会被「抵挡」抵消，
+        也不会随回合衰减（攒到就一直在）。见 settleDebt()。 */
+  debt: { pri: 96, name: '债务', icon: '☠', color: '#c8c8d2',
+          desc: '它回合开始时，若生命 <b>≤</b> 债务层数则被<b>直接终结</b>（不衰减、不挡护甲）' },
 };
 
 /** 战斗内怪物数量硬上限。再多战场就挤不下意图栏了（实测 8 只是能全部看清的上限）。
@@ -144,6 +173,10 @@ export class Battle {
   constructor(encounter, opts = {}) {
     this.kind = opts.kind || 'battle';            // battle / elite / boss
     this.act = G.act;
+    /* 层内进度（0 = 地图起点，1 = Boss 前一行）。默认 0.5 = 不做偏移，
+       所以"手工 new Battle() 的测试/工具"行为与旧版完全一致，
+       只有真正从地图进入的战斗才带进度（main.js 的 startBattle）。 */
+    this.progress = opts.progress != null ? opts.progress : 0.5;
     this.rng = G.rng;
     this.view = opts.view || {};
     this.turn = 0;
@@ -185,6 +218,8 @@ export class Battle {
     this.killCount = 0;
     this.cardsThisBattle = 0;
     this.cardsThisTurn = 0;
+    // 死神：「终末清算」的前提是**本场用过死神领域**，所以要单独记一笔
+    this.deathDomainUsed = false;
     if (opts.restore && !this.applySnapshot(opts.restore)) this.restoreFailed = true;
   }
 
@@ -196,6 +231,9 @@ export class Battle {
     return {
       v: 1,
       kind: this.kind,
+      /* 层内进度要进快照：漏了它，读档续战会按 0.5 重算倍率，
+         地图前半段开的局读回来会**莫名其妙变强**（或后半段变弱）。 */
+      progress: this.progress,
       turn: this.turn,
       energy: this.energy,
       energyMax: this.energyMax,
@@ -218,6 +256,8 @@ export class Battle {
       killCount: this.killCount || 0,
       cardsThisBattle: this.cardsThisBattle || 0,
       cardsThisTurn: this.cardsThisTurn || 0,
+      // 死神：「终末清算」的判定条件依赖"本场用过死神领域"，也要跟着存档走
+      deathDomainUsed: !!this.deathDomainUsed,
     };
   }
 
@@ -232,6 +272,7 @@ export class Battle {
     if (!s.player || typeof s.player.hp !== 'number' || typeof s.player.maxHp !== 'number') return false;
     if (!Array.isArray(s.enemies) || !s.enemies.length) return false;
     this.turn = s.turn || 0;
+    this.progress = s.progress != null ? s.progress : 0.5;
     this.energy = s.energy || 0;
     this.energyMax = s.energyMax || 3;
     Object.assign(this.player, {
@@ -248,7 +289,7 @@ export class Battle {
          的局，**只要中途关页面再回来，敌人攻击倍率就掉回裸曲线** ——
          玩家白捡便宜，而且界面预告会跟着一起变小，看起来"很正常"，极难发现。
          测试（AI 段）直接比对"读档后的 atkMult"与"同层新开一场的 atkMult"。 */
-      const sc = enemyScale(this.act, this.mods);
+      const sc = enemyScale(this.act, this.mods, this.progress);
       this.enemies = s.enemies.map(e => {
         const d = ENEMIES[e.defId];
         if (!d) return null;
@@ -289,6 +330,10 @@ export class Battle {
     this.killCount = s.killCount || 0;
     this.cardsThisBattle = s.cardsThisBattle || 0;
     this.cardsThisTurn = s.cardsThisTurn || 0;
+    this.deathDomainUsed = !!s.deathDomainUsed;
+    // 「死神领域」的加成不是可叠层状态，而是本场一次性开关：读档时要按它恢复，
+    // 否则续战会"忘了领域已经展开"，施加债务又少 2 层。
+    if (this.deathDomainUsed && this.mods.debtBonus == null) this.mods.debtBonus = 2;
     return true;
   }
 
@@ -324,7 +369,7 @@ export class Battle {
     // 关键：倍率只作用在"敌人自己的属性"上 —— 生命、以及招式里的 dmg。
     // 玩家卡牌给的易伤/虚弱在 calcDamage() 里照常生效，所以界面预告的伤害
     // （intentOf 也会乘同一份 atk）和敌人真打出来的数字始终一致。
-    const sc = enemyScale(this.act, this.mods);
+    const sc = enemyScale(this.act, this.mods, this.progress);
     const raw = this.rng.int(d.hp[0], d.hp[1]);
     // Boss 额外血量（难度"庞大的阴影"）。召唤物不算 —— 它不该吃 Boss 加成。
     const bossHpX = (d.boss && !summoner) ? (this.mods.bossHpMult || 1) : 1;
@@ -376,6 +421,17 @@ export class Battle {
       this.gainVhp(20);
     }
     if (e.isPlayer && (k === 'prestige' || k === 'crownprince')) this.checkRoyalPath(e);
+    /* 债务：`debtBonus`（死神领域）让"施加债务"这个动作额外多 N 层。
+       放在 add() 里而不是每张牌各写一遍 —— 遗物/卡牌两条来源都自动享受加成，
+       而且只对**主动施加**（n > 0）生效，清空/衰减不受影响。 */
+    if (k === 'debt' && n > 0 && !e.isPlayer && this.mods.debtBonus && !this._debtBonusApplied) {
+      // 防止递归：这次补加的层数不再触发加成
+      this._debtBonusApplied = true;
+      const extra = this.mods.debtBonus;
+      e.st.debt = (e.st.debt || 0) + extra;
+      this.pushLog(`「死神领域」额外施加 ${extra} 层债务`);
+      this._debtBonusApplied = false;
+    }
     return n;
   }
 
@@ -410,6 +466,37 @@ export class Battle {
     this.view.onStatus?.(e);
     this.pushLog('太子登基！此后本场不再获得威望');
     this.add(e, 'throne', 1);
+  }
+
+  /** 债务结算：怪物**回合开始时**（排在中毒/点燃/流血之后，优先级最低）检查
+   *  「当前生命 ≤ 债务层数」→ 直接终结。
+   *
+   *  为什么放在 DoT 之后：产品的原话是"结算顺序最低，先结算中毒/流血等"。
+   *  这个顺序是有意义的 —— 中毒把血打到债务线以下，债务就当场收人；
+   *  反过来先判债务，那口毒就白下了。
+   *
+   *  返回被终结的怪物数组（可能为空）。UI 用 `view.onDebtExecute(list)` 播特效，
+   *  多个同时被终结时只暗屏一次、刀光同时放。 */
+  async settleDebt(only = null) {
+    const pool = only ? [only] : this.aliveEnemies();
+    const victims = [];
+    for (const e of pool) {
+      const d = this.get(e, 'debt');
+      if (d <= 0 || e.hp <= 0 || e.dead) continue;
+      if (e.hp > d) continue;
+      this.pushLog(`${e.name} 的债务到期（生命 ${e.hp} ≤ 债务 ${d}）—— 终结`);
+      victims.push(e);
+    }
+    if (!victims.length) return victims;
+    this.view.onDebtExecute?.(victims);
+    await this.view.step?.(600);          // 让暗屏 + 刀光播完
+    for (const e of victims) {
+      if (e.dead) continue;
+      // 走 kill()：统计、召唤物连带溃散、胜负判定都自动覆盖
+      await this.kill(e);
+    }
+    this.view.sync?.();
+    return victims;
   }
 
   /** 是否已经"有了名分"（太子或登基）。储君之刃这类牌的 `ifRoyal` 用它判定。 */
@@ -892,6 +979,47 @@ export class Battle {
         case 'discard': await this.discardFromHand(v || 1); break;
         /* 虚血（太子职业）：直接加一层**独立于护甲**的缓冲，见 gainVhp()。 */
         case 'vhp': await this.gainVhp(v); break;
+        /* 债务（死神职业）：给目标挂 N 层，到它回合开始时按血线裁决。 */
+        case 'debt': {
+          const t = target && !target.dead ? target : this.aliveEnemies()[0];
+          if (t) {
+            this.add(t, 'debt', v);
+            this.view.onStatus?.(t);
+            this.pushLog(`${t.name} 背上了 ${v} 层债务`);
+            await this.view.step?.();
+          }
+          break;
+        }
+        /* 死神领域：本场战斗**施加债务时额外 +N 层**（一次性开关牌）。
+           用实例字段而不是堆叠状态：它是张能力牌（打出即进消耗堆），
+           一场只会生效一次，没必要做成可叠层的状态。 */
+        case 'deathDomain':
+          this.mods.debtBonus = v;
+          this.deathDomainUsed = true;
+          this.pushLog(`「死神领域」展开：此后施加债务额外 +${v} 层`);
+          await this.view.step?.();
+          break;
+        /* 终结牌「终末清算」：对全体各造成"其债务层数"的伤害，
+           无视护甲与虚血（产品口径）。能致死则播终结特效。 */
+        case 'debtSweep': {
+          const foes = this.aliveEnemies();
+          const mortals = [];
+          for (const t of foes) {
+            const d = this.get(t, 'debt');
+            if (d <= 0) continue;
+            // 无视护甲/虚血：直接扣血，但仍走 loseHp 让统计口径统一
+            const lethal = d >= t.hp;
+            await this.loseHp(t, d, { isDot: true });
+            this.pushLog(`清算 ${t.name} 的 ${d} 层债务`);
+            if (lethal && t.dead) mortals.push(t);
+          }
+          if (mortals.length) {
+            this.view.onDebtExecute?.(mortals, true);
+            await this.view.step?.(600);
+          }
+          await this.view.sync?.();
+          break;
+        }
         /* 自身**所有增益** +v 层（太子终结牌「太·登基」用）。
            只加 ST 表里标了 `buff: true` 的状态，并且**排除王朝进度本身**
            （威望/太子/登基）—— 否则这张牌会把自己往上叠一层，那是循环强化。
@@ -1077,6 +1205,21 @@ export class Battle {
     await this.view.step?.(120);
 
     await this.resolve(card.fx || [], { card, target: target || this.aliveEnemies()[0], melee: card.type === 'attack' });
+
+    /* 「死神」的债务由**卡牌上的 `debt` 字段**携带，不是引擎统一发。
+       理由（产品口径）：债务按 1.5 点/层定价，必须能逐张牌精确配平；
+       若做成"每打一张牌自动 +1"，强度和出牌频率就绑在一起，低费连招牌会失控。
+       触发条件与「影刃」一致：**对怪生效的牌**（单体或群攻），按命中的敌人生效。
+       `debtSystem` 未开启（没带死债账簿）时整段跳过 —— 避免别的职业拿到带 debt 的牌就白嫖。 */
+    if (!this.over && this.mods.debtSystem && card.debt) {
+      const isAoe = card.target === 'all';
+      const foes = (isAoe ? this.aliveEnemies() : [target || this.aliveEnemies()[0]]).filter(t => t && !t.dead);
+      for (const t of foes) {
+        this.add(t, 'debt', this.num(card.debt, card));
+        this.pushLog(`${t.name} 的债务 +${this.num(card.debt, card)}`);
+      }
+      this.view.onStatus?.(foes[0]);
+    }
 
     /* 「登基」的两条效果（2026-10-17，太子职业）：
          · 每打出**一张**牌 → 获得 1 点虚血
@@ -1361,6 +1504,17 @@ export class Battle {
       }
       if (e.dead || e.hp <= 0) continue;
       if (this.over) return;
+
+      /* 债务结算 —— 产品明确要求**优先级最低**（先结算中毒/点燃/流血这些 DoT）。
+         顺序有意义：那口毒把血打到债务线以下，这里就当场收人；
+         反过来先判债务，这口毒就白下了。
+         流血是"行动之后"结算的，所以这里排在它之前没问题（它本来就晚）。 */
+      if (this.get(e, 'debt') > 0) {
+        const killed = await this.settleDebt(e);            // 只判它自己
+        if (killed.some(v => v.uid === e.uid)) continue;   // 它已被终结，跳过行动
+        if (e.dead || e.hp <= 0) continue;
+        if (this.over) return;
+      }
 
       // 冰冻：消耗 1 层，**整个行动跳过**（不移动位、不清意图）。
       // 注意放在 DoT 结算之后 —— 冰冻剥夺的是它的"行动"，不是保护它免受毒/点燃。

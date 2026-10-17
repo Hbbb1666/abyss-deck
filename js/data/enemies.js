@@ -383,29 +383,47 @@ function rng0(e) { return Math.random() < 0.3; }
     这里刻意把配置写全（而不是让代码回退到第 3 层），
     这样以后想单独调第 4 层的阵容，改这一处就够了。 */
 export const ENCOUNTERS = {
+  /* ⚠️ 遭遇战强度的两条硬约束（2026-10-17 加，测试 AM 段守着）：
+     ① **单体递增**：同一层里 weak ≤ strong ≤ elite ≤ boss 的"单只怪最重一击"必须递增。
+     ② **合计封顶**：一个遭遇里所有怪同时打最重一招的总和，不得超过该层上限
+        （`ENCOUNTER_DMG_CAP`）。
+     为什么加：玩家实测第 1 层开局就撞上**两只吸血蝙蝠**（4×2 各一发 = 16 点/回合），
+     比该层 Boss 的单回合输出还高 —— 而那时玩家只有 5 张牌。梯度应当是
+     "从地图开始到临近 Boss 逐步加压"，不是"开局随机抽到最狠的那一档"。
+     改数值后跑 `node tools/enemy-damage-report.mjs` 与测试 AM 段复核。 */
   1: {
-    weak: [['slime'], ['bat', 'bat'], ['spider'], ['worm'], ['ghost', 'bat'], ['slime', 'slime']],
-    strong: [['undead', 'bat'], ['guard'], ['apprentice', 'slime'], ['ghost', 'spider', 'bat'], ['guard', 'apprentice']],
-    elite: [['slime_big'], ['skeleton_king'], ['slime_big', 'slime']],
+    /* 第 1 层合计上限 14（`ENCOUNTER_DMG_CAP`）。这里的每个组合都是按
+       "最重一击 × 层级倍率，逐只相加 ≤ 14" 算过的 —— 改数值请重跑测试 AM2。
+       注意 weak 档里 already 有 slime(9)/spider(9) 这两个单体峰值，
+       所以 strong 档必须至少保持 9 的单体，否则 AM1（单体递增）会红。 */
+    weak: [['slime'], ['bat'], ['spider'], ['worm'], ['ghost', 'bat'], ['worm', 'worm']],
+    strong: [['slime', 'ghost'], ['guard'], ['spider', 'ghost'], ['ghost', 'spider'], ['worm', 'guard']],
+    elite: [['slime_big'], ['skeleton_king'], ['skeleton_king', 'ghost']],
     boss: [['boss_eye']],
   },
   2: {
     weak: [['crabdemon'], ['monk'], ['witch'], ['spider', 'spider']],
-    strong: [['golem'], ['dwarf', 'bat'], ['guard_elite'], ['crabdemon', 'monk'], ['witch', 'golem']],
-    elite: [['spider_queen'], ['lich'], ['guard_elite', 'monk']],
+    strong: [['golem'], ['dwarf', 'bat'], ['guard_elite'], ['crabdemon', 'witch'], ['golem', 'bat']],
+    elite: [['spider_queen'], ['lich'], ['witch', 'witch']],
     boss: [['boss_tyrant']],
   },
   3: {
     weak: [['demonling'], ['noble'], ['statue'], ['soul_lantern']],
     strong: [['warrior', 'demonling'], ['statue', 'noble'], ['warrior', 'warrior'], ['gargoyle'], ['soul_lantern', 'noble']],
-    elite: [['gargoyle'], ['lich', 'demonling'], ['spider_queen', 'gargoyle'], ['abyss_priest']],
+    elite: [['gargoyle'], ['lich'], ['statue', 'demonling'], ['abyss_priest']],
     // 第 3 层的两个 Boss **平分出现概率** —— 往这个列表里加条目即可继续平分
     boss: [['boss_lord'], ['boss_frostqueen']],
   },
   4: {
     weak: [['demonling', 'demonling'], ['noble', 'demonling'], ['statue'], ['void_shard']],
-    strong: [['warrior', 'noble'], ['gargoyle'], ['statue', 'warrior'], ['warrior', 'demonling', 'demonling'], ['void_shard', 'demonling']],
+    strong: [['warrior', 'noble'], ['gargoyle'], ['statue', 'warrior'], ['warrior', 'demonling'], ['void_shard', 'demonling']],
     elite: [['gargoyle', 'demonling'], ['spider_queen', 'lich'], ['gargoyle', 'statue'], ['abyss_maw']],
     boss: [['boss_abyss']],
   },
 };
+
+/** 每层「单回合总伤害」上限（方案 B）。
+ *  第 1 层定 **14**（不是 16）：16 正好等于"两只吸血蝙蝠"的合计，也就是玩家投诉的那个数 ——
+ *  上限卡在边界上等于没管。14 能让开局只出现"一只蝙蝠 + 一只小怪"这种量级。
+ *  后续层按 ≈1.5 倍递增，与 ACT_ATK_STEP 的曲线一致。 */
+export const ENCOUNTER_DMG_CAP = { 1: 14, 2: 24, 3: 34, 4: 44 };

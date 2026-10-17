@@ -1476,7 +1476,7 @@ text: c => `<i>${c.condText}</i><br><b>${c.dmg}</b> 伤，+<b>${c.vul}</b> 易�
        这里给它一个和身份绑定的条件加伤：王朝进度越深，这把刀越利。 */
     name: '储君之刃', cls: 'prince', type: 'attack', rarity: 'basic', cost: 1, target: 'enemy',
     art: 'sword_short', dmg: 5, bonus: 3, up: { dmg: 8 },
-    text: c => `造成 <b>${c.dmg}</b> 点伤害。若你已<b>立储</b>或<b>登基</b>，额外造成 <b>${c.bonus}</b> 点。`,
+    text: c => `造成 <b>${c.dmg}</b> 点伤害。若你已获得<b>太子</b>或<b>登基</b>，额外造成 <b>${c.bonus}</b> 点。`,
     fx: [{ t: 'dmg', v: 'dmg', ifRoyal: 'bonus' }],
   },
 
@@ -1638,6 +1638,176 @@ text: c => `<i>${c.condText}</i><br><b>${c.dmg}</b> 伤，+<b>${c.vul}</b> 易�
     cond: B => B.get(B.player, 'throne') > 0,
     text: c => `<i>${c.condText}</i><br>自身所有<b>增益 +1 层</b>，全体 <b>${c.dmg}</b> 伤，获得 <b>${c.vhp}</b> 虚血。`,
     fx: [{ t: 'buffUp', v: 1 }, { t: 'dmgAll', v: 'dmg' }, { t: 'vhp', v: 'vhp' }],
+  },
+
+  /* ============================================================================
+   * 「死神」职业（2026-10-17 新增）
+   * ----------------------------------------------------------------------------
+   * 核心是**债务**：卡牌除了伤害，还额外给目标记 `debt` 层数。
+   * 怪物**回合开始时**（DoT 结算之后）检查"生命 ≤ 债务层数"→ 直接终结。
+   *
+   * 价值口径（产品定）：**1 层债务 = 1.5 点**，可以出现在 1 费牌里。
+   * 产品给的直觉是"直接伤害削弱 40%，把削掉的补进债务层数"，但那个换算在
+   * 价值表里并不成立（伤害 1 点 = 1，债务 1 层 = 1.5，转成债务反而**变贵**）。
+   * 所以这里不套公式，只按 1.5 点/层逐张配平，让门禁只比总分。
+   *
+   * 设计约束（写在这里，测试 AN 段守着）：
+   *   · 债务**不衰减、不挡护甲、不会被「抵挡」抵消**；
+   *   · 只有带「死债账簿」的职业才吃 `debt` 字段（防止别的职业白嫖）；
+   *   · 债务是"血线刀"，所以这些牌的**直接伤害**刻意低于同费同类牌。
+   * ========================================================================== */
+
+  /* ---------- 基础牌 ---------- */
+  reap_strike: {
+    // 4 伤（4）+ 1 债务（1.5）= 5.5 / 5
+    name: '收割之刃', cls: 'reaper', type: 'attack', rarity: 'basic', cost: 1, target: 'enemy',
+    art: 'sword_long', dmg: 4, debt: 1, up: { dmg: 6 },
+    text: c => `造成 <b>${c.dmg}</b> 点伤害，记上 <b>${c.debt}</b> 层债务。`,
+    fx: [{ t: 'dmg', v: 'dmg' }],
+  },
+
+  /* ---------- 普通（7 张）---------- */
+  bone_tally: {
+    // 2 伤 + 2 债务（3）= 5 / 5
+    name: '骨牌计数', cls: 'reaper', type: 'attack', rarity: 'common', cost: 1, target: 'enemy',
+    art: 'key_bone', dmg: 2, debt: 2, up: { dmg: 3, debt: 3 },
+    text: c => `造成 <b>${c.dmg}</b> 点伤害，记上 <b>${c.debt}</b> 层债务。`,
+    fx: [{ t: 'dmg', v: 'dmg' }],
+  },
+  shroud: {
+    // 6 点（不是 5）—— 否则与基础牌「防御」完全同形同值
+    name: '丧衣', cls: 'reaper', type: 'skill', rarity: 'common', cost: 1, target: 'self',
+    art: 'ghost', blk: 6, up: { blk: 9 },
+    text: c => `获得 <b>${c.blk}</b> 点护甲。`,
+    fx: [{ t: 'block', v: 'blk' }],
+  },
+  grave_mark: {
+    // 3 债务（4.5）+ 抽 1（5）= 9.5 / 13
+    name: '墓志', cls: 'reaper', type: 'skill', rarity: 'common', cost: 2, target: 'enemy',
+    art: 'gravestone', debt: 3, draw: 1, up: { debt: 4 },
+    text: c => `记上 <b>${c.debt}</b> 层债务，抽 <b>${c.draw}</b> 张牌。`,
+    fx: [{ t: 'draw', v: 'draw' }],
+  },
+  scythe_sweep: {
+    // 全体 8 伤（10.4）+ 全体 1 债务（≈2）= 12.4 / 13
+    name: '镰刀横扫', cls: 'reaper', type: 'attack', rarity: 'common', cost: 2, target: 'all',
+    art: 'sword_broad', dmg: 8, debt: 1, up: { dmg: 11 },
+    text: c => `对<b>所有</b>敌人造成 <b>${c.dmg}</b> 点伤害，各记 <b>${c.debt}</b> 层债务。`,
+    fx: [{ t: 'dmgAll', v: 'dmg' }],
+  },
+  still_heart: {
+    name: '止息', cls: 'reaper', type: 'skill', rarity: 'common', cost: 2, target: 'self',
+    art: 'portcullis', blk: 13, up: { blk: 17 },
+    text: c => `获得 <b>${c.blk}</b> 点护甲。`,
+    fx: [{ t: 'block', v: 'blk' }],
+  },
+  soul_receipt: {
+    // 13 伤 / 13 —— 纯伤害牌，给"不想走债务线"的构筑留一条路
+    name: '魂之收据', cls: 'reaper', type: 'attack', rarity: 'common', cost: 2, target: 'enemy',
+    art: 'key_bone', dmg: 13, up: { dmg: 17 },
+    text: c => `造成 <b>${c.dmg}</b> 点伤害。`,
+    fx: [{ t: 'dmg', v: 'dmg' }],
+  },
+  death_blow: {
+    // 3 费全体 12 伤（15.6）+ 全体 1 债务（2）= 17.6 / 21
+    name: '往生一击', cls: 'reaper', type: 'attack', rarity: 'common', cost: 3, target: 'all',
+    art: 'boss_demon', dmg: 12, debt: 1, up: { dmg: 16 },
+    text: c => `对<b>所有</b>敌人造成 <b>${c.dmg}</b> 点伤害，各记 <b>${c.debt}</b> 层债务。`,
+    fx: [{ t: 'dmgAll', v: 'dmg' }],
+  },
+
+  /* ---------- 罕见（6 张）---------- */
+  black_ledger: {
+    // 5 债务（7.5）+ 5 护甲 = 12.5 / 15
+    name: '黑账本', cls: 'reaper', type: 'skill', rarity: 'uncommon', cost: 2, target: 'enemy',
+    art: 'crate', debt: 5, blk: 5, up: { debt: 7 },
+    text: c => `记上 <b>${c.debt}</b> 层债务，获得 <b>${c.blk}</b> 点护甲。`,
+    fx: [{ t: 'block', v: 'blk' }],
+  },
+  death_rattle: {
+    // 7 伤（7）+ 2 债务（3）+ 1 易伤（4）= 14 / 15
+    name: '死之喉音', cls: 'reaper', type: 'attack', rarity: 'uncommon', cost: 2, target: 'enemy',
+    art: 'undead', dmg: 7, debt: 2, vul: 1, up: { dmg: 9, vul: 2 },
+    text: c => `造成 <b>${c.dmg}</b> 点伤害，记 <b>${c.debt}</b> 层债务并施加 <b>${c.vul}</b> 层易伤。`,
+    fx: [{ t: 'dmg', v: 'dmg' }, { t: 'debuff', k: 'vulnerable', v: 'vul' }],
+  },
+  toll_bell: {
+    // 6 债务（9）+ 抽 1（5）= 14 / 15
+    name: '丧钟', cls: 'reaper', type: 'skill', rarity: 'uncommon', cost: 2, target: 'enemy',
+    art: 'poleaxe', debt: 6, draw: 1, up: { debt: 8 },
+    text: c => `记上 <b>${c.debt}</b> 层债务，抽 <b>${c.draw}</b> 张牌。`,
+    fx: [{ t: 'draw', v: 'draw' }],
+  },
+  pale_steed: {
+    // 4 债务（6）+ 9 护甲 = 15 / 15
+    name: '苍白坐骑', cls: 'reaper', type: 'skill', rarity: 'uncommon', cost: 2, target: 'enemy',
+    art: 'ghost', blk: 9, debt: 4, up: { blk: 12 },
+    text: c => `获得 <b>${c.blk}</b> 点护甲；记 <b>${c.debt}</b> 层债务。`,
+    fx: [{ t: 'block', v: 'blk' }],
+  },
+  writ_of_end: {
+    // 3 费：8 债务（12）+ 9 护甲 = 21 / 25
+    name: '终末文书', cls: 'reaper', type: 'skill', rarity: 'uncommon', cost: 3, target: 'enemy',
+    art: 'stone_platform', debt: 8, blk: 9, up: { debt: 11 },
+    text: c => `记上 <b>${c.debt}</b> 层债务，获得 <b>${c.blk}</b> 点护甲。`,
+    fx: [{ t: 'block', v: 'blk' }],
+  },
+  blood_ink: {
+    // 2 层力量（8）+ 3 债务（4.5）= 12.5 / 15
+    name: '血墨', cls: 'reaper', type: 'power', rarity: 'uncommon', cost: 2, target: 'enemy',
+    art: 'potion_red', str: 2, debt: 3, up: { str: 3 },
+    text: c => `获得 <b>${c.str}</b> 层力量，记 <b>${c.debt}</b> 层债务。`,
+    fx: [{ t: 'buff', k: 'strength', v: 'str' }],
+  },
+
+  /* ---------- 稀有（5 张）---------- */
+  death_domain: {
+    /* **核心牌**（产品指定）：4 费，打出后本场施加债务时额外 +2 层。 */
+    name: '死神领域', cls: 'reaper', type: 'power', rarity: 'rare', cost: 4, target: 'self',
+    art: 'graveyard', bonus: 2,
+    text: c => `本场战斗中，你施加<b>债务</b>时额外多记 <b>${c.bonus}</b> 层。`,
+    fx: [{ t: 'deathDomain', v: 'bonus' }],
+  },
+  final_ledger: {
+    // 10 债务（15）+ 3 护甲 = 18 / 17
+    name: '最终账目', cls: 'reaper', type: 'skill', rarity: 'rare', cost: 2, target: 'enemy',
+    art: 'chest_gold', debt: 10, blk: 3, up: { debt: 14 },
+    text: c => `记上 <b>${c.debt}</b> 层债务，获得 <b>${c.blk}</b> 点护甲。`,
+    fx: [{ t: 'block', v: 'blk' }],
+  },
+  dirge: {
+    // 全体 9 伤（12）+ 全体 3 债务（≈5.9）= 17.9 / 17
+    name: '挽歌', cls: 'reaper', type: 'attack', rarity: 'rare', cost: 2, target: 'all',
+    art: 'ghost', dmg: 9, debt: 3, up: { dmg: 12, debt: 4 },
+    text: c => `对<b>所有</b>敌人造成 <b>${c.dmg}</b> 点伤害，各记 <b>${c.debt}</b> 层债务。`,
+    fx: [{ t: 'dmgAll', v: 'dmg' }],
+  },
+  cold_verdict: {
+    // 3 费：16 伤（16）+ 5 债务（7.5）= 23.5 / 28
+    name: '冷酷裁决', cls: 'reaper', type: 'attack', rarity: 'rare', cost: 3, target: 'enemy',
+    art: 'gate', dmg: 16, debt: 5, up: { dmg: 21, debt: 7 },
+    text: c => `造成 <b>${c.dmg}</b> 点伤害，记 <b>${c.debt}</b> 层债务。`,
+    fx: [{ t: 'dmg', v: 'dmg' }],
+  },
+  shrouded_hour: {
+    // 3 费：12 债务（18）+ 6 护甲 = 24 / 28
+    name: '幽冥时刻', cls: 'reaper', type: 'skill', rarity: 'rare', cost: 3, target: 'enemy',
+    art: 'boss_gargoyle', debt: 12, blk: 6, up: { debt: 16 },
+    text: c => `记上 <b>${c.debt}</b> 层债务，获得 <b>${c.blk}</b> 点护甲。`,
+    fx: [{ t: 'block', v: 'blk' }],
+  },
+
+  /* --- 终结牌：前提是"用过死神领域"且"自身生命 < 全体怪总生命" --- */
+  finisher_reckoning: {
+    name: '终末清算', cls: 'reaper', type: 'skill', rarity: 'finisher', cost: 3, costN: true,
+    finisher: true, unique: true, target: 'all',
+    /* 对每个敌人造成"其债务层数"的伤害，**无视护甲与虚血**（产品口径）。
+       能致死则播终结特效；多只同时被终结时只暗屏一次、刀光同时放。 */
+    art: 'graveyard',
+    condText: '需死神领域且残血',
+    cond: B => !!B.deathDomainUsed && B.player.hp < B.aliveEnemies().reduce((s, e) => s + e.hp, 0),
+    text: c => `<i>${c.condText}</i><br>各造成其<b>债务层数</b>伤害（无视护甲/虚血）。`,
+    fx: [{ t: 'debtSweep' }],
   },
 };
 

@@ -5254,7 +5254,7 @@ section('AF. 遗物扩容（57 件 / 每件独立贴图）+ 为此补的引擎�
     // 静态 mods 的数字要出现在 desc 里（钩子型无法静态核对，跳过）
     /* 这些键是**开关**，值是 1 只是"开启"的意思，不是玩家看得见的数字 ——
        要求它们写进文案会逼着文案写"1"，纯属噪音。 */
-    const FLAG_KEYS = new Set(['potionSlots', 'royalPath', 'eliteWeightUp', 'restAsEvent',
+    const FLAG_KEYS = new Set(['potionSlots', 'royalPath', 'debtSystem', 'eliteWeightUp', 'restAsEvent',
       'curseOnShop', 'shopNoPotion', 'shopHalfCard', 'pierce']);
     const numMismatch = [];
     for (const [id, r] of Object.entries(RELICS)) {
@@ -5696,6 +5696,17 @@ section('AH. 终结牌条件提示 = 真实触发边界');
       below: B => { delete B.player.st.throne; },
       at:    B => { B.add(B.player, 'throne', 1); },
     },
+    /* 「终末清算」：条件也是存在性，但**有两个**（用过死神领域 + 自身残血）。
+       文案里没有数字，所以 shown=null；"正好够"那一侧要同时满足两条。 */
+    finisher_reckoning: {
+      shown: null,
+      below: B => { B.deathDomainUsed = false; B.player.hp = 1; },
+      at:    B => {
+        B.deathDomainUsed = true;
+        B.player.hp = 1;
+        for (const e of B.aliveEnemies()) { e.hp = e.maxHp = 50; }   // 敌方总生命 > 自身 1
+      },
+    },
   };
   ok(Object.keys(BOUND).length === fins.length,
      `边界表覆盖全部 ${fins.length} 张终结牌（实际 ${Object.keys(BOUND).length}）`);
@@ -5953,6 +5964,250 @@ section('AL. 太子：王朝路线 + 虚血');
     }
     ok(bad.length === 0, '太子的威望卡遵守产品的三条费用约束', bad.join(' | '));
     ok(withPrestige.length >= 6, `至少 6 张牌能给威望（实测 ${withPrestige.length}）`);
+  }
+}
+
+/* ================= AM. 遭遇战强度梯度（产品反馈：第 1 层双蝙蝠比 Boss 还狠） ================= */
+section('AM. 遭遇战梯度：单体递增 + 每层合计封顶');
+{
+  const { ENEMIES, ENCOUNTERS, actScale, ENCOUNTER_DMG_CAP, TOTAL_ACTS } = await import('file://' + join(ROOT, 'js/data/enemies.js'));
+
+  /** 该敌人"最重一次攻击"（多段取总和，不吃自身增益）—— 与 enemy-damage-report 同口径 */
+  const heaviest = id => {
+    let b = 0;
+    for (const m of Object.values(ENEMIES[id].moves)) b = Math.max(b, (m.dmg || 0) * (m.hits || 1));
+    return b;
+  };
+
+  /* --- AM1. 每层：普通 ≤ 强怪 ≤ 精英 ≤ Boss 的**单体**峰值必须递增 ---
+     这条正是玩家遇到的问题：第 1 层一只蝙蝠单回合 8 点、Boss 单体 12 点，
+     但**两只蝙蝠一起**是 16 —— 合计比 Boss 还高，玩家开局就被打穿。
+     单体递增本身是对的（大怪的威胁该随档位上升），
+     真正失衡的是"多只小怪叠在一起"，由 AM2 的合计封顶来管。 */
+  const badOrder = [];
+  for (const act of [1, 2, 3, 4]) {
+    const peak = {};
+    for (const kind of ['weak', 'strong', 'elite', 'boss']) {
+      let mx = 0;
+      for (const enc of ENCOUNTERS[act][kind]) {
+        for (const id of enc) mx = Math.max(mx, Math.round(heaviest(id) * actScale(act).atk));
+      }
+      peak[kind] = mx;
+    }
+    const seq = ['weak', 'strong', 'elite', 'boss'];
+    for (let i = 1; i < seq.length; i++) {
+      if (peak[seq[i - 1]] > peak[seq[i]]) {
+        badOrder.push(`第${act}层 ${seq[i - 1]}单体${peak[seq[i - 1]]} > ${seq[i]}单体${peak[seq[i]]}`);
+      }
+    }
+  }
+  ok(badOrder.length === 0, '每层「普通 ≤ 强怪 ≤ 精英 ≤ Boss」的单体伤害递增', badOrder.join(' | '));
+
+  /* --- AM2. 每层的单回合合计伤害不得超过该层上限 ---
+     这是"循序渐进"的实际执行点：地图开头的普通战斗不该出现"两只怪同时打 16+"。
+     上限写在 ENCOUNTER_DMG_CAP，改数值时要同步复核。 */
+  const overCap = [];
+  for (const act of [1, 2, 3, 4]) {
+    const cap = ENCOUNTER_DMG_CAP[act];
+    for (const kind of ['weak', 'strong', 'elite', 'boss']) {
+      for (const enc of ENCOUNTERS[act][kind]) {
+        const total = enc.reduce((s, id) => s + Math.round(heaviest(id) * actScale(act).atk), 0);
+        if (total > cap) overCap.push(`第${act}层 ${kind} [${enc.join('+')}] 合计 ${total} > ${cap}`);
+      }
+    }
+  }
+  ok(overCap.length === 0, '每个遭遇的单回合合计伤害都在该层上限内', overCap.join(' | '));
+  ok(Object.keys(ENCOUNTER_DMG_CAP).length === TOTAL_ACTS, `四层都有合计上限（${TOTAL_ACTS} 层）`);
+
+  /* --- AM3. 层内进度：地图开头轻、临近 Boss 重，且**平均值不变** --- */
+  {
+    const { innerScale } = await import('file://' + join(ROOT, 'js/core/battle.js'));
+    const start = innerScale(0), mid = innerScale(0.5), end = innerScale(1);
+    ok(start < mid && mid < end, `地图开头 < 层中 < Boss 前（${start} / ${mid} / ${end}）`);
+    ok(Math.abs(mid - 1) < 1e-9, `层中正好 ×1.00（实测 ${mid}），所以层平均值不变`);
+    ok(Math.abs((start + end) / 2 - 1) < 1e-9,
+       `两端围绕 1.00 对称（${start} / ${end}），产品定的伤害档位表仍然成立`);
+    // 偏差必须小：它只用来做斜率，不该盖过层间 +17% 的主曲线
+    ok(end - 1 <= 0.10, `层内增幅不超过 10%（实测 ${((end - 1) * 100).toFixed(0)}%）`);
+  }
+}
+
+/* ================= AN. 「死神」职业：债务机制 ================= */
+section('AN. 死神：债务 → 血线终结');
+{
+  const { makeCard } = await import('file://' + join(ROOT, 'js/data/cards.js'));
+  const { CLASSES } = await import('file://' + join(ROOT, 'js/data/classes.js'));
+  const noopR = { step: async () => {}, sync() {}, log() {} };
+  const mkR = async (enemies = ['golem']) => {
+    A.startRun('reaper');
+    A.G.act = 1;
+    const B = new A.Battle(enemies, { kind: 'battle' });
+    B.view = { ...noopR };
+    B.rollIntents();
+    await B.start();
+    B.energy = 99;
+    B.player.hp = B.player.maxHp = 300;
+    return B;
+  };
+
+  /* --- AN1. 职业数据 --- */
+  ok(CLASSES.reaper.hp === 62, `死神初始生命 62（实测 ${CLASSES.reaper.hp}）`);
+  ok(CLASSES.reaper.unlockScore === 18, `解锁难度分 18（实测 ${CLASSES.reaper.unlockScore}）`);
+  ok(A.RELICS.debt_ledger.mods.debtSystem === 1, '死债账簿开启债务系统');
+
+  /* --- AN2. 卡牌的 debt 字段真的会记到怪身上 --- */
+  {
+    const B = await mkR();
+    const e = B.aliveEnemies()[0];
+    e.hp = e.maxHp = 9999;
+    const c = makeCard('bone_tally');        // 2 伤 + 2 债务
+    B.hand = [c]; B.energy = 99;
+    await B.playCard(c, e);
+    ok(B.get(e, 'debt') === 2, `打出「骨牌计数」记 2 层债务（实测 ${B.get(e, 'debt')}）`);
+    // 再打一张累积
+    const c2 = makeCard('bone_tally');
+    B.hand = [c2]; B.energy = 99;
+    await B.playCard(c2, e);
+    ok(B.get(e, 'debt') === 4, `再打一张累积到 4 层（实测 ${B.get(e, 'debt')}）`);
+  }
+
+  /* --- AN3. 债务**不衰减**：转几个回合都还在 --- */
+  {
+    const B = await mkR();
+    const e = B.aliveEnemies()[0];
+    e.hp = e.maxHp = 9999;
+    B.add(e, 'debt', 5);
+    await B.enemyTurn();
+    ok(B.get(e, 'debt') === 5, `过了一轮债务仍是 5（实测 ${B.get(e, 'debt')}）`);
+  }
+
+  /* --- AN4. 血线判定：生命 ≤ 债务 → 回合开始时被终结 --- */
+  {
+    const B = await mkR(['slime', 'bat']);
+    const [a, b2] = B.aliveEnemies();
+    a.hp = a.maxHp = 100; b2.hp = b2.maxHp = 100;
+    B.add(a, 'debt', 10);      // 生命 100 > 10 → 安全
+    B.add(b2, 'debt', 5);      // 生命 100 > 5 → 安全
+    await B.enemyTurn();
+    ok(!a.dead && !b2.dead, '债务线之下时不会被终结');
+
+    // 把 a 的血压到债务线以下
+    B.add(a, 'debt', 200);
+    a.hp = 150;
+    await B.enemyTurn();
+    ok(a.dead, `生命 150 ≤ 债务 210 → 回合开始时被终结（dead=${a.dead}）`);
+  }
+
+  /* --- AN5. 债务结算排在 DoT **之后**（产品要求的"优先级最低"）--- */
+  {
+    const B = await mkR(['golem']);
+    const e = B.aliveEnemies()[0];
+    e.hp = e.maxHp = 100;
+    B.add(e, 'debt', 30);
+    e.st.poison = 40;                 // 这口毒会把它从 100 打到 60，仍在债务 30 之上
+    await B.enemyTurn();
+    ok(!e.dead, '中毒先结算（100-40=60 > 30），债务不触发');
+
+    // 反过来：毒把它打到债务线以下 → 债务该收人
+    const B2 = await mkR(['golem']);
+    const e2 = B2.aliveEnemies()[0];
+    e2.hp = e2.maxHp = 100;
+    B2.add(e2, 'debt', 70);
+    e2.st.poison = 40;                // 100-40=60 ≤ 70 → 债务触发
+    await B2.enemyTurn();
+    ok(e2.dead, `中毒把血打到 60（≤ 债务 70）后，债务当场收人（dead=${e2.dead}）`);
+  }
+
+  /* --- AN6. 死神领域：施加债务时额外 +2 层 --- */
+  {
+    const B = await mkR();
+    const e = B.aliveEnemies()[0];
+    e.hp = e.maxHp = 9999;
+    const dom = makeCard('death_domain');
+    B.hand = [dom]; B.energy = 99;
+    await B.playCard(dom, e);
+    ok(B.deathDomainUsed === true, '死神领域已展开');
+    ok(B.mods.debtBonus === 2, `领域给 +2 层加成（实测 ${B.mods.debtBonus}）`);
+
+    const c = makeCard('bone_tally');   // 基础 2 层
+    B.hand = [c]; B.energy = 99;
+    await B.playCard(c, e);
+    ok(B.get(e, 'debt') === 4, `2 层基础 + 2 层领域 = 4（实测 ${B.get(e, 'debt')}）`);
+  }
+
+  /* --- AN7. 没带死债账簿的职业，即使拿到带 debt 的牌也不记债务 --- */
+  {
+    A.startRun('knight');
+    const K = new A.Battle(['slime'], { kind: 'battle' });
+    K.view = { ...noopR }; K.rollIntents(); await K.start();
+    K.energy = 99;
+    const ke = K.aliveEnemies()[0]; ke.hp = ke.maxHp = 9999;
+    const c = makeCard('bone_tally');
+    K.hand = [c];
+    await K.playCard(c, ke);
+    ok(K.get(ke, 'debt') === 0, `骑士没有死债账簿，不记债务（实测 ${K.get(ke, 'debt')}）`);
+  }
+
+  /* --- AN8. 终结牌「终末清算」：条件 + 无视护甲/虚血 + 多只同时终结 --- */
+  {
+    const B = await mkR(['slime', 'bat']);
+    const foes = B.aliveEnemies();
+    // 条件：要先开领域、且自身生命 < 敌方总生命
+    ok(!B.deathDomainUsed, '还没开领域');
+    B.player.hp = 1;
+    ok(!B.deathDomainUsed, '条件不满足（缺领域）');
+
+    B.deathDomainUsed = true;
+    for (const e of foes) { e.hp = e.maxHp = 50; e.block = 40; e.vhp = 30; B.add(e, 'debt', 20); }
+    B.player.hp = 1;
+    const fin = makeCard('finisher_reckoning');
+    ok(fin.cond(B), '两个条件都满足时可用');
+    B.hand = [fin]; B.energy = 0;      // costN：吃掉全部能量，0 也能打
+    await B.playCard(fin, foes[0]);
+    // 20 层债务 → 各受 20 伤害，**无视 40 甲 + 30 虚血**
+    for (const e of foes) {
+      ok(e.hp === 30, `${e.name}: 50 - 20 = 30（无视护甲/虚血，实测 ${e.hp}）`);
+    }
+    ok(!foes[0].dead && !foes[1].dead, '没到致死量时不播终结特效、也不死');
+
+    // 致死：债务 ≥ 生命
+    const B2 = await mkR(['slime', 'bat']);
+    const f2 = B2.aliveEnemies();
+    B2.deathDomainUsed = true;
+    B2.player.hp = 1;
+    let executed = 0;
+    B2.view.onDebtExecute = (list) => { executed += list.length; };
+    for (const e of f2) { e.hp = e.maxHp = 15; B2.add(e, 'debt', 20); }
+    const fin2 = makeCard('finisher_reckoning');
+    B2.hand = [fin2]; B2.energy = 0;
+    await B2.playCard(fin2, f2[0]);
+    ok(f2.every(e => e.dead), '债务 ≥ 生命 → 全部被终结');
+    ok(executed === 2, `两只同时被终结时只回调**一次**、带上两个目标（实测 ${executed}）`);
+  }
+
+  /* --- AN9. 债务计价：1.5 点/层，且必须真的进了价值表 --- */
+  {
+    const { valueOf, VAL } = await import('file://' + join(ROOT, 'js/data/values.js'));
+    ok(VAL.debt === 1.5, `价值表里债务 = 1.5（实测 ${VAL.debt}）`);
+    const plain = { ...A.CARDS.bone_tally, fx: [], debt: 0, dmg: 0 };
+    const withDebt = { ...A.CARDS.bone_tally };
+    const withoutDebt = { ...A.CARDS.bone_tally, debt: 0 };
+    ok(valueOf(withDebt) - valueOf(withoutDebt) === 2 * 1.5,
+       `2 层债务计价 ${valueOf(withDebt) - valueOf(withoutDebt)}（应为 3）`);
+  }
+
+  /* --- AN10. 卡池：债务牌不该同时把直接伤害配到满 --- */
+  {
+    const reaper = Object.values(A.CARDS).filter(c => c.cls === 'reaper');
+    const withDebt = reaper.filter(c => c.debt > 0);
+    ok(withDebt.length >= 8, `至少 8 张牌带债务（实测 ${withDebt.length}）`);
+    // 带债务的同费攻击牌，伤害必须低于同费"纯伤害"参考（死神自己的 soul_receipt）
+    const pure = A.CARDS.soul_receipt;      // 2 费 13 伤
+    const overDmg = withDebt
+      .filter(c => c.cost === 2 && c.type === 'attack' && c.target === 'enemy' && (c.dmg || 0) >= pure.dmg)
+      .map(c => `${c.name} ${c.dmg}≥${pure.dmg}`);
+    ok(overDmg.length === 0, '带债务的攻击牌直接伤害**低于**同费纯伤害牌（债务是"换来的收益"）',
+       overDmg.join(' | '));
   }
 }
 

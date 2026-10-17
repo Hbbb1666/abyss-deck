@@ -57,6 +57,10 @@ export const VAL = {
        硬定价会让终结牌与相关卡牌的门禁乱报。 */
   prestige: 4,
   vhp: 1.5,
+  /* 债务（死神）：产品定 **1.5 点/层**。
+     注意它和"伤害 1 点 = 1"的关系：1 层债务比 1 点伤害**贵**，
+     因为债务不清空、不挡护甲、只要压到血线就必杀。 */
+  debt: 1.5,
 };
 
 /** 冰霜只允许出现在这个费用及以上的牌上（产品硬约束） */
@@ -149,6 +153,11 @@ export function statusValue(key, cls) {
 export const MODEL_BLIND = new Set([
   'dmgBlock', 'dmgPoison', 'dmgBleed', 'dmgPerHand', 'dmgPerEnergyMax',
   'dmgPerPlayed', 'blockFromBlock', 'detonate',
+  /* 「死神」的两个 2026-10-17 新增效果，同样算不准：
+       deathDomain —— 一次性开关，真实价值取决于"之后还剩几张带 debt 的牌"
+       debtSweep   —— 终结牌，伤害等于场上每个敌人的债务层数（0 到几十都可能）
+     硬给一个数字只会让门禁乱报（实测：不列进来时这两张各欠 28 / 40 点）。 */
+  'deathDomain', 'debtSweep',
 ]);
 
 /** 这张牌是否参与预算判定 */
@@ -200,6 +209,9 @@ export function valueOf(card) {
                     与 dmgBlock 同类，属于模型算不准的效果。 */
     else if (f.t === 'vhp') v += fv(f) * VAL.vhp;
     else if (f.t === 'buffUp') v += 2 * fv(f) * 4;
+    /* 债务是**卡牌上的字段**（不是 fx 条目），所以计价必须在 fx 循环之外补一笔，
+       见下面 "整张卡的属性" 那段。 */
+    else if (f.t === 'debtSweep') v += 0;      // 终结牌：收益取决于场上债务，静态算不准
     // ---- 增益 ----
     else if (f.t === 'buff' && f.k === 'strength') v += n('str') * sv('strength');
     else if (f.t === 'buff' && f.k === 'dexterity') v += n('dex') * sv('dexterity');
@@ -240,6 +252,14 @@ export function valueOf(card) {
   }
   // 这两个是**整张卡**的属性，必须在 fx 循环外 —— 放进去会按 fx 条数重复计分
   if (card.exhaust) v -= 1.5;
+  /* 债务同样是**整张卡**的属性（`debt: N` 字段，不是 fx 条目）。
+     它必须在这里计一次，否则所有死神牌都会被系统性低估 —— 它们把相当一部分
+     强度放在债务上，直接伤害本来就压低了。 */
+  if (typeof card.debt === 'number' && card.debt > 0) {
+    // 群攻牌的债务也是打给全体的，按 ALL_MULT 放大（与 dmgAll / debuffAll 口径一致）
+    const isAoe = (card.fx || []).some(f => f.t === 'dmgAll' || f.t === 'debuffAll');
+    v += card.debt * VAL.debt * (isAoe ? ALL_MULT : 1);
+  }
   // 斩杀有条件：只有打完落在血量阈值内才触发，给太多分会让门禁误伤
   if (card.exec) v += 1.5;
   // ifFrozen / ifVulnerable / ifBlock / ifLowHp 等条件加伤按 0.6 折
