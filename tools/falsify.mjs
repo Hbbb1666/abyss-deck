@@ -464,4 +464,25 @@ else if (what === 'stats') {
   s = s.replace(a, "bite: A('双咬', 4, { hits: 2 }),");
   writeFileSync(p, s, 'utf8');
   console.log('已把吸血蝙蝠改回 4×2（8 点/回合）');
-} else console.log('用法: stats | guard | lowhp | paldmg | evdeath | split | mawfx | drain | bossbrood | ondamaged | exhausted | pierce | powercap | dexenemy | enemydmg | relicsprite | fintip | snapmods | snapcounters | readmedoc | cardblock | vulncost | vulntype | palhp | vhpbeforeblock | vhpclear | prestige5 | thronegate | thronevhp | prestige1cost | debtorder | debtdecay | debtnodomain | debtshield | gradientcap | saveover | retryveteran | batbite | restore | clean');
+} else if (what === 'squadatk') {
+  /* 让碑灵也带一个攻击招（复原"三小怪同一轮可能全是攻击意图"）。
+     AP1 应该红。 */
+  backup('enemies');
+  const p = R + '/data/enemies.js';
+  let s = readFileSync(p, 'utf8');
+  const a = "      curse: { name: '哀鸣', intent: 'debuff', fx: [{ t: 'debuff', k: 'frail', v: 2 }] },";
+  if (!s.includes(a)) throw new Error('没找到碑灵的哀鸣');
+  s = s.replace(a, "      curse: { name: '哀鸣', intent: 'attack', dmg: 5 },");
+  writeFileSync(p, s, 'utf8');
+  console.log('已让碑灵也攻击（三小怪可能同一轮三个攻击意图）');
+} else if (what === 'comboall') {
+  /* 把「互补双怪」的支持改成 buffAll（复原"喂到全体"）。AP2 应该红。 */
+  backup('enemies');
+  const p = R + '/data/enemies.js';
+  let s = readFileSync(p, 'utf8');
+  const a = "fx: [{ t: 'buffOne', id: 'sword_nameless', k: 'strength', v: 2 }]";
+  if (!s.includes(a)) throw new Error('没找到守碑人的铭刻');
+  s = s.replace(a, "fx: [{ t: 'buffAll', k: 'strength', v: 2 }]");
+  writeFileSync(p, s, 'utf8');
+  console.log('已把守碑人的加成改成 buffAll（会喂到全体，包括自己）');
+} else console.log('用法: stats | guard | lowhp | paldmg | evdeath | split | mawfx | drain | bossbrood | ondamaged | exhausted | pierce | powercap | dexenemy | enemydmg | relicsprite | fintip | snapmods | snapcounters | readmedoc | cardblock | vulncost | vulntype | palhp | vhpbeforeblock | vhpclear | prestige5 | thronegate | thronevhp | prestige1cost | debtorder | debtdecay | debtnodomain | debtshield | gradientcap | saveover | retryveteran | batbite | squadatk | comboall | restore | clean');

@@ -381,6 +381,110 @@ export const ENEMIES = {
     ai: (e, t) => (t % 3 === 2 ? 'fester' : 'surge'),
   },
 
+  /* ================= 2026-10-17 「组合怪关卡逻辑」新怪 =================
+     产品要求：第 3/4 层开始出现**互补双怪**（两只怪分工，拆错目标就吃亏）；
+     第 2 层新增一个**三小怪**关卡，三只同一轮最多只有两个攻击意图（分工固定）。
+
+     实现方式（已与产品确认）：
+       · 互补靠 `buffOne`（只给**指定 defId** 的同伴加），不是 buffAll ——
+         否则场上多出第三只怪时会连带喂到它。
+       · 三怪的攻击意图上限**只靠 AI 轮序保证**（不碰引擎的意图掷骰），
+         因此这三只**绝对不能有 summon 能力**，否则多出第四只就破了约束。
+         `intenttest`（测试 AM3）会真的跑 30 轮，逐轮数攻击意图。
+     ==================================================================== */
+
+  /* ---- 第 2 层：三小怪「残兵小队」----
+     分工固定：**碑灵**（只增益，不攻击）/ **盾兵**（护甲+攻击）/ **弩手**（纯输出）。
+     三者轮序刻意错开，保证任一轮的攻击意图 ≤ 2：
+       轮0 碑灵(buff) 盾兵(attack) 弩手(attack) → 2 个攻击
+       轮1 碑灵(buff) 盾兵(defend) 弩手(attack) → 1 个
+       轮2 碑灵(debuff) 盾兵(attack) 弩手(defend) → 1 个
+     玩家看到的就是"总有一个不攻击的"——这就是要的分工感。 */
+  squad_singer: {
+    name: '碑灵', sprite: 'ghost', hp: [22, 26], act: 2,
+    moves: {
+      // 只增益、不攻击：给它加攻击意图会直接破坏三条约束，所以它一个攻击招都没有
+      chant: { name: '碑文吟诵', intent: 'buff', fx: [{ t: 'buffOne', id: 'squad_shield', k: 'strength', v: 2 }] },
+      bless: { name: '庇佑', intent: 'buff', fx: [{ t: 'buffOne', id: 'squad_crossbow', k: 'dexterity', v: 2 }] },
+      curse: { name: '哀鸣', intent: 'debuff', fx: [{ t: 'debuff', k: 'frail', v: 2 }] },
+    },
+    ai: (e, t) => ['chant', 'bless', 'curse'][t % 3],
+  },
+  squad_shield: {
+    name: '残盾兵', sprite: 'guard', hp: [26, 32], act: 2,
+    moves: {
+      // 基础 6 → 第 2 层显示 7
+      bash: A('盾击', 6),
+      wall: { name: '结阵', intent: 'defend', blk: 9 },
+    },
+    // 攻击 → 护甲 → 攻击：与弩手错开
+    ai: (e, t) => (t % 2 === 1 ? 'wall' : 'bash'),
+  },
+  squad_crossbow: {
+    name: '残弩手', sprite: 'apprentice', hp: [20, 24], act: 2,
+    moves: {
+      // 基础 8 → 显示 9
+      shot: A('弩射', 8),
+      reload: { name: '装填', intent: 'buff', blk: 5 },
+    },
+    // 攻击 → 攻击 → 装填：连打两轮后歇一轮
+    ai: (e, t) => (t % 3 === 2 ? 'reload' : 'shot'),
+  },
+
+  /* ---- 第 3 层：互补双怪「守碑人 + 无名剑士」----
+     守碑人血厚、几乎不打人，但每轮给剑士 +2 力量；
+     剑士本身输出不高，可一旦被喂起来，第 5 轮开始就挡不住。
+     → 先杀剑士：守碑人血厚、要打很久；
+     → 先杀守碑人：剑士这几轮还能扛，但你要吃它的直伤。
+     **没有正确顺序，只有取舍** —— 这正是"互补双怪"要的感觉。 */
+  ward_keeper: {
+    name: '守碑人', sprite: 'stone_platform', hp: [52, 60], act: 3,
+    moves: {
+      // 基础 8 → 显示 11：它自身输出低，价值全在"喂剑士"上
+      strike: A('石碑碾压', 8),
+      empower: { name: '铭刻', intent: 'buff', fx: [{ t: 'buffOne', id: 'sword_nameless', k: 'strength', v: 2 }] },
+      mend: { name: '修补', intent: 'defend', blk: 10, fx: [{ t: 'buff', k: 'strength', v: 1 }] },
+    },
+    ai: (e, t) => ['empower', 'strike', 'empower', 'mend'][t % 4],
+  },
+  sword_nameless: {
+    name: '无名剑士', sprite: 'hero_assassin', hp: [34, 40], act: 3,
+    moves: {
+      // 基础 9 → 显示 12：不加成时它不算威胁，被喂 3 轮后就是 18+
+      slash: A('无铭斩', 9),
+      // 双段：对"只挡一发"的玩家施压
+      flurry: A('连斩', 6, { hits: 2 }),
+      focus: { name: '凝神', intent: 'buff', fx: [{ t: 'buff', k: 'dexterity', v: 2 }] },
+    },
+    ai: (e, t) => ['slash', 'flurry', 'focus', 'flurry'][t % 4],
+  },
+
+  /* ---- 第 4 层：互补双怪「噬魂藤 + 牵丝者」----
+     牵丝者每轮给噬魂藤 +2 力量并给它回血；噬魂藤是纯输出。
+     与第 3 层那对不同：这里**被喂的那只才是威胁**，喂它的那只自己很脆 ——
+     所以最优解反过来变成"先秒牵丝者"。同一个框架、相反的最优解。 */
+  soul_vine: {
+    name: '噬魂藤', sprite: 'worm', hp: [46, 54], act: 4,
+    moves: {
+      // 基础 12 → 显示 18
+      lash: A('缠鞭', 12),
+      // 基础 6×2 → 第 4 层显示 9×2 = 18
+      constrict: A('绞缚', 6, { hits: 2 }),
+    },
+    ai: (e, t) => (t % 3 === 2 ? 'constrict' : 'lash'),
+  },
+  thread_puller: {
+    name: '牵丝者', sprite: 'witch', hp: [30, 36], act: 4,
+    moves: {
+      // 给噬魂藤加力量 + 回血：不打断它，藤就越来越难打
+      pull: { name: '牵丝', intent: 'buff', fx: [{ t: 'buffOne', id: 'soul_vine', k: 'strength', v: 2 }, { t: 'healSelf', v: 6 }] },
+      // 基础 9 → 显示 14：它自己有输出但不高
+      stab: A('丝刃', 9),
+      weave: { name: '织网', intent: 'debuff', fx: [{ t: 'debuff', k: 'vulnerable', v: 2 }] },
+    },
+    ai: (e, t) => ['pull', 'stab', 'weave', 'pull'][t % 4],
+  },
+
   /* ================= Boss ================= */
   boss_eye: {
     name: '深渊魔眼', sprite: 'boss_demon', hp: [74, 74], act: 1, boss: true, body: 1.6,
@@ -517,7 +621,10 @@ export const ENCOUNTERS = {
   },
   2: {
     weak: [['crabdemon'], ['monk'], ['witch'], ['bog_walker']],
-    strong: [['golem'], ['dwarf'], ['guard_elite'], ['crabdemon', 'witch'], ['witch', 'witch']],
+    /* 三小怪关卡（2026-10-17）：攻击意图每轮 ≤2，靠三只怪的轮序错开保证。
+       单轮合计 = 盾兵(7) + 弩手(9) = 16 ≤ cap 24；碑灵不攻击。
+       这三只**都没有召唤能力** —— 多出第四只就会破掉"≤2 攻击意图"的约束。 */
+    strong: [['golem'], ['dwarf'], ['guard_elite'], ['squad_singer', 'squad_shield', 'squad_crossbow'], ['witch', 'witch']],
     elite: [['spider_queen'], ['lich'], ['witch', 'witch']],
     /* 第 2 层两个 Boss **平分出现概率**（与第 3 层同一套做法：
        往这个列表里加条目即可继续平分）。 */
@@ -525,7 +632,10 @@ export const ENCOUNTERS = {
   },
   3: {
     weak: [['demonling'], ['noble'], ['statue'], ['bone_choir'], ['cinder_wraith']],
-    strong: [['warrior', 'demonling'], ['statue', 'noble'], ['warrior', 'warrior'], ['gargoyle'], ['soul_lantern', 'noble']],
+    /* 互补双怪「守碑人 + 无名剑士」在这里。
+       单轮合计最坏 = 守碑人 11 + 剑士 16(6×2 或 9+力量) ≈ 27 ≤ cap 34。 */
+    strong: [['warrior', 'demonling'], ['statue', 'noble'], ['ward_keeper', 'sword_nameless'],
+             ['gargoyle'], ['soul_lantern', 'noble']],
     /* 深渊之喉 2026-10-17 从第 4 层搬到这里（数值已按第 3 层重配）。 */
     elite: [['gargoyle'], ['lich'], ['statue', 'demonling'], ['abyss_priest'], ['abyss_maw']],
     // 第 3 层的两个 Boss **平分出现概率** —— 往这个列表里加条目即可继续平分
@@ -533,7 +643,11 @@ export const ENCOUNTERS = {
   },
   4: {
     weak: [['demonling', 'demonling'], ['noble', 'demonling'], ['void_herald'], ['abyss_spawn']],
-    strong: [['warrior', 'noble'], ['gargoyle'], ['statue', 'warrior'], ['warrior', 'demonling'], ['void_shard', 'demonling']],
+    /* 互补双怪「噬魂藤 + 牵丝者」：这一对的最优解与第 3 层那对**相反** ——
+       牵丝者脆、被喂的藤才是威胁，所以这里先秒牵丝者。
+       单轮合计最坏 = 藤 22(11×2) + 牵丝者 14 + 2 力量成长 ≈ 38 ≤ cap 44。 */
+    strong: [['warrior', 'noble'], ['soul_vine', 'thread_puller'], ['statue', 'warrior'],
+             ['warrior', 'demonling'], ['void_shard', 'demonling']],
     // 深渊之喉搬去第 3 层后，这里补一个"双精英"维持精英池数量
     elite: [['gargoyle', 'demonling'], ['spider_queen', 'lich'], ['gargoyle', 'statue'], ['warrior', 'gargoyle']],
     boss: [['boss_abyss']],

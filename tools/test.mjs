@@ -5511,8 +5511,21 @@ section('AG. 一击伤害参考表 + 敏捷对怪物生效（产品查证项）'
                这是**产品指令优先于旧表**的有意例外，不是漏改 —— 记在这里，
                免得后来的人看到 33 > 28 就"顺手"把它压回去。 */
             if (e.defId === 'boss_abyss' && bestMv === 'onslaught') continue;
+            /* 组合怪（互补双怪 / 三小怪）的**单只**数值允许低于该层普通档 ——
+               它们的强度是**整队**补足的：碑灵全程不攻击、盾兵 7 点、弩手 9 点，
+               单看谁都"偏低"，但一轮合计 16 点、还有持续增益。
+               这类怪的约束由 AM2（整队合计封顶）与 AP 段（分工/意图上限）来管，
+               不该再用"单只必须落档"这把尺子量 —— 否则等于要求
+               "每个成员单独也够强"，那组合就没意义了。 */
+            const COMBO_UNITS = new Set([
+              'squad_singer', 'squad_shield', 'squad_crossbow',      // 第 2 层三小怪
+              'ward_keeper', 'sword_nameless',                       // 第 3 层互补双怪
+              'soul_vine', 'thread_puller',                          // 第 4 层互补双怪
+            ]);
             if (best > hi) bad.push(`act${act} ${e.name}.${bestMv} ${best}>${hi}`);
-            else if (best < lo) bad.push(`act${act} ${e.name}.${bestMv} ${best}<${lo}（偏低）`);
+            else if (best < lo && !COMBO_UNITS.has(e.defId)) {
+              bad.push(`act${act} ${e.name}.${bestMv} ${best}<${lo}（偏低）`);
+            }
           }
         }
       }
@@ -6322,6 +6335,104 @@ section('AO. 陨落后再战流程 + 多段怪起手数值');
     ok(startTotal < endTotal, `同一层内：地图开头 ${startTotal} < 临近 Boss ${endTotal}`);
     ok(endTotal < deepTotal, `层间还在加压：第1层末 ${endTotal} < 第4层末 ${deepTotal}`);
     ok(deepTotal >= 8, `到深层仍然打出量级（第4层末 ${deepTotal}）`);
+  }
+}
+
+/* ================= AP. 组合怪关卡逻辑（2026-10-17 产品要求） ================= */
+section('AP. 互补双怪 + 三小怪分工');
+{
+  const { ENEMIES, ENCOUNTERS } = await import('file://' + join(ROOT, 'js/data/enemies.js'));
+  const noopA = { step: async () => {}, sync() {}, log() {} };
+  const ATK_INTENT = new Set(['attack', 'attack_debuff']);
+
+  /* --- AP1. 三小怪：**同一轮最多两个攻击意图** ---
+     产品要求"分工固定"。实现上不碰引擎的意图掷骰，而是靠三只怪的 AI 轮序错开 ——
+     所以这里要**真的跑 30 轮**，逐轮数攻击意图，而不是只查数据表。
+     ⚠️ 前提：这三只怪**不能有召唤能力**。多出第四只怪就会破掉这个约束。 */
+  {
+    const squad = ['squad_singer', 'squad_shield', 'squad_crossbow'];
+    // 先静态确认：没有任何一只带 summon
+    const summoners = squad.filter(id =>
+      Object.values(ENEMIES[id].moves).some(m => (m.fx || []).some(f => f.t === 'summon')));
+    ok(summoners.length === 0, '三小怪都不会召唤（否则会多出第四只，破掉意图上限）',
+       summoners.join(','));
+
+    A.startRun('knight'); A.G.act = 2;
+    const B = new A.Battle(squad, { kind: 'battle' });
+    B.view = { ...noopA };
+    B.rollIntents(); await B.start();
+    B.player.hp = B.player.maxHp = 99999;
+
+    const over = [];
+    for (let round = 0; round < 30; round++) {
+      const atkCount = B.aliveEnemies().filter(e => {
+        const m = e.def.moves[e.moveId];
+        return m && ATK_INTENT.has(m.intent);
+      }).length;
+      if (atkCount > 2) over.push(`第 ${round + 1} 轮有 ${atkCount} 个攻击意图`);
+      await B.enemyTurn();
+      if (B.over) break;
+    }
+    ok(over.length === 0, '三小怪在同一轮最多只有 2 个攻击意图（跑满 30 轮）', over.slice(0, 3).join(' | '));
+
+    // 而且三只**不能全是**攻击意图（否则"分工"就不存在了）
+    // 至少每轮有一个不攻击 —— 这条由上面的 ≤2 自然满足，这里再确认一轮具体分工
+    const byRole = {
+      squad_singer: Object.values(ENEMIES.squad_singer.moves).every(m => !ATK_INTENT.has(m.intent)),
+      squad_shield: Object.values(ENEMIES.squad_shield.moves).some(m => ATK_INTENT.has(m.intent)),
+      squad_crossbow: Object.values(ENEMIES.squad_crossbow.moves).some(m => ATK_INTENT.has(m.intent)),
+    };
+    ok(byRole.squad_singer, '碑灵**永远不攻击**（纯增益/减益位）—— 这是"分工固定"的锚');
+    ok(byRole.squad_shield && byRole.squad_crossbow, '盾兵与弩手都有攻击招');
+  }
+
+  /* --- AP2. 互补双怪：支持型只喂**指定目标**，不喂全体 --- */
+  {
+    const pairs = [['ward_keeper', 'sword_nameless'], ['thread_puller', 'soul_vine']];
+    for (const [support, dps] of pairs) {
+      const sup = ENEMIES[support], tgt = ENEMIES[dps];
+      const feeds = [];
+      for (const [mv, m] of Object.entries(sup.moves)) {
+        for (const f of (m.fx || [])) if (f.t === 'buffOne') feeds.push({ mv, to: f.id, k: f.k, v: f.v });
+      }
+      ok(feeds.length > 0, `${sup.name} 有给同伴加成的招式`);
+      ok(feeds.every(f => f.to === dps),
+         `${sup.name} 只喂「${tgt.name}」，不喂别的位置`, JSON.stringify(feeds));
+
+      // 真的跑一场：确认目标身上力量真的涨了，而**支持者自己没涨**
+      A.startRun('knight'); A.G.act = 3;
+      const B = new A.Battle([support, dps], { kind: 'battle' });
+      B.view = { ...noopA };
+      B.rollIntents(); await B.start();
+      B.player.hp = B.player.maxHp = 99999;
+      const s0 = B.get(B.enemies.find(e => e.defId === support), 'strength');
+      const d0 = B.get(B.enemies.find(e => e.defId === dps), 'strength');
+      // 强制支持者出加成招
+      const supE = B.enemies.find(e => e.defId === support);
+      const feedMv = Object.keys(sup.moves).find(k => (sup.moves[k].fx || []).some(f => f.t === 'buffOne'));
+      supE.moveId = feedMv;
+      // 让 dps 这一轮出非攻击招，避免打死满血玩家之外的东西
+      B.enemies.find(e => e.defId === dps).moveId = 'focus';
+      await B.enemyTurn();
+      ok(B.get(supE, 'strength') === s0, `${sup.name} 不会给自己加力量（${s0} → ${B.get(supE, 'strength')}）`);
+      ok(B.get(B.enemies.find(e => e.defId === dps), 'strength') > d0,
+         `${tgt.name} 真的吃到了加成（${d0} → ${B.get(B.enemies.find(e => e.defId === dps), 'strength')}）`);
+    }
+  }
+
+  /* --- AP3. 两对双怪登记进了对应层，且**最优解相反**（这是设计意图，不是巧合） --- */
+  {
+    const has = (act, ids) => ENCOUNTERS[act].strong.some(enc =>
+      ids.every(id => enc.includes(id)) && enc.length === ids.length);
+    ok(has(3, ['ward_keeper', 'sword_nameless']), '第 3 层的互补双怪已登记进 strong 表');
+    ok(has(4, ['soul_vine', 'thread_puller']), '第 4 层的互补双怪已登记进 strong 表');
+    ok(ENCOUNTERS[2].strong.some(enc => enc.includes('squad_singer')), '第 2 层的三小怪已登记进 strong 表');
+    // 第 3 层那对：**喂人的那只血更厚**（先杀被喂的代价小）
+    ok(ENEMIES.ward_keeper.hp[0] > ENEMIES.sword_nameless.hp[0],
+       '第3层那对：守碑人比剑士血厚 → 最优解是"先杀剑士"');
+    // 第 4 层那对：**被喂的那只血更厚**（最优解反过来）
+    ok(ENEMIES.soul_vine.hp[0] > ENEMIES.thread_puller.hp[0],
+       '第4层那对：噬魂藤比牵丝者血厚 → 最优解是"先秒牵丝者"（与第3层相反）');
   }
 }
 

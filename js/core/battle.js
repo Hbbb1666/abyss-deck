@@ -1058,6 +1058,15 @@ export class Battle {
       switch (f.t) {
         case 'buff': this.add(enemy, f.k, v); this.view.onStatus?.(enemy); break;
         case 'buffAll': for (const e of this.aliveEnemies()) { this.add(e, f.k, v); this.view.onStatus?.(e); } break;
+        /* **指定目标**的增益（2026-10-17，「互补双怪」用）。
+           `f.id` 是目标敌人的 defId。与 buffAll 的区别：只加给那一种，
+           所以"守碑人 + 无名剑士"里守碑人只喂剑士，不会连带喂自己或别的小怪。
+           找不到目标时安静跳过（那一半被打死之后本就无处可喂）。 */
+        case 'buffOne': {
+          const t = this.aliveEnemies().find(x => x.defId === f.id);
+          if (t) { this.add(t, f.k, v); this.view.onStatus?.(t); }
+          break;
+        }
         case 'debuff': this.applyDebuff(this.player, f.k, v); this.view.onStatus?.(this.player); break;
         case 'healSelf': await this.heal(enemy, v); break;
         /* 敌人给自己加**虚血**（第 2 层 Boss「空洞守望者」）。
@@ -1647,6 +1656,10 @@ export class Battle {
       if (f.t === 'eatBlock') out.notes.push(`出招前先吞噬你 <b>${f.pct != null ? f.pct : 50}%</b> 护甲`);
       else if (f.t === 'drainEnergy') out.notes.push(`夺走你 <b>${f.n || 1}</b> 点能量`);
       else if (f.t === 'summon') out.notes.push('召唤援军');
+      else if (f.t === 'buffOne') {
+        const tgt = (this.enemies || []).find(x => x.defId === f.id);
+        out.notes.push(`给<b>${tgt ? tgt.name : '同伴'}</b> +${f.v || 0} 层${(ST[f.k] || {}).name || f.k}`);
+      }
       else if (f.t === 'vhp') out.notes.push(`给自己 <b>${f.v || 0}</b> 点虚血（不清空、先抵伤害）`);
     }
     /* 被动型成长也要写进预告 —— 否则玩家只会觉得"它怎么越打越肉"。
