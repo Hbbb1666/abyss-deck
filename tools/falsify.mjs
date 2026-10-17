@@ -7,7 +7,7 @@ import { readFileSync, writeFileSync, copyFileSync, existsSync, unlinkSync } fro
 const R = 'D:/网盘文件/OneDrive/文档/deepseek-harness/default-workspace/abyss-deck/js';
 const [what] = process.argv.slice(2);
 
-const FILES = { state: R + '/core/state.js', main: R + '/main.js', battle: R + '/core/battle.js', cards: R + '/data/cards.js', rooms: R + '/ui/scene-rooms.js', enemies: R + '/data/enemies.js', relics: R + '/data/relics.js' };
+const FILES = { state: R + '/core/state.js', main: R + '/main.js', battle: R + '/core/battle.js', cards: R + '/data/cards.js', rooms: R + '/ui/scene-rooms.js', enemies: R + '/data/enemies.js', relics: R + '/data/relics.js', classes: R + '/data/classes.js' };
 const BAK = {};
 for (const k of Object.keys(FILES)) BAK[k] = `C:/Users/Aaron-PC/AppData/Local/Temp/falsify-${k}.bak`;
 // README 不在 js/ 下，单独备份一份（readmedoc 用例用）
@@ -257,4 +257,46 @@ else if (what === 'stats') {
   s = s.replace('| 炼金师 | 9 |', '| 炼金师 | 18 |');
   writeFileSync(README, s, 'utf8');
   console.log('已把 README 里炼金师的门槛改回 18（数据是 9 → 文档漂移）');
-} else console.log('用法: stats | guard | lowhp | paldmg | evdeath | split | mawfx | drain | bossbrood | ondamaged | exhausted | pierce | powercap | dexenemy | enemydmg | relicsprite | fintip | snapmods | snapcounters | readmedoc | restore | clean');
+} else if (what === 'cardblock') {
+  /* 让「燃烧之血」的护盾加成也作用到**非卡牌**来源（遗物/药水）。
+     X6e2 段有两条断言专门盯着这个边界，应该红。 */
+  backup('battle');
+  const p = R + '/core/battle.js';
+  let s = readFileSync(p, 'utf8');
+  const a = '    if (opts.fromCard && this.mods.cardBlockMult) {';
+  if (!s.includes(a)) throw new Error('没找到 cardBlockMult 判断');
+  s = s.replace(a, '    if (this.mods.cardBlockMult) {   // TEMP 不区分来源');
+  writeFileSync(p, s, 'utf8');
+  console.log('已让护盾加成不再区分来源（复原"药水/遗物也吃加成"）');
+} else if (what === 'vulncost') {
+  /* 「影刃」不再检查费用（0 费牌也能刷易伤）。
+     T 段的"0 费攻击不挂易伤"断言应该红。 */
+  backup('battle');
+  const p = R + '/core/battle.js';
+  let s = readFileSync(p, 'utf8');
+  const a = "    if (!this.over && this.mods.vulnOnAttack && card.type === 'attack' && paidCost >= 1) {";
+  if (!s.includes(a)) throw new Error('没找到 vulnOnAttack 判断');
+  s = s.replace(a, "    if (!this.over && this.mods.vulnOnAttack && card.type === 'attack') {   // TEMP 去掉费用门槛");
+  writeFileSync(p, s, 'utf8');
+  console.log('已去掉「影刃」的费用 ≥1 门槛（复原 0 费连招牌白刷易伤）');
+} else if (what === 'vulntype') {
+  /* 「影刃」不再检查牌类型（技能牌命中也能挂）。应该红。 */
+  backup('battle');
+  const p = R + '/core/battle.js';
+  let s = readFileSync(p, 'utf8');
+  const a = "    if (!this.over && this.mods.vulnOnAttack && card.type === 'attack' && paidCost >= 1) {";
+  if (!s.includes(a)) throw new Error('没找到 vulnOnAttack 判断');
+  s = s.replace(a, "    if (!this.over && this.mods.vulnOnAttack && paidCost >= 1) {   // TEMP 不区分攻击/技能");
+  writeFileSync(p, s, 'utf8');
+  console.log('已让「影刃」对技能牌也生效（复原"只认攻击牌"这条约束的缺失）');
+} else if (what === 'palhp') {
+  /* 把圣骑士血量改回 73（W4c 段断言应该红）。 */
+  backup('classes');
+  const p = R + '/data/classes.js';
+  let s = readFileSync(p, 'utf8');
+  const a = "unlockScore: 9, hp: 70, gold: 99, relic: 'holy_oath',";
+  if (!s.includes(a)) throw new Error('没找到圣骑士血量');
+  s = s.replace(a, "unlockScore: 9, hp: 73, gold: 99, relic: 'holy_oath',");
+  writeFileSync(p, s, 'utf8');
+  console.log('已把圣骑士血量改回 73（削弱前的值）');
+} else console.log('用法: stats | guard | lowhp | paldmg | evdeath | split | mawfx | drain | bossbrood | ondamaged | exhausted | pierce | powercap | dexenemy | enemydmg | relicsprite | fintip | snapmods | snapcounters | readmedoc | cardblock | vulncost | vulntype | palhp | restore | clean');

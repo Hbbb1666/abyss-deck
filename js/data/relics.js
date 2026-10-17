@@ -12,6 +12,8 @@
  *   cardChoice     卡牌奖励多 N 个选项
  *   battleGold     战斗结束 +N 金币
  *   healAfterBattle 战斗结束回 N 血
+ *   cardBlockMult  **卡牌**产出的护盾 ×N（向上取整；遗物/药水给的护盾不算）
+ *   vulnOnAttack   打出**费用 ≥1 的攻击牌**命中后，对命中的敌人施加 N 层易伤
  * hooks —— 事件钩子（B = 战斗上下文）
  *   battleStart(B) / turnStart(B) / turnEnd(B) / cardPlayed(B, card)
  *   kill(B, enemy) / battleWin(B) / onDamaged(B, dmg)
@@ -21,10 +23,14 @@
 export const RELICS = {
   burning_blood: {
     name: '燃烧之血', sprite: 'r_blood', rarity: 'starter',
-    // 2026-10-13 削弱：6 → **4**（产品要求）。
-    // 骑士是"永远可选"的新手职业，同时也是护盾流 —— 6 点战后回血让他在第 1 层
-    // 几乎不掉血，整层没有"要不要打这一场"的取舍。4 点仍能缓过来，但要开始算了。
-    desc: '战斗结束后回复 <b>4</b> 点生命。', mods: { healAfterBattle: 4 },
+    /* 2026-10-17 产品改版（加强）：战后回 4 血 → **从卡牌获得的护盾 +25%（向上取整）**。
+       读法：骑士是护盾流，"回血"只是把伤害补回来，而"护盾变多"直接强化它的
+       身份（叠甲本身就是收益），也顺带让"多带防御牌"成为真正的构筑选择。
+       ⚠️ 只吃**卡牌**产出的护盾：遗物（startBlock / 钉刺长靴 / 静滞护符）与药水
+          都不算 —— 否则它会退化成"所有护盾 +25%"，比设计意图强得多。
+          来源判定见 battle.js 的 gainBlock({ fromCard })。 */
+    desc: '从<b>卡牌</b>中获得的护盾提升 <b>25%</b>（向上取整）。',
+    mods: { cardBlockMult: 1.25 },
   },
   mana_crystal: {
     name: '燃火水晶', sprite: 'r_crystal_fire', rarity: 'starter',
@@ -40,8 +46,13 @@ export const RELICS = {
   },
   holy_oath: {
     name: '圣誓', sprite: 'r_oath', rarity: 'starter',
-    desc: '单次造成超过 <b>7</b> 点伤害后，你回复 <b>1</b> 点生命。',
-    mods: { healOnBigHit: 1 },
+    /* 2026-10-17 产品削弱：「单次造成 >7 点伤害后回 1 血」→ **每场战斗结束回 2 血**。
+       旧版是"边打边回"，配上圣骑士最厚的血，前两层几乎不吃伤害、也不需要休息。
+       新版把续航挪到**战后**：打完才结算，回不到当前这一场的账 ——
+       "扛不扛得住这一场"重新变成玩家要算的事。
+       ⚠️ 引擎侧的 `healOnBigHit` 分支已一并删除（同一个 mod 键没人用就是死代码）。 */
+    desc: '战斗结束后回复 <b>2</b> 点生命。',
+    mods: { healAfterBattle: 2 },
   },
   alchemy_pouch: {
     name: '炼金口袋', sprite: 'r_pouch', rarity: 'starter',
@@ -58,9 +69,16 @@ export const RELICS = {
   },
   shadow_mark: {
     name: '影刃', sprite: 'sword_dagger', rarity: 'starter',
-    // 2026-10-13 产品要求：由 1 层提到 **2 层**（刺客要"先铺易伤"，1 层不够起手）。
-    // 注意手机端那份累积补丁是在旧基线上做的、会把它退回 1 层，合并时按产品口径落回 2。
-    desc: '战斗开始时对所有敌人施加 <b>2</b> 层易伤。', mods: { startDebuffAll: { vulnerable: 2 } },
+    /* 2026-10-17 产品改版（加强）：
+       旧版「战斗开始时对所有敌人施加 2 层易伤」—— 白送的起手优势，而且到第 3/4 层
+       开场 2 层易伤几乎不值钱（敌人的血和伤害都翻倍了）。
+       新版：**打出费用 ≥1 的攻击牌、命中敌人后，对它施加 1 层易伤**。
+       优势从"开局一次性"变成"越打越厚"，和刺客"先铺易伤、最后一击"的定位一致；
+       而"费用 ≥1"这条限制让 0 费的连招牌不能白刷易伤（否则它能一回合叠满）。
+       ⚠️ 判定用的是**实际支付额**而不是卡面 cost —— 终结牌是"吃掉全部能量"，
+         详见 battle.js 的 vulnOnAttack 注释。 */
+    desc: '打出<b>费用 ≥1</b> 的攻击牌命中敌人后，对其施加 <b>1</b> 层易伤。',
+    mods: { vulnOnAttack: 1 },
   },
   venom_fang: {
     name: '血牙', sprite: 'r_fang', rarity: 'starter',

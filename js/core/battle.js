@@ -494,12 +494,6 @@ export class Battle {
     if (real > 0 && target.isPlayer && this.player.hp > 0) {
       for (const [, hook] of relicHooks('onDamaged')) { await hook(this, real); }
     }
-    // 圣骑士遗物「圣誓」：单次造成 >7 点伤害后回复 1 点生命。
-    // 用 real（实际掉血）而不是 dmg（含被挡掉的部分）—— 被完全挡住的攻击不算"造成了伤害"，
-    // 否则打高护甲怪反而变成回血机器。
-    if (real > 7 && atk === this.player && !target.isPlayer && this.mods.healOnBigHit && !this.over) {
-      await this.heal(this.player, this.mods.healOnBigHit);
-    }
     // 荆棘反弹
     if (!opts.noThorns && opts.attacker && opts.melee) {
       const th = this.get(target, 'thorns');
@@ -576,9 +570,21 @@ export class Battle {
     if (real > 0) { this.view.onHeal?.(e, real); await this.view.step?.(); }
   }
 
-  async gainBlock(e, n) {
+  /** 获得护甲。
+   *  `opts.fromCard` —— 这块护盾是不是**卡牌**给的（2026-10-17 加，
+   *  供骑士初始遗物「燃烧之血」的 `cardBlockMult` 用）。
+   *
+   *  为什么必须区分来源：遗物给的护盾（`startBlock`、钉刺长靴、静滞护符…）
+   *  和药水给的护盾都不是"从卡牌中获得"。若不分来源，`cardBlockMult` 就变成
+   *  "所有护盾 +25%"，比设计意图强得多，而且拿着它的人会开始囤防御遗物。
+   *  药水走的是同一个 `resolve()`，靠 `ctx.card` 为 null 区分（见 resolve 里传参）。 */
+  async gainBlock(e, n, opts = {}) {
     if (e.dead || n <= 0) return;
-    const b = this.calcBlock(n, e);
+    let b = this.calcBlock(n, e);
+    if (opts.fromCard && this.mods.cardBlockMult) {
+      // 「向上取整」是产品口径：7 点 ×1.25 = 8.75 → 9，不会出现 8.75 点护甲。
+      b = Math.ceil(b * this.mods.cardBlockMult);
+    }
     e.block += b;
     this.view.onBlock?.(e, b);
     await this.view.step?.();
@@ -749,10 +755,10 @@ export class Battle {
           break;
         }
         case 'block':
-          await this.gainBlock(this.player, v);
+          await this.gainBlock(this.player, v, { fromCard: !!ctx.card });
           break;
         case 'blockFromBlock':
-          await this.gainBlock(this.player, this.player.block * (this.num(f.mult, card) || 1));
+          await this.gainBlock(this.player, this.player.block * (this.num(f.mult, card) || 1), { fromCard: !!ctx.card });
           break;
         case 'draw': await this.drawCards(v); break;
         case 'energy': this.energy += v; this.view.onEnergy?.(); await this.view.step?.(); break;
@@ -944,7 +950,12 @@ export class Battle {
       if (!ok.length) return false;
       if (!target || !ok.includes(target)) target = ok[0];
     }
-    this.energy -= this.cardCost(card);
+    /* 实际支付额必须在**扣费之前**算好。
+       终结牌是 `costN`（吃掉当前全部能量），`cardCost()` 读的是 `this.energy` ——
+       扣完再读就变成 0 了。「影刃」要判断"这张牌是不是费用 ≥1"，
+       用扣费后的读数会让终结牌永远按 0 费算，于是不触发。 */
+    const paidCost = this.cardCost(card);
+    this.energy -= paidCost;
     this.hand.splice(i, 1);
     this.cardsPlayedThisTurn++;
     G.stats.cardsPlayed++;
@@ -968,6 +979,28 @@ export class Battle {
       for (const t of foes) {
         this.applyDebuff(t, 'bleed', nb);
         this.pushLog(`${t.name} 开始流血 +${nb}`);
+      }
+    }
+    /* 刺客遗物「影刃」（2026-10-17 产品改版）：
+       **打出费用 ≥1 的攻击牌、命中敌人后**，对该敌人施加 N 层易伤。
+       以前的版本是"战斗开始时给所有敌人 2 层" —— 那是白送的起手优势；
+       新版要求你**先付出一张攻击牌**，逐次累积，兑现"先铺易伤、最后一击"的职业定位。
+
+       几个口径（都写在这里，免得下次改的时候猜）：
+         · **费用 ≥1**：用 `paidCost`（出牌前刚算好的实际支付额），不是卡面 `cost`。
+           终结牌是 `costN`（吃掉当前全部能量），它到底算不算"≥1 费"取决于当时能量；
+           用 paidCost 才能与"你实际付了多少"一致。
+         · **在伤害之后结算**（和 bleedOnAttack 一样）：所以这一层易伤**不会**给本张牌加伤，
+           符合卡面「命中后施加」的说法。
+         · 被护甲完全挡住也算"命中"，照样挂 —— 它是"碰到"，不是"造成伤害"。
+         · 群体攻击（`target === 'all'`）**每个被打到的敌人各挂 1 层**，不是只给主目标。 */
+    if (!this.over && this.mods.vulnOnAttack && card.type === 'attack' && paidCost >= 1) {
+      const nv = this.mods.vulnOnAttack;
+      const isAoe = card.target === 'all';
+      const foes = (isAoe ? this.aliveEnemies() : [target || this.aliveEnemies()[0]]).filter(t => t && !t.dead);
+      for (const t of foes) {
+        this.applyDebuff(t, 'vulnerable', nv);
+        this.pushLog(`${t.name} 被「影刃」盯上：易伤 +${nv}`);
       }
     }
     if (!this.over && card.type === 'skill'

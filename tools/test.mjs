@@ -3698,39 +3698,34 @@ section('X. 灼烧与中毒的衰减规则 / 职业特性');
        `第二回合恢复正常（${B2.energyMax}，期望 ${e1}）`);
   }
 
-  /* --- W4c. 圣骑士遗物「圣誓」：单次造成 >7 点伤害后回 1 血 --- */
+  /* --- W4c. 圣骑士初始遗物「圣誓」（2026-10-17 产品改版）---
+     旧版：单次造成 >7 点伤害后回 1 血（边打边回）。
+     新版：**每场战斗结束回 2 血**，同时圣骑士生命上限 73 → 70。
+     这里验的是"引擎真的按新口径跑"，而不是只查数据表 ——
+     旧断言查的是 healOnBigHit，那个键已经删了，留着它只会一直红。 */
   {
-    const { makeCard: mkCard } = await import('file://' + join(ROOT, 'js/data/cards.js'));
     A.startRun('paladin');
     const B = new A.Battle(['golem'], { kind: 'battle' });
     B.view = { ...noopView };
     B.rollIntents();
     await B.start();
-    ok(B.mods.healOnBigHit === 1, `圣骑士遗物带上 healOnBigHit=${B.mods.healOnBigHit}`);
+    ok(B.mods.healAfterBattle === 2,
+       `圣誓给的是"战后回 2 血"（实测 ${B.mods.healAfterBattle}）`);
+    ok(B.mods.healOnBigHit === undefined,
+       `旧的 healOnBigHit 键已彻底移除（实测 ${B.mods.healOnBigHit}）`);
+
+    // 打一次大伤害**不该**再回血（旧版会回 1）
     const e = B.aliveEnemies()[0];
-    e.hp = 9999; e.maxHp = 9999;
-    B.player.maxHp = 100;
-    const hit = async (n) => {
-      e.block = 0; B.player.hp = 50;
-      await B.damage(e, n, '测试', { attacker: B.player, raw: true });
-      return B.player.hp - 50;
-    };
-    ok(await hit(8) === 1, '单次 8 点伤害 → 回 1 血');
-    ok(await hit(7) === 0, '单次 7 点不算（阈值是「大于 7」）');
-    ok(await hit(20) === 1, '一次大伤害也只回 1 点（不是按伤害比例）');
-    // 被完全挡住的攻击不算"造成了伤害"
-    e.block = 99;
-    B.player.hp = 50;
-    await B.damage(e, 12, '测试', { attacker: B.player, raw: true });
-    ok(B.player.hp === 50, '被护甲完全挡下的攻击不回血（用实际掉血量判定）');
-    // 别的职业没有这个遗物
-    A.startRun('knight');
-    const K = new A.Battle(['golem'], { kind: 'battle' });
-    K.view = { ...noopView }; K.rollIntents(); await K.start();
-    K.player.maxHp = 100; K.player.hp = 50;
-    const ke = K.aliveEnemies()[0]; ke.hp = 9999; ke.maxHp = 9999; ke.block = 0;
-    await K.damage(ke, 14, '测试', { attacker: K.player, raw: true });
-    ok(K.player.hp === 50, '没有「圣誓」的职业打大伤害不回血');
+    e.hp = 9999; e.maxHp = 9999; e.block = 0;
+    B.player.maxHp = 100; B.player.hp = 50;
+    await B.damage(e, 20, '测试', { attacker: B.player, raw: true });
+    ok(B.player.hp === 50, '单次大伤害不再回血（旧版会 +1）');
+
+    {
+      // 职业数值从数据真源读（`__ABYSS__` 没有暴露 CLASSES —— 别再猜一个没暴露的入口）
+      const { CLASSES } = await import('file://' + join(ROOT, 'js/data/classes.js'));
+      ok(CLASSES.paladin.hp === 70, `圣骑士生命上限 70（实测 ${CLASSES.paladin.hp}）`);
+    }
   }
 
   /* --- Xc. 玩家侧冰冻：阈值 4 层、冻住后本回合能量减半（产品设定）--- */
@@ -3973,30 +3968,61 @@ section('X. 灼烧与中毒的衰减规则 / 职业特性');
     ok(B2.potionUsedCount === 1, '只喝 1 瓶时计数是 1');
   }
 
-  /* --- X6e2. 骑士初始遗物「燃烧之血」：战斗结束后回 4 血 ---
-     2026-10-13 由 6 削弱到 **4**（产品要求）。骑士是"永远可选"的新手职业，
-     6 点战后回血让他在第 1 层几乎不掉血、整层没有取舍。
-     这条要**真的打完一场战斗**才能验证（healAfterBattle 在 win 分支里结算），
-     只查数据表是查不出"引擎有没有读这个键"的。 */
+  /* --- X6e2. 骑士初始遗物「燃烧之血」（2026-10-17 产品改版）---
+     旧版：战斗结束后回 4 血。新版：**从卡牌获得的护盾 +25%（向上取整）**。
+     这条必须真的走一遍出牌 → 加护盾，才能验出"引擎有没有读这个键、算不算得对"。 */
   {
     const { makeCard: mkC } = await import('file://' + join(ROOT, 'js/data/cards.js'));
-    A.startRun('knight');
-    const B = new A.Battle(['slime'], { kind: 'battle' });
-    B.view = { ...noopView };
-    B.rollIntents();
-    await B.start();
-    ok(A.relicMods().healAfterBattle === 4,
-       `燃烧之血给的战后回血是 4（实测 ${A.relicMods().healAfterBattle}）`);
-    // 先把血打掉一截（否则满血回血看不出效果）
-    B.player.hp = 20;
-    for (const e of B.aliveEnemies()) { e.hp = 1; e.maxHp = 1; }
-    const c = mkC('strike');
-    B.hand = [c]; B.energy = 99;
-    await B.playCard(c, B.aliveEnemies()[0]);
-    ok(B.over, '战斗已结束（怪被打死）');
-    // endBattle 会把 player.hp 写回 G.hp，再叠加战后回血
-    ok(A.G.hp === 24 || A.G.hp === B.player.hp + 4,
-       `战斗结束后回 4 血（G.hp=${A.G.hp}，战斗内 ${B.player.hp}）`);
+    const mk = async (cls) => {
+      A.startRun(cls);
+      const B = new A.Battle(['slime'], { kind: 'battle' });
+      B.view = { ...noopView };
+      B.rollIntents();
+      await B.start();
+      B.player.block = 0;
+      B.energy = 99;
+      return B;
+    };
+
+    const B = await mk('knight');
+    ok(B.mods.cardBlockMult === 1.25, `燃烧之血给的是卡牌护盾 ×1.25（实测 ${B.mods.cardBlockMult}）`);
+    ok(B.mods.healAfterBattle === undefined, '旧版"战后回 4 血"已移除');
+
+    // 7 点护盾 ×1.25 = 8.75 → 向上取整 9
+    const card = mkC('defend');            // 防御：5 → 6.25 → 7
+    B.hand = [card];
+    await B.playCard(card, B.aliveEnemies()[0]);
+    ok(B.player.block === Math.ceil(5 * 1.25),
+       `防御 5 点 → ${B.player.block}（期望 ceil(5×1.25)=${Math.ceil(5 * 1.25)}）`);
+
+    // 必须**向上取整**：拿一张奇数基础值的牌验小数点被妥当地进上去
+    const B2 = await mk('knight');
+    B2.add(B2.player, 'dexterity', 3);       // 敏捷先加，再乘倍率：5+3=8 → 10
+    const c2 = mkC('defend');
+    B2.hand = [c2];
+    await B2.playCard(c2, B2.aliveEnemies()[0]);
+    ok(B2.player.block === Math.ceil((5 + 3) * 1.25),
+       `敏捷先加进基础值再乘倍率：5+3=8 → ${B2.player.block}（期望 ${Math.ceil(8 * 1.25)}）`);
+
+    // 遗物给的护盾**不吃**倍率
+    const B3 = await mk('knight');
+    const before = B3.player.block;
+    await B3.gainBlock(B3.player, 10);        // 不传 fromCard → 遗物/药水路径
+    ok(B3.player.block === before + 10, `非卡牌来源的护盾不加成（${before}+10 → ${B3.player.block}）`);
+
+    // 药水给的护盾也不算（同一个 resolve()，但 ctx.card 是 null）
+    const B4 = await mk('knight');
+    const { POTIONS } = await import('file://' + join(ROOT, 'js/data/potions.js'));
+    const bp = { ...POTIONS.block };
+    await B4.usePotion(bp, B4.aliveEnemies()[0]);
+    ok(B4.player.block === 14, `护甲药水的 14 点不吃倍率（实测 ${B4.player.block}）`);
+
+    // 别的职业没有这个遗物
+    const K = await mk('mage');
+    const ck = mkC('defend');
+    K.hand = [ck];
+    await K.playCard(ck, K.aliveEnemies()[0]);
+    ok(K.player.block === 5, `没有燃烧之血的职业，防御仍是 5 点（实测 ${K.player.block}）`);
   }
 
   /* --- X6d. 奥术法师：真理让**多段**牌加段（起始遗物的核心机制）--- */
@@ -4135,10 +4161,11 @@ section('运行期 JS 错误');
 
 section('Z. 影刃 2 层（产品改动）+ 易伤/虚弱对玩家对称');
 {
-  /* 产品要求：暗影刺客起始遗物「影刃」由 1 层提到 **2 层**。
-     ⚠️ 手机端那份累积补丁是在旧基线上做的，合并时会把它退回 1 层 ——
-     这条断言就是防止它再被退回去（我合并时确实又遇到过一次）。
-     另外必须**真的调 start()**：变体修正是 start() 里应用的，
+  /* 产品 2026-10-17 改版：刺客初始遗物「影刃」由"战斗开始时全体 2 层易伤"
+     改成 **"打出费用 ≥1 的攻击牌命中后，对该敌人施加 1 层易伤"**。
+     优势从"开局一次性"变成"越打越厚"，且 0 费连招牌不能白刷。
+
+     ⚠️ 必须**真的调 start()**：变体修正是 start() 里应用的，
      只 `new Battle()` 不 start() 会永远读到 0（我第一版就是这么误判的）。 */
   const noopV = { step: async () => {}, sync() {}, log() {}, onDamage() {}, onHeal() {}, onBlock() {},
     onStatus() {}, onDraw() {}, onPlay() {}, onExhaust() {}, onEnergy() {}, onGold() {},
@@ -4146,35 +4173,91 @@ section('Z. 影刃 2 层（产品改动）+ 易伤/虚弱对玩家对称');
 
   A.startRun('assassin');
   ok(A.G.relics.includes('shadow_mark'), `刺客开局带「影刃」（实际 ${A.G.relics.join(',')}）`);
-  ok(A.RELICS.shadow_mark.mods.startDebuffAll.vulnerable === 2,
-     `影刃的 mods 是 2 层（实际 ${A.RELICS.shadow_mark.mods.startDebuffAll.vulnerable}）`);
-  ok(/<b>2<\/b>/.test(A.RELICS.shadow_mark.desc),
-     `影刃描述写的是 2 层（实际「${A.RELICS.shadow_mark.desc}」）`);
+  ok(A.RELICS.shadow_mark.mods.vulnOnAttack === 1,
+     `影刃的 mods 是"攻击命中挂 1 层易伤"（实际 ${JSON.stringify(A.RELICS.shadow_mark.mods)}）`);
+  ok(A.RELICS.shadow_mark.mods.startDebuffAll === undefined,
+     '旧版"开局全体易伤"的 mod 已移除');
+  ok(/费用\s*≥1/.test(A.RELICS.shadow_mark.desc),
+     `影刃描述写明了"费用 ≥1"这个限制（实际「${A.RELICS.shadow_mark.desc}」）`);
 
   {
+    A.startRun('assassin');
     const B = new A.Battle(['slime', 'bat', 'spider'], { kind: 'battle' });
     B.view = { ...noopV };
     B.rollIntents();
     await B.start();
-    const vul = B.aliveEnemies().map(e => B.get(e, 'vulnerable'));
-    ok(vul.length === 3 && vul.every(v => v === 2),
-       `战斗开始给**所有**敌人 2 层易伤（实测 ${JSON.stringify(vul)}）`, JSON.stringify(vul));
 
-    // 数值上真的按 2 层算：每层 +1 → 10 点变 12
+    // 开局**不再**白送易伤
+    const atStart = B.aliveEnemies().map(e => B.get(e, 'vulnerable'));
+    ok(atStart.every(v => v === 0), `开局不再白送易伤（实测 ${JSON.stringify(atStart)}）`);
+
+    const { makeCard: mkSM } = await import('file://' + join(ROOT, 'js/data/cards.js'));
+    const hitWith = async (cardId, target) => {
+      const c = mkSM(cardId);
+      B.hand = [c]; B.energy = 99;
+      B.cardsPlayedThisTurn = 0;
+      await B.playCard(c, target);
+    };
+
+    // 1 费攻击命中 → 挂 1 层
     const e0 = B.aliveEnemies()[0];
-    const withVul = B.calcDamage(10, B.player, e0);
-    B.add(e0, 'vulnerable', -2);
-    const plain = B.calcDamage(10, B.player, e0);
-    ok(withVul === 12 && plain === 10,
-       `2 层易伤让 10 点伤害变 ${withVul}（无易伤 ${plain}），每层 +1`);
+    await hitWith('strike', e0);
+    ok(B.get(e0, 'vulnerable') === 1, `1 费攻击命中后 +1 层易伤（实测 ${B.get(e0, 'vulnerable')}）`);
 
-    // 别的职业不该有这个起手易伤
+    // 再打一次 → 累积到 2 层（"越打越厚"）
+    await hitWith('strike', e0);
+    ok(B.get(e0, 'vulnerable') === 2, `再打一次累积到 2 层（实测 ${B.get(e0, 'vulnerable')}）`);
+
+    // 0 费攻击**不**挂（否则 0 费连招牌能一回合叠满）
+    const zero = Object.values(A.CARDS).find(c => c.type === 'attack' && c.cost === 0 && !c.unplayable);
+    if (zero) {
+      const B0 = new A.Battle(['slime'], { kind: 'battle' });
+      B0.view = { ...noopV }; B0.rollIntents(); await B0.start();
+      const t0 = B0.aliveEnemies()[0];
+      const cz = mkSM(zero.id);
+      B0.hand = [cz]; B0.energy = 99;
+      await B0.playCard(cz, t0);
+      ok(B0.get(t0, 'vulnerable') === 0,
+         `0 费攻击（${zero.name}）不挂易伤（实测 ${B0.get(t0, 'vulnerable')}）`);
+    }
+    ok(!!zero, '数据里确实存在 0 费攻击牌（这条测试才有意义）');
+
+    // 技能牌命中不挂（只认攻击牌）
+    const Bs = new A.Battle(['slime'], { kind: 'battle' });
+    Bs.view = { ...noopV }; Bs.rollIntents(); await Bs.start();
+    const ts = Bs.aliveEnemies()[0];
+    const skill = Object.values(A.CARDS).find(c => c.type === 'skill' && c.cost >= 1 && c.target === 'enemy');
+    if (skill) {
+      const cs = mkSM(skill.id);
+      Bs.hand = [cs]; Bs.energy = 99;
+      await Bs.playCard(cs, ts);
+      ok(Bs.get(ts, 'vulnerable') === 0,
+         `技能牌（${skill.name}）命中不挂易伤（实测 ${Bs.get(ts, 'vulnerable')}）`);
+    }
+
+    // 群体攻击：每个被打到的敌人都挂
+    const Ba = new A.Battle(['slime', 'bat', 'spider'], { kind: 'battle' });
+    Ba.view = { ...noopV }; Ba.rollIntents(); await Ba.start();
+    const aoe = Object.values(A.CARDS).find(c => c.type === 'attack' && c.target === 'all' && c.cost <= 2 && !c.unplayable);
+    ok(!!aoe, `数据里存在可测的群体攻击牌（${aoe && aoe.name}）`);
+    const ca = mkSM(aoe.id);
+    Ba.hand = [ca]; Ba.energy = 99;
+    await Ba.playCard(ca, Ba.aliveEnemies()[0]);
+    const aoeVul = Ba.aliveEnemies().map(e => Ba.get(e, 'vulnerable'));
+    ok(aoeVul.length >= 2 && aoeVul.every(v => v === 1),
+       `群体攻击给**每个**被命中的敌人各挂 1 层（实测 ${JSON.stringify(aoeVul)}）`);
+
+    // 别的职业不该有
     A.startRun('knight');
     const B2 = new A.Battle(['slime'], { kind: 'battle' });
     B2.view = { ...noopV };
     B2.rollIntents();
     await B2.start();
-    ok(B2.get(B2.aliveEnemies()[0], 'vulnerable') === 0, '骑士（无影刃）开局不给敌人易伤');
+    const ek = B2.aliveEnemies()[0];
+    const ck = mkSM('strike');
+    B2.hand = [ck]; B2.energy = 99;
+    await B2.playCard(ck, ek);
+    ok(B2.get(ek, 'vulnerable') === 0, '骑士（无影刃）攻击命中后不挂易伤');
   }
 
   /* 易伤/虚弱对玩家**双向**生效（产品专门问过"虚弱是否对玩家也 -1"）。
@@ -5166,6 +5249,16 @@ section('AF. 遗物扩容（57 件 / 每件独立贴图）+ 为此补的引擎�
       if (!r.mods || r.hooks) continue;
       for (const [k, v] of Object.entries(r.mods)) {
         if (typeof v !== 'number' || k === 'potionSlots') continue;   // potionSlots 的文案写法不统一
+        /* 乘区型（`xxxMult`，如 cardBlockMult: 1.25）在文案里写的是**百分比增量**：
+           1.25 → 「提升 25%」。所以这类键要按 (v-1)×100 去找，
+           而不是找字面量 "1.25"（玩家看到的从来不是 1.25）。 */
+        if (/Mult$/.test(k) && v >= 1) {
+          const pct = Math.round((v - 1) * 100);
+          if (!new RegExp(`\\b${pct}\\b`).test(r.desc)) {
+            numMismatch.push(`${id}.${k}=${v} 应在 desc 里写 ${pct}%`);
+          }
+          continue;
+        }
         if (Math.abs(v) >= 1 && !new RegExp(`\\b${Math.abs(v)}\\b`).test(r.desc)) {
           numMismatch.push(`${id}.${k}=${v} 没写进 desc`);
         }

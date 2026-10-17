@@ -53,7 +53,10 @@ export const CLASSES = {
   },
   paladin: {
     id: 'paladin', name: '圣骑士', sprite: 'hero_paladin',
-    unlockScore: 9, hp: 73, gold: 99, relic: 'holy_oath',
+    // 2026-10-17 产品削弱：生命 73 → **70**，同时初始遗物「圣誓」由"单次 >7 伤害回 1 血"
+    // 改为"每场战斗结束回 2 血"（见 relics.js）。血牛定位保留，但不再同时拥有
+    // "最厚血量 + 边打边回"两条续航，避免它在前两层几乎不吃伤害。
+    unlockScore: 9, hp: 70, gold: 99, relic: 'holy_oath',
     tagline: '血牛 · 回复续航',
     desc: '不靠护盾，靠血厚和回血硬吃伤害。每次重击都顺手回一点，越打越稳。',
     deck: [['smite', 4], ['defend', 3], ['lay_on_hands', 1], ['consecrate', 1]],
