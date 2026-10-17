@@ -19,6 +19,9 @@ import { deflateSync } from 'node:zlib';
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+// 遗物图标单独一个文件（2026-10-13）：这里只放角色/Boss 立绘，
+// 57 件遗物的图标全塞进来会淹掉真正重要的立绘。见 relic-sprites.mjs 的说明。
+import { RELIC_SPRITES } from './relic-sprites.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SPRITE_DIR = join(HERE, '..', 'assets', 'sprites');
@@ -60,6 +63,10 @@ export const PALETTE = {
    只放「重画过」的贴图。没列在这里的贴图保持原样，由生成器原封不动跳过。
    ===================================================================== */
 export const SPRITES = {
+  /* 遗物图标：来自 relic-sprites.mjs（2026-10-13 起每件遗物都有自己的图，
+     不再出现"一张 key_purple 被 4 件遗物共用"那种撞图） */
+  ...RELIC_SPRITES,
+
   /**
    * 深渊魔眼（第 1 层 Boss）—— 一颗带尖刺的巨大红色魔眼。
    * 旧版是一张灰色石面具，和另外两个 Boss 几乎分不出来。

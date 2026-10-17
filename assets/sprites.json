@@ -1,47 +1,99 @@
 {
-  "hero_knight": [
-    3,
-    7
+  "abyss_maw": "custom:tools/make-sprites.mjs",
+  "abyss_priest": "custom:tools/make-sprites.mjs",
+  "anvil": [
+    2,
+    6
   ],
-  "hero_mage": [
-    0,
-    7
+  "apprentice": [
+    2,
+    8
   ],
-  "hero_rogue": [
-    4,
+  "arcane_orb": [
+    8,
+    2
+  ],
+  "axe": [
+    10,
     9
   ],
-  "slime": [
-    0,
-    9
+  "bars": [
+    7,
+    3
   ],
   "bat": [
     0,
     10
   ],
-  "spider": [
-    2,
-    10
+  "boss_abyss": "custom:tools/make-sprites.mjs",
+  "boss_demon": "custom:tools/make-sprites.mjs",
+  "boss_frostqueen": "custom:tools/make-sprites.mjs",
+  "boss_gargoyle": "custom:tools/make-sprites.mjs",
+  "boss_stone": "custom:tools/make-sprites.mjs",
+  "box": [
+    1,
+    6
   ],
-  "worm": [
+  "chest_closed": [
+    5,
+    7
+  ],
+  "chest_gem": [
+    8,
+    7
+  ],
+  "chest_gold": [
+    7,
+    7
+  ],
+  "coil": [
+    8,
+    4
+  ],
+  "crabdemon": [
+    2,
+    9
+  ],
+  "crate": [
     3,
-    10
+    6
+  ],
+  "door": [
+    9,
+    3
+  ],
+  "door_wood": [
+    6,
+    5
+  ],
+  "dwarf": [
+    4,
+    8
+  ],
+  "floor_wood": [
+    1,
+    0
+  ],
+  "gargoyle": "custom:tools/make-sprites.mjs",
+  "gate": [
+    11,
+    3
   ],
   "ghost": [
     1,
-    10
-  ],
-  "undead": [
-    4,
     10
   ],
   "golem": [
     1,
     9
   ],
-  "crabdemon": [
-    2,
-    9
+  "grave_cross": [
+    4,
+    5
+  ],
+  "gravestone": [
+    5,
+    5
   ],
   "guard": [
     0,
@@ -51,63 +103,87 @@
     1,
     8
   ],
-  "apprentice": [
-    2,
-    8
-  ],
-  "witch": [
-    3,
+  "hammer": [
+    9,
     9
   ],
-  "dwarf": [
+  "hero_alchemist": "recolor:hero_arcanist/alchemist",
+  "hero_arcanist": "recolor:hero_icemage/arcane",
+  "hero_assassin": "custom:tools/make-sprites.mjs",
+  "hero_icemage": "recolor:hero_mage/ice",
+  "hero_knight": [
+    3,
+    7
+  ],
+  "hero_mage": [
+    0,
+    7
+  ],
+  "hero_paladin": "recolor:hero_knight/paladin",
+  "hero_rogue": [
     4,
-    8
+    9
+  ],
+  "icon_burn": "custom:tools/make-sprites.mjs",
+  "icon_freeze": "custom:tools/make-sprites.mjs",
+  "icon_frost": "custom:tools/make-sprites.mjs",
+  "key_blue": [
+    8,
+    10
+  ],
+  "key_bone": [
+    10,
+    10
+  ],
+  "key_gold": [
+    5,
+    10
+  ],
+  "key_green": [
+    6,
+    10
+  ],
+  "key_purple": [
+    9,
+    10
+  ],
+  "key_red": [
+    7,
+    10
+  ],
+  "minecart": [
+    7,
+    4
   ],
   "monk": [
     2,
-    7
-  ],
-  "warrior": [
-    4,
-    7
-  ],
-  "villager": [
-    1,
     7
   ],
   "noble": [
     3,
     8
   ],
-  "boss_stone": "custom:tools/make-sprites.mjs",
-  "boss_demon": "custom:tools/make-sprites.mjs",
-  "boss_gargoyle": "custom:tools/make-sprites.mjs",
-  "sword_short": [
-    7,
-    8
-  ],
-  "sword_long": [
-    8,
-    8
-  ],
-  "sword_dagger": [
-    9,
-    8
-  ],
-  "sword_broad": [
-    10,
-    8
-  ],
-  "hammer": [
-    9,
-    9
-  ],
-  "axe": [
-    10,
-    9
+  "node_battle": "custom:tools/make-sprites.mjs",
+  "node_boss": "custom:tools/make-sprites.mjs",
+  "node_elite": "custom:tools/make-sprites.mjs",
+  "pickaxe": [
+    11,
+    10
   ],
   "poleaxe": [
     11,
+    9
+  ],
+  "portal": [
+    10,
+    5
+  ],
+  "portcullis": [
+    5,
+    3
+  ],
+  "potion_blue": [
+    8,
     9
   ],
   "potion_empty": [
@@ -122,135 +198,101 @@
     7,
     9
   ],
-  "potion_blue": [
-    8,
+  "r_amulet": "custom:tools/make-sprites.mjs",
+  "r_anvil_silver": "custom:tools/make-sprites.mjs",
+  "r_apprentice": "custom:tools/make-sprites.mjs",
+  "r_blood": "custom:tools/make-sprites.mjs",
+  "r_boots": "custom:tools/make-sprites.mjs",
+  "r_bracer": "custom:tools/make-sprites.mjs",
+  "r_bracer_spike": "custom:tools/make-sprites.mjs",
+  "r_bramble": "custom:tools/make-sprites.mjs",
+  "r_butcher": "custom:tools/make-sprites.mjs",
+  "r_clover": "custom:tools/make-sprites.mjs",
+  "r_coin": "custom:tools/make-sprites.mjs",
+  "r_crystal_fire": "custom:tools/make-sprites.mjs",
+  "r_demon_eye": "custom:tools/make-sprites.mjs",
+  "r_energy_core": "custom:tools/make-sprites.mjs",
+  "r_fang": "custom:tools/make-sprites.mjs",
+  "r_feather": "custom:tools/make-sprites.mjs",
+  "r_frost_core": "custom:tools/make-sprites.mjs",
+  "r_hourglass": "custom:tools/make-sprites.mjs",
+  "r_lightning_jar": "custom:tools/make-sprites.mjs",
+  "r_lonewolf": "custom:tools/make-sprites.mjs",
+  "r_mask": "custom:tools/make-sprites.mjs",
+  "r_mirror": "custom:tools/make-sprites.mjs",
+  "r_notes": "custom:tools/make-sprites.mjs",
+  "r_oath": "custom:tools/make-sprites.mjs",
+  "r_obsidian": "custom:tools/make-sprites.mjs",
+  "r_pendant": "custom:tools/make-sprites.mjs",
+  "r_piercer": "custom:tools/make-sprites.mjs",
+  "r_pouch": "custom:tools/make-sprites.mjs",
+  "r_recycler": "custom:tools/make-sprites.mjs",
+  "r_ring": "custom:tools/make-sprites.mjs",
+  "r_scale": "custom:tools/make-sprites.mjs",
+  "r_seal": "custom:tools/make-sprites.mjs",
+  "r_stasis": "custom:tools/make-sprites.mjs",
+  "r_styx": "custom:tools/make-sprites.mjs",
+  "r_truth_core": "custom:tools/make-sprites.mjs",
+  "r_vengeance": "custom:tools/make-sprites.mjs",
+  "r_venom_sac": "custom:tools/make-sprites.mjs",
+  "r_vial_red": "custom:tools/make-sprites.mjs",
+  "r_visor": "custom:tools/make-sprites.mjs",
+  "r_ward": "custom:tools/make-sprites.mjs",
+  "r_whetstone": "custom:tools/make-sprites.mjs",
+  "r_whetstone_heart": "custom:tools/make-sprites.mjs",
+  "slime": [
+    0,
     9
   ],
-  "key_gold": [
-    5,
-    10
-  ],
-  "key_green": [
-    6,
-    10
-  ],
-  "key_red": [
-    7,
-    10
-  ],
-  "key_blue": [
-    8,
-    10
-  ],
-  "key_purple": [
-    9,
-    10
-  ],
-  "key_bone": [
-    10,
-    10
-  ],
-  "pickaxe": [
-    11,
-    10
-  ],
-  "chest_closed": [
-    5,
-    7
-  ],
-  "chest_gold": [
-    7,
-    7
-  ],
-  "chest_gem": [
-    8,
-    7
-  ],
-  "anvil": [
-    2,
-    6
-  ],
-  "coil": [
-    8,
-    4
-  ],
-  "gravestone": [
-    5,
-    5
-  ],
-  "grave_cross": [
-    4,
-    5
-  ],
-  "crate": [
-    3,
-    6
-  ],
-  "box": [
-    1,
-    6
-  ],
-  "torch": [
-    5,
-    2
-  ],
-  "gate": [
-    11,
-    3
-  ],
-  "door": [
-    9,
-    3
-  ],
-  "portcullis": [
-    5,
-    3
-  ],
-  "bars": [
-    7,
-    3
-  ],
+  "snowball": "custom:tools/make-sprites.mjs",
   "soul_lantern": "custom:tools/make-sprites.mjs",
-  "abyss_priest": "custom:tools/make-sprites.mjs",
-  "void_shard": "custom:tools/make-sprites.mjs",
-  "abyss_maw": "custom:tools/make-sprites.mjs",
-  "gargoyle": "custom:tools/make-sprites.mjs",
-  "portal": [
-    10,
-    5
+  "spider": [
+    2,
+    10
   ],
   "stone_platform": [
     2,
     0
   ],
-  "floor_wood": [
-    1,
-    0
+  "sword_broad": [
+    10,
+    8
   ],
-  "door_wood": [
-    6,
-    5
+  "sword_dagger": [
+    9,
+    8
   ],
-  "arcane_orb": [
+  "sword_long": [
     8,
+    8
+  ],
+  "sword_short": [
+    7,
+    8
+  ],
+  "torch": [
+    5,
     2
   ],
-  "minecart": [
-    7,
-    4
+  "undead": [
+    4,
+    10
   ],
-  "hero_assassin": "custom:tools/make-sprites.mjs",
-  "boss_abyss": "custom:tools/make-sprites.mjs",
-  "node_battle": "custom:tools/make-sprites.mjs",
-  "node_elite": "custom:tools/make-sprites.mjs",
-  "node_boss": "custom:tools/make-sprites.mjs",
-  "icon_burn": "custom:tools/make-sprites.mjs",
-  "icon_frost": "custom:tools/make-sprites.mjs",
-  "icon_freeze": "custom:tools/make-sprites.mjs",
-  "snowball": "custom:tools/make-sprites.mjs",
-  "hero_icemage": "recolor:hero_mage/ice",
-  "hero_arcanist": "recolor:hero_icemage/arcane",
-  "hero_alchemist": "recolor:hero_arcanist/alchemist",
-  "hero_paladin": "recolor:hero_knight/paladin",
-  "boss_frostqueen": "custom:tools/make-sprites.mjs"
+  "villager": [
+    1,
+    7
+  ],
+  "void_shard": "custom:tools/make-sprites.mjs",
+  "warrior": [
+    4,
+    7
+  ],
+  "witch": [
+    3,
+    9
+  ],
+  "worm": [
+    3,
+    10
+  ]
 }

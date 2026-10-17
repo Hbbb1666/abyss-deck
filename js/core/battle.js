@@ -145,6 +145,8 @@ export class Battle {
 
     // 牌堆
     this.draw = this.rng.shuffle(G.deck.map(e => hydrate({ ...e })));
+    // 牌组张数（"薄牌组"类遗物要用；放在这里就不用让 relics.js 去 import G，避免循环依赖）
+    this.deckSize = G.deck.length;
     this.hand = []; this.discard = []; this.exhaustPile = [];
     this.energy = 0; this.energyMax = 3;
     this.cardsPlayedThisTurn = 0;
@@ -413,7 +415,16 @@ export class Battle {
   async damage(target, base, source = '?', opts = {}) {
     if (target.dead || this.over) return 0;
     const atk = opts.attacker || this.player;
-    const dmg = opts.raw ? base : this.calcDamage(base, atk, target);
+    let dmg = opts.raw ? base : this.calcDamage(base, atk, target);
+    /* 「破甲」：玩家打出的攻击可以先削掉目标一部分护甲（新遗物「破甲钉」）——
+       它绕开了 `calcDamage`，因为那一步只放大/缩小伤害数字，而护甲是在
+       `damage()` 里按 `min(block, dmg)` 抵消的。放在这里 = 三种牌（单体/群体/多段）
+       自动全部生效，不必在每张牌的 fx 里各写一遍。 */
+    if (this.mods.pierce && atk === this.player && !target.isPlayer && target.block > 0) {
+      const cut = Math.min(target.block, this.mods.pierce);
+      target.block -= cut;
+      this.view.sync?.();
+    }
     const blocked = Math.min(target.block, dmg);
     const real = dmg - blocked;
     target.block -= blocked;
@@ -423,6 +434,14 @@ export class Battle {
     }
     this.view.onDamage?.(target, real, blocked, dmg);
     await this.view.step?.();
+    /* 「受伤」钩子（`onDamaged`）—— 遗物文档里**早就写了这个名字，但引擎从没调过**，
+       等于一个声明了却无法生效的能力（和 `ifBlock` 那次是同一类问题）。
+       2026-10-13 补上：只在**玩家真的掉了血**时触发（被完全挡住不算"受伤"，
+       否则高护甲反而变成触发回血/反伤的机器）。
+       传 `real`（实际掉血）而不是 `dmg`（含被挡部分）。 */
+    if (real > 0 && target.isPlayer && this.player.hp > 0) {
+      for (const [, hook] of relicHooks('onDamaged')) { await hook(this, real); }
+    }
     // 圣骑士遗物「圣誓」：单次造成 >7 点伤害后回复 1 点生命。
     // 用 real（实际掉血）而不是 dmg（含被挡掉的部分）—— 被完全挡住的攻击不算"造成了伤害"，
     // 否则打高护甲怪反而变成回血机器。
@@ -519,7 +538,7 @@ export class Battle {
     this.pushLog(`${e.name} 被击败了`);
     if (e.isPlayer) { await this.endBattle(false); return; }
     G.stats.kills++;
-    for (const [id, hook, def] of relicHooks('kill')) hook(this, e, def);
+    for (const [id, hook, def] of relicHooks('kill')) await hook(this, e, def);
     this.view.onDeath?.(e);
     await this.view.step?.();
 
@@ -917,10 +936,10 @@ export class Battle {
       }
     }
 
-    for (const [id, hook, def] of relicHooks('cardPlayed')) hook(this, card, def);
+    for (const [id, hook, def] of relicHooks('cardPlayed')) await hook(this, card, def);
     // 增益「战意沸腾」：打出**能力卡**后获得 1 层力量（走 powerPlayed 钩子）。
     // 用 card.type === 'power' 判断，因为"能力"是卡牌类型，与效果怎么实现无关。
-    if (card.type === 'power') for (const [, hook] of relicHooks('powerPlayed')) hook(this, card);
+    if (card.type === 'power') for (const [, hook] of relicHooks('powerPlayed')) await hook(this, card);
 
     /* 出牌之后的去处。
        ⚠️ 2026-10-13 产品改动：**能力牌（type 'power'）每场战斗只能生效一次**，
@@ -938,6 +957,10 @@ export class Battle {
       this.exhaustPile.push(card);
       this.view.onExhaust?.(card);
       if (card.type === 'power') this.pushLog(`「${card.name}」已生效，本场不会再抽到`);
+      /* 「消耗」钩子（2026-10-13 新增，供新遗物「回收者」用）。
+         注意它**包含能力牌**：能力牌现在也是进消耗堆的（见上面的说明），
+         所以"每次有牌进入消耗堆"就是这里，语义只有一处定义。 */
+      for (const [, hook] of relicHooks('exhausted')) await hook(this, card);
     } else this.discard.push(card);
     this.view.onEnergy?.();
     this.view.sync?.();
@@ -969,9 +992,16 @@ export class Battle {
     if (m.startStrength) this.add(this.player, 'strength', m.startStrength);
     if (m.startDexterity) this.add(this.player, 'dexterity', m.startDexterity);
     if (m.startThorns) this.add(this.player, 'thorns', m.startThorns);
+    /* 开局增益型状态（2026-10-13 新增，供新遗物用）：
+       `startArtifact`（抵挡）/ `startRegen`（再生）/ `startBlockNext`（备战）——
+       它们和力量/敏捷/荆棘是同一类"开局上状态"的效果，只是状态本身是后加的，
+       以前没有对应的 mod 键，遗物想给它们只能写 battleStart 钩子。 */
+    if (m.startArtifact) this.add(this.player, 'artifact', m.startArtifact);
+    if (m.startRegen) this.add(this.player, 'regen', m.startRegen);
+    if (m.startBlockNext) this.add(this.player, 'block_next', m.startBlockNext);
     if (m.startPoisonAll) for (const e of this.aliveEnemies()) this.applyDebuff(e, 'poison', m.startPoisonAll);
     if (m.startDebuffAll) for (const e of this.aliveEnemies()) for (const [k, v] of Object.entries(m.startDebuffAll)) this.applyDebuff(e, k, v);
-    for (const [id, hook, def] of relicHooks('battleStart')) hook(this, def);
+    for (const [id, hook, def] of relicHooks('battleStart')) await hook(this, def);
     this.view.sync?.();
     await this.view.step?.(250);
     if (this.player.hp <= 0) { await this.kill(this.player); return; }
@@ -1049,7 +1079,7 @@ export class Battle {
     this.discard.push(...keep);
     await this.drawCards(n);
 
-    for (const [id, hook, def] of relicHooks('turnStart')) hook(this, def);
+    for (const [id, hook, def] of relicHooks('turnStart')) await hook(this, def);
     this.rollIntents();
     this.view.onTurnStart?.(this.turn);
     this.view.sync?.();
@@ -1078,7 +1108,7 @@ export class Battle {
     this.tickEnd(this.player);
     // 再生
     if (this.get(this.player, 'regen') > 0) { await this.heal(this.player, this.get(this.player, 'regen')); this.add(this.player, 'regen', -1); }
-    for (const [id, hook, def] of relicHooks('turnEnd')) hook(this, def);
+    for (const [id, hook, def] of relicHooks('turnEnd')) await hook(this, def);
     this.view.sync?.();
     this.view.afterAction?.();
     if (this.checkOver()) return;
@@ -1169,7 +1199,7 @@ export class Battle {
       // 难度「暴怒」：每个敌人**行动之后**获得力量与敏捷（走 enemyActed 钩子）。
       // 放在 tickEnd 之后 = 这一击按旧数值结算，成长从下一轮才体现 ——
       // 否则玩家看到的意图预告会和实际打出来的伤害对不上。
-      if (!e.dead) for (const [, hook] of relicHooks('enemyActed')) hook(this, e);
+      if (!e.dead) for (const [, hook] of relicHooks('enemyActed')) await hook(this, e);
       this.view.sync?.();
       await this.view.step?.(160);
 
@@ -1262,7 +1292,7 @@ export class Battle {
         gainGold(m.potionBattleGold * n);
         this.pushLog(`药剂回收 +${m.potionBattleGold * n} 金币（${n} 瓶）`);
       }
-      for (const [id, hook, def] of relicHooks('battleWin')) hook(this, def);
+      for (const [id, hook, def] of relicHooks('battleWin')) await hook(this, def);
     } else {
       G.hp = 0;
     }

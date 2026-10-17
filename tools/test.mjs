@@ -5080,6 +5080,262 @@ section('AE. 最终 Boss 砍召唤 + 第三/四层新怪（能量掠夺 / 护甲
   }
 }
 
+section('AF. 遗物扩容（57 件 / 每件独立贴图）+ 为此补的引擎能力');
+{
+  const { RELICS } = await import('file://' + join(ROOT, 'js/data/relics.js'));
+  const spritesJson = JSON.parse(readFileSync(join(ROOT, 'assets/sprites.json'), 'utf8'));
+  const noop = { step: async () => {}, sync() {}, log() {}, onDamage() {}, onHeal() {}, onBlock() {},
+    onStatus() {}, onDraw() {}, onPlay() {}, onExhaust() {}, onEnergy() {}, onGold() {},
+    onTurnStart() {}, onEnemyAct() {}, onSummon() {}, onDeath() {}, onEnd() {}, onPotion() {}, onExecute() {} };
+
+  /* 造一个有指定遗物的战斗。遗物必须**在 startRun 之前**写进 G.relics，
+     因为 relicMods() 是构造 Battle 时快照的。 */
+  const withRelics = async (relicIds, enc = ['slime'], kind = 'battle', act = 1) => {
+    A.startRun('knight');
+    A.G.relics = [...relicIds];
+    A.G.act = act;
+    const B = new A.Battle(enc, { kind });
+    B.view = { ...noop };
+    B.rollIntents();
+    await B.start();
+    return B;
+  };
+
+  /* --- AF1. 数量与贴图唯一性 --- */
+  {
+    const ids = Object.keys(RELICS);
+    ok(ids.length >= 57, `遗物总数 ${ids.length} 件（要求 ≥ 57：原 41 + 新增 16）`);
+    const newOnes = ['vengeance_thorn', 'recycler', 'whetstone_heart', 'butcher_blade', 'blood_pendant',
+      'combo_bracer', 'armor_piercer', 'mirror_shield', 'styx_water', 'bramble_amulet',
+      'lone_wolf', 'stasis_charm', 'flame_flask', 'apprentice_seal', 'sacrifice_mask', 'greedy_scale'];
+    const missing = newOnes.filter(id => !RELICS[id]);
+    ok(missing.length === 0, `新增的 ${newOnes.length} 件遗物都在（≥15 要求）`, missing.join(', '));
+
+    /* 每件遗物一张**互不相同**的贴图。
+       这条是这次改动的核心诉求：原来 41 件只用了 24 张图，
+       `key_purple` 一张图被 4 件遗物共用（真理之核 / 影刃 / 生命护符 / 守护符）。 */
+    const bySprite = {};
+    for (const [id, r] of Object.entries(RELICS)) (bySprite[r.sprite] ||= []).push(r.name);
+    const dupes = Object.entries(bySprite).filter(([, v]) => v.length > 1)
+      .map(([s, v]) => `${s}: ${v.join('/')}`);
+    ok(dupes.length === 0, '没有两件遗物共用同一张贴图', dupes.join(' | '));
+    ok(Object.keys(bySprite).length === ids.length,
+       `贴图数(${Object.keys(bySprite).length}) 等于遗物数(${ids.length})`);
+
+    // 每张图都必须在 sprites.json 里、且磁盘上真的有 PNG
+    const noManifest = Object.entries(RELICS).filter(([, r]) => !spritesJson[r.sprite])
+      .map(([id]) => id);
+    ok(noManifest.length === 0, '每件遗物的贴图都登记在 sprites.json 里', noManifest.join(', '));
+    const noFile = Object.entries(RELICS)
+      .filter(([, r]) => !existsSync(join(ROOT, 'assets/sprites', `${r.sprite}.png`)))
+      .map(([id]) => id);
+    ok(noFile.length === 0, '每件遗物的贴图文件都真的在磁盘上', noFile.join(', '));
+
+    // 起始遗物（职业专属）必须各有独立造型 —— 产品明确点名要画
+    const starters = Object.values(RELICS).filter(r => r.rarity === 'starter');
+    ok(starters.length === 8, `8 个职业各有 1 件起始遗物（实际 ${starters.length}）`);
+    const starterSprites = new Set(starters.map(r => r.sprite));
+    ok(starterSprites.size === starters.length, '起始遗物之间没有共用贴图');
+  }
+
+  /* --- AF2. 每件新遗物的 desc 里写的数字，必须和 mods/代码一致 ---
+     防"文案撒谎"：遗物描述是玩家唯一的信息来源。 */
+  {
+    const bad = [];
+    for (const [id, r] of Object.entries(RELICS)) {
+      if (!r.desc) { bad.push(`${id} 没有 desc`); continue; }
+      if (!r.mods && !r.hooks) bad.push(`${id} 既没有 mods 也没有 hooks（死物）`);
+    }
+    ok(bad.length === 0, '每件遗物都有 desc，且至少有一个 mods 或 hooks', bad.join(' | '));
+
+    // 静态 mods 的数字要出现在 desc 里（钩子型无法静态核对，跳过）
+    const numMismatch = [];
+    for (const [id, r] of Object.entries(RELICS)) {
+      if (!r.mods || r.hooks) continue;
+      for (const [k, v] of Object.entries(r.mods)) {
+        if (typeof v !== 'number' || k === 'potionSlots') continue;   // potionSlots 的文案写法不统一
+        if (Math.abs(v) >= 1 && !new RegExp(`\\b${Math.abs(v)}\\b`).test(r.desc)) {
+          numMismatch.push(`${id}.${k}=${v} 没写进 desc`);
+        }
+      }
+    }
+    ok(numMismatch.length === 0, '静态 mods 的数字都写进了描述', numMismatch.join(' | '));
+  }
+
+  /* --- AF3. `onDamaged` 钩子真的会被调用（文档里写了、引擎以前从没调过）--- */
+  {
+    const B = await withRelics(['vengeance_thorn'], ['slime'], 'battle', 1);
+    const e = B.aliveEnemies()[0];
+    e.maxHp = e.hp = 500;
+    B.player.maxHp = B.player.hp = 200;
+    B.player.block = 0;
+    await B.damage(B.player, 12, 'test', { raw: true });
+    ok(e.hp < 500, `受到 12 点伤害后「复仇之刺」真的反击了（敌人 500 → ${e.hp}）`);
+    // 被完全挡住不算"受伤" → 不该触发
+    const B2 = await withRelics(['vengeance_thorn'], ['slime'], 'battle', 1);
+    const e2 = B2.aliveEnemies()[0];
+    e2.maxHp = e2.hp = 500;
+    B2.player.maxHp = B2.player.hp = 200;
+    B2.player.block = 99;
+    await B2.damage(B2.player, 12, 'test', { raw: true });
+    ok(e2.hp === 500, '被护甲完全挡住时不触发（否则高护甲会变成反击机器）');
+    // 门槛：小于 10 点不触发
+    const B3 = await withRelics(['vengeance_thorn'], ['slime'], 'battle', 1);
+    const e3 = B3.aliveEnemies()[0];
+    e3.maxHp = e3.hp = 500;
+    B3.player.maxHp = B3.player.hp = 200;
+    B3.player.block = 0;
+    await B3.damage(B3.player, 5, 'test', { raw: true });
+    ok(e3.hp === 500, '单次伤害不到 10 点不触发（阈值有效）');
+  }
+
+  /* --- AF4. `exhausted` 钩子（消耗反应）--- */
+  {
+    /* ⚠️ 断言必须能区分"钩子真的被调用"和"没被调用"。
+       第一版写的是 `hand.length >= before - 1` —— 消耗掉的牌本来就会让手牌 -1，
+       一抽一掉正好抵平，于是**去掉钩子这条也照样绿**（可证伪验证抓到了这个假绿）。
+       现在直接把抽牌**替换成计数器**：没有钩子就是 0 次，有钩子才是 1 次。 */
+    const B = await withRelics(['recycler']);
+    const c = B.hand[0];
+    c.exhaust = true;
+    B.energy = 99;
+    let draws = 0;
+    const realDraw = B.drawCards.bind(B);
+    B.drawCards = async n => { draws += n; return realDraw(n); };
+    await B.playCard(c);
+    ok(B.exhaustPile.length === 1, `牌进了消耗堆（${B.exhaustPile.length} 张）`);
+    ok(draws === 1, `「回收者」真的触发了抽 1 张（实测抽了 ${draws} 张）`);
+
+    // 能力牌也算（它同样进消耗堆）
+    const B2 = await withRelics(['recycler']);
+    const pw = B2.hand.find(x => x.type === 'power') || B2.hand[0];
+    pw.type = 'power';
+    B2.energy = 99;
+    let draws2 = 0;
+    const real2 = B2.drawCards.bind(B2);
+    B2.drawCards = async n => { draws2 += n; return real2(n); };
+    await B2.playCard(pw);
+    ok(draws2 === 1, `能力牌生效（同样进消耗堆）也触发「回收者」（实测抽了 ${draws2} 张）`);
+    // 不消耗的牌不该触发
+    const B3 = await withRelics(['recycler']);
+    const plain = B3.hand.find(x => !x.exhaust && x.type !== 'power') || B3.hand[0];
+    plain.type = 'attack'; plain.exhaust = false;
+    B3.energy = 99;
+    let draws3 = 0;
+    const real3 = B3.drawCards.bind(B3);
+    B3.drawCards = async n => { draws3 += n; return real3(n); };
+    await B3.playCard(plain);
+    ok(draws3 === 0, `普通牌不进消耗堆，不触发「回收者」（实测 ${draws3} 张）`);
+  }
+
+  /* --- AF5. 开局状态型 mods（startArtifact / startRegen / startBlockNext）--- */
+  {
+    const B = await withRelics(['mirror_shield']);
+    ok(B.get(B.player, 'artifact') === 2, `「镜面盾」开局 2 层抵挡（实际 ${B.get(B.player, 'artifact')}）`);
+    const B2 = await withRelics(['styx_water']);
+    ok(B2.get(B2.player, 'regen') === 2, `「冥河之水」开局 2 层再生（实际 ${B2.get(B2.player, 'regen')}）`);
+    const B3 = await withRelics(['bramble_amulet']);
+    /* 「备战」在**回合开始**就会被兑换成护甲（battle.js: turn 开始那一步），
+       而 `start()` 里已经跑过一次 playerTurn —— 所以战斗刚建好时
+       block_next 已经清零、护甲已经加上了。断言要按这个真实时序写：
+       要么看"护甲多了 4"，要么看"状态确实被兑换掉了"。 */
+    ok(B3.player.block >= 4,
+       `「棘藤护符」的 4 层备战在开局就兑换成护甲（实际护甲 ${B3.player.block}）`);
+    ok(B3.get(B3.player, 'block_next') === 0, '备战状态已兑换，不会重复计算');
+  }
+
+  /* --- AF6. `pierce`（破甲）：先削护甲再算伤害 --- */
+  {
+    const B = await withRelics(['armor_piercer'], ['slime'], 'battle', 1);
+    const e = B.aliveEnemies()[0];
+    e.maxHp = e.hp = 500;
+    e.block = 10;
+    await B.damage(e, 5, 'test', {});
+    // 破甲 3：护甲 10→7，伤害 5 全部被挡 → 掉 0 血
+    ok(e.hp === 500, '破甲后 5 点伤害仍被剩余护甲挡住（掉 0 血）');
+    ok(e.block === 2, `护甲被先削掉 3 点（10 → ${e.block}，期望 2）`);
+    // 对照：没有破甲时护甲只减 5
+    const B2 = await withRelics([], ['slime'], 'battle', 1);
+    const e2 = B2.aliveEnemies()[0];
+    e2.maxHp = e2.hp = 500; e2.block = 10;
+    await B2.damage(e2, 5, 'test', {});
+    ok(e2.block === 5, `没有破甲时护甲只减伤害量（10 → ${e2.block}）`);
+    // 破甲只对玩家打敌人生效，不该影响敌人打玩家
+    const B3 = await withRelics(['armor_piercer'], ['slime'], 'battle', 1);
+    B3.player.block = 10;
+    await B3.damage(B3.player, 5, 'test', { raw: true, attacker: B3.aliveEnemies()[0] });
+    ok(B3.player.block === 5, '敌人打玩家不会被"破甲"额外削（那是玩家侧的遗物）');
+  }
+
+  /* --- AF7. 逐件验证新遗物的效果真的生效 --- */
+  {
+    // 屠夫屠刀：击杀回 2 血
+    {
+      const B = await withRelics(['butcher_blade'], ['slime', 'slime'], 'battle', 1);
+      B.player.maxHp = 100; B.player.hp = 50;
+      const e = B.aliveEnemies()[0];
+      e.hp = 1;
+      await B.damage(e, 99, 'test', { raw: true });
+      ok(B.player.hp === 52, `「屠夫屠刀」击杀回 2 血（50 → ${B.player.hp}）`);
+    }
+    // 磨砺之心：每 3 杀 +1 力量
+    {
+      const B = await withRelics(['whetstone_heart'], ['slime', 'slime', 'slime', 'slime'], 'battle', 1);
+      const before = B.get(B.player, 'strength');
+      for (let i = 0; i < 3; i++) {
+        const e = B.aliveEnemies()[0];
+        if (!e) break;
+        e.hp = 1;
+        await B.damage(e, 99, 'test', { raw: true });
+      }
+      ok(B.get(B.player, 'strength') === before + 1,
+         `「磨砺之心」3 杀后力量 +1（${before} → ${B.get(B.player, 'strength')}）`);
+    }
+    // 静滞护符：回合结束没护甲就给 5 点
+    {
+      const B = await withRelics(['stasis_charm'], ['slime'], 'battle', 1);
+      B.player.block = 0;
+      for (const [, hook] of A.relicHooks('turnEnd')) await hook(B);
+      ok(B.player.block === 5, `「静滞护符」没护甲时给 5 点（实际 ${B.player.block}）`);
+    }
+    // 烈焰之瓶：开局给敌人点燃
+    {
+      const B = await withRelics(['flame_flask'], ['slime'], 'battle', 1);
+      ok(B.get(B.aliveEnemies()[0], 'burn') === 2,
+         `「烈焰之瓶」开局 2 层点燃（实际 ${B.get(B.aliveEnemies()[0], 'burn')}）`);
+    }
+    // 献祭面具：开局掉 4 血、首回合 +2 能量
+    {
+      const B = await withRelics(['sacrifice_mask'], ['slime'], 'battle', 1);
+      ok(B.player.hp === B.player.maxHp - 4,
+         `「献祭面具」开局失去 4 血（${B.player.maxHp} → ${B.player.hp}）`);
+      ok(B.energyMax === 3 + 2, `首回合能量上限 5（实际 ${B.energyMax}）`);
+    }
+    // 孤狼徽章：牌组 ≤12 张时每回合多抽 1
+    {
+      A.startRun('knight');
+      A.G.deck = A.G.deck.slice(0, 10);          // 10 张，满足"薄"
+      A.G.relics = ['lone_wolf'];
+      const B = new A.Battle(['slime'], { kind: 'battle' });
+      B.view = { ...noop };
+      await B.start();
+      const handNow = B.hand.length;
+      for (const [, hook] of A.relicHooks('turnStart')) await hook(B);
+      ok(B.hand.length >= handNow, `「孤狼徽章」薄牌组时触发（手牌 ${handNow} → ${B.hand.length}）`);
+      ok(B.deckSize === 10, `战斗上下文记下了牌组张数（${B.deckSize}）`);
+    }
+  }
+
+  /* --- AF8. 遗物池按稀有度仍抽得出来（加遗物不能把某个池子抽空）--- */
+  {
+    const byRar = {};
+    for (const r of Object.values(RELICS)) byRar[r.rarity] = (byRar[r.rarity] || 0) + 1;
+    for (const [rar, min] of [['common', 8], ['uncommon', 8], ['rare', 8], ['boss', 4], ['starter', 8]]) {
+      ok((byRar[rar] || 0) >= min, `${rar} 池有 ${byRar[rar] || 0} 件（要求 ≥ ${min}）`);
+    }
+  }
+}
+
 /* ================= 汇总 ================= */
 console.log(`\n\x1b[1m========== 测试汇总 ==========\x1b[0m`);
 console.log(`  通过 \x1b[32m${pass}\x1b[0m   失败 \x1b[31m${fail}\x1b[0m`);

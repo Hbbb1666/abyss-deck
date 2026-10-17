@@ -7,7 +7,7 @@ import { readFileSync, writeFileSync, copyFileSync, existsSync } from 'node:fs';
 const R = 'D:/网盘文件/OneDrive/文档/deepseek-harness/default-workspace/abyss-deck/js';
 const [what] = process.argv.slice(2);
 
-const FILES = { state: R + '/core/state.js', main: R + '/main.js', battle: R + '/core/battle.js', cards: R + '/data/cards.js', rooms: R + '/ui/scene-rooms.js', enemies: R + '/data/enemies.js' };
+const FILES = { state: R + '/core/state.js', main: R + '/main.js', battle: R + '/core/battle.js', cards: R + '/data/cards.js', rooms: R + '/ui/scene-rooms.js', enemies: R + '/data/enemies.js', relics: R + '/data/relics.js' };
 const BAK = {};
 for (const k of Object.keys(FILES)) BAK[k] = `C:/Users/Aaron-PC/AppData/Local/Temp/falsify-${k}.bak`;
 
@@ -124,4 +124,41 @@ else if (what === 'stats') {
   s = s.replace(a, a + "\n      brood: { name: '召唤深渊', intent: 'buff', fx: [{ t: 'summon', id: 'demonling', n: 2 }] },");
   writeFileSync(p, s, 'utf8');
   console.log('已把「召唤小弟」加回最终 Boss');
-} else console.log('用法: stats | guard | lowhp | paldmg | evdeath | split | mawfx | drain | bossbrood | restore');
+} else if (what === 'ondamaged') {
+  backup('battle');
+  const p = R + '/core/battle.js';
+  let s = readFileSync(p, 'utf8');
+  const a = "    for (const [, hook] of relicHooks('onDamaged')) { await hook(this, real); }";
+  if (!s.includes(a)) throw new Error('没找到 onDamaged 调用');
+  s = s.replace(a, '    /* TEMP 不调用 onDamaged（复原"文档写了但引擎从没调过"） */');
+  writeFileSync(p, s, 'utf8');
+  console.log('已去掉 onDamaged 钩子调用');
+} else if (what === 'exhausted') {
+  backup('battle');
+  const p = R + '/core/battle.js';
+  let s = readFileSync(p, 'utf8');
+  const a = "      for (const [, hook] of relicHooks('exhausted')) await hook(this, card);";
+  if (!s.includes(a)) throw new Error('没找到 exhausted 调用');
+  s = s.replace(a, '      /* TEMP 去掉 exhausted 钩子 */');
+  writeFileSync(p, s, 'utf8');
+  console.log('已去掉 exhausted 钩子调用');
+} else if (what === 'pierce') {
+  backup('battle');
+  const p = R + '/core/battle.js';
+  let s = readFileSync(p, 'utf8');
+  const a = '    if (this.mods.pierce && atk === this.player && !target.isPlayer && target.block > 0) {';
+  if (!s.includes(a)) throw new Error('没找到 pierce');
+  s = s.replace(a, '    if (false) {   // TEMP 去掉破甲');
+  writeFileSync(p, s, 'utf8');
+  console.log('已去掉「破甲」');
+} else if (what === 'relicsprite') {
+  // 把两件遗物改成共用同一张贴图（复原"撞图"）
+  backup('relics');
+  const p = R + '/data/relics.js';
+  let s = readFileSync(p, 'utf8');
+  const a = "name: '守护符', sprite: 'r_ward'";
+  if (!s.includes(a)) throw new Error('没找到守护符');
+  s = s.replace(a, "name: '守护符', sprite: 'r_amulet'");
+  writeFileSync(p, s, 'utf8');
+  console.log('已让「守护符」蹭「生命护符」的图（复原撞图）');
+} else console.log('用法: stats | guard | lowhp | paldmg | evdeath | split | mawfx | drain | bossbrood | ondamaged | exhausted | pierce | relicsprite | restore');
